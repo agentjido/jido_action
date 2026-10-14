@@ -175,6 +175,8 @@ defmodule JidoActionTest.Property.Flow.IterateFuzzTest do
             "body" ->
               assert {:error, %Jido.Action.Error.ExecutionFailureError{details: details}} = result
               assert details.phase == :run
+              assert details.action == Advance
+              assert details.reason == {:iteration_failed, at}
               assert details.iteration_index == at
               assert details.state_revision == at
               Runtime.assert_calls(runtime, [:prior])

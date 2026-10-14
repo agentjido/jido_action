@@ -2,7 +2,7 @@ Code.require_file("../support/runtime.exs", __DIR__)
 Code.require_file("../support/fuzz.exs", __DIR__)
 
 defmodule JidoActionTest.Property.Action.BoundaryContractTest do
-  use ExUnit.Case, async: true
+  use Covenant.Case, component: "jido_action.boundary", async: true
   use ExUnitProperties
   alias Jido.Exec
   alias Jido.Action.{Error, Output}
@@ -52,6 +52,7 @@ defmodule JidoActionTest.Property.Action.BoundaryContractTest do
          "ACT-001/nil",
          "ACT-001/root-extra"
        ]
+  @tag obligation: "jido_action.boundary.I1"
   property "all invalid input classes fail before work in direct and Flow calls" do
     check all(value <- integer(-100..100), max_runs: 30) do
       assert_input(value)
@@ -67,6 +68,7 @@ defmodule JidoActionTest.Property.Action.BoundaryContractTest do
          "ACT-002/invalid-return",
          "ERROR-001/stacktrace-omitted"
        ]
+  @tag obligation: "jido_action.boundary.I2"
   property "every callback failure form retains public failure data without effects" do
     check all(value <- integer(-100..100), max_runs: 25) do
       assert_callback_failures(value)
@@ -75,6 +77,7 @@ defmodule JidoActionTest.Property.Action.BoundaryContractTest do
 
   @tag contracts: ["ACT-003", "EFFECT-002"]
   @tag contract_cases: ["ACT-003/after-callback", "EFFECT-002/output-validation"]
+  @tag obligation: "jido_action.boundary.I3"
   property "output validation runs after work and discards requested effects on rejection" do
     check all(value <- integer(-100..100), max_runs: 25) do
       assert_output_validation(value)
@@ -89,6 +92,7 @@ defmodule JidoActionTest.Property.Action.BoundaryContractTest do
          "ACT-004/lazy-stream",
          "EFFECT-001/duplicate-requests"
        ]
+  @tag obligation: "jido_action.boundary.I4"
   property "output envelopes preserve data and keep streams lazy" do
     check all(
             values <- list_of(integer(-20..20), min_length: 1, max_length: 6),
@@ -105,6 +109,7 @@ defmodule JidoActionTest.Property.Action.BoundaryContractTest do
          "EFFECT-002/map-effects",
          "EFFECT-002/improper-effects"
        ]
+  @tag obligation: "jido_action.boundary.I4"
   property "raw success and malformed effect batches fail through both boundaries" do
     check all(value <- integer(-100..100), max_runs: 25) do
       assert_effects(value)
@@ -131,6 +136,12 @@ defmodule JidoActionTest.Property.Action.BoundaryContractTest do
          "ERROR-001/fuzz-retry-policy",
          "EFFECT-001/fuzz-duplicates",
          "EFFECT-002/fuzz-invalid-effects"
+       ]
+  @tag obligation: [
+         "jido_action.boundary.I1",
+         "jido_action.boundary.I2",
+         "jido_action.boundary.I3",
+         "jido_action.boundary.I4"
        ]
   test "fuzz: Action boundaries retain validation order errors envelopes and effects", context do
     generator =

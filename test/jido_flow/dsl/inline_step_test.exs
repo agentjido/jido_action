@@ -1,5 +1,5 @@
 defmodule Jido.Flow.DSL.InlineStepTest do
-  use ExUnit.Case, async: false
+  use Covenant.Case, component: "jido_action.inline", async: false
 
   alias Jido.Flow.DSL.{ValueParser, InlineStep}
   alias Jido.Flow.Ref
@@ -19,6 +19,7 @@ defmodule Jido.Flow.DSL.InlineStepTest do
     end
   end
 
+  @tag obligation: "jido_action.inline.I5"
   test "Step names expand or evaluate once in either form" do
     for {expression, marker, name} <- [
           {"#{inspect(NameSource)}.literal_name()", :inline_name_macro_expanded, "macro_name"},
@@ -41,6 +42,7 @@ defmodule Jido.Flow.DSL.InlineStepTest do
     end
   end
 
+  @tag obligation: "jido_action.inline.I5"
   test "string attribute names survive conversion from explicit to inline Steps" do
     for declaration <- [
           "step @step_name, action: JidoActionTest.Fixtures.Actions.Add, params: %{value: 1}",
@@ -67,6 +69,7 @@ defmodule Jido.Flow.DSL.InlineStepTest do
     end
   end
 
+  @tag obligation: "jido_action.inline.I5"
   test "inline names and bodies retain attributes at each declaration" do
     owner = unique_owner("AttributeOrder")
 
@@ -88,6 +91,7 @@ defmodule Jido.Flow.DSL.InlineStepTest do
     end
   end
 
+  @tag obligation: "jido_action.inline.I5"
   test "attribute names detect mixed duplicates at the second declaration" do
     inline = "step @step_name, [], do: {:ok, %{}}"
     explicit = "step @step_name, action: JidoActionTest.Fixtures.Actions.Add, params: %{value: 1}"
@@ -115,6 +119,7 @@ defmodule Jido.Flow.DSL.InlineStepTest do
     end
   end
 
+  @tag obligation: "jido_action.inline.I5"
   test "invalid evaluated inline names report the Step location" do
     for value <- ["", nil, 123] do
       owner = unique_owner("InvalidAttributeName")
@@ -129,6 +134,7 @@ defmodule Jido.Flow.DSL.InlineStepTest do
     end
   end
 
+  @tag obligation: "jido_action.inline.I5"
   test "a dynamic explicit name is registered before a later inline declaration" do
     owner = unique_owner("DynamicDuplicate")
     {target, _} = generated_identity(owner, "expression_name")
@@ -155,6 +161,7 @@ defmodule Jido.Flow.DSL.InlineStepTest do
     refute Code.ensure_loaded?(target)
   end
 
+  @tag obligation: "jido_action.inline.I5"
   test "a Step in a false authoring branch does not reserve its name" do
     for unused <- [
           ~s(step "same", action: JidoActionTest.Fixtures.Actions.Add, params: %{value: 1}),
@@ -179,6 +186,7 @@ defmodule Jido.Flow.DSL.InlineStepTest do
     end
   end
 
+  @tag obligation: "jido_action.inline.I5"
   test "duplicate Steps fail before a second inline target can replace the first" do
     inline = ~s(step :same, [], do: {:ok, %{value: :first}})
     replacement = ~s(step "same", [], do: {:ok, %{value: :second}})
@@ -210,6 +218,7 @@ defmodule Jido.Flow.DSL.InlineStepTest do
     end
   end
 
+  @tag obligation: "jido_action.inline.I5"
   test "foreign generated module names cannot be overwritten" do
     owner = unique_owner("Foreign")
     {target, _function} = generated_identity(owner, "same")
@@ -223,6 +232,7 @@ defmodule Jido.Flow.DSL.InlineStepTest do
     refute function_exported?(target, :run, 2)
   end
 
+  @tag obligation: "jido_action.inline.I5"
   test "generated owner functions and lookup reject user clauses before and after declarations" do
     for position <- [:before, :after], kind <- [:body, :lookup], visibility <- [:def, :defp] do
       owner = unique_owner("Reserved")
@@ -266,6 +276,7 @@ defmodule Jido.Flow.DSL.InlineStepTest do
     end
   end
 
+  @tag obligation: "jido_action.inline.I5"
   test "lookup is reserved even when it is defined before use Jido.Flow" do
     owner = unique_owner("EarlyLookup")
 
@@ -283,6 +294,7 @@ defmodule Jido.Flow.DSL.InlineStepTest do
     end
   end
 
+  @tag obligation: "jido_action.inline.I5"
   test "default arguments that define reserved arities report the user declaration" do
     for {kind, position} <- [{:lookup, :before}, {:lookup, :after}, {:body, :after}],
         visibility <- [:def, :defp],
@@ -323,6 +335,7 @@ defmodule Jido.Flow.DSL.InlineStepTest do
     end
   end
 
+  @tag obligation: "jido_action.inline.I5"
   test "an earlier body helper with default arguments cannot be replaced by an inline Step" do
     for visibility <- [:def, :defp] do
       owner = unique_owner("EarlyDefaultBody")
@@ -343,6 +356,7 @@ defmodule Jido.Flow.DSL.InlineStepTest do
     end
   end
 
+  @tag obligation: "jido_action.inline.I5"
   test "default arguments with no reserved arity remain valid" do
     owner = unique_owner("AllowedDefaults")
     helper = "def step_action(name, value, opts \\\\ []), do: {name, value, opts}"
@@ -353,6 +367,7 @@ defmodule Jido.Flow.DSL.InlineStepTest do
     assert {:ok, %{}} = owner.step_action("same").run(%{}, %{})
   end
 
+  @tag obligation: "jido_action.inline.I5"
   test "bounded target names preserve long, punctuation, and Unicode names across owners" do
     names = [String.duplicate("x", 256), "hello-world?!", "café/世界"]
     owner = unique_owner(String.duplicate("L", 150))
@@ -372,6 +387,7 @@ defmodule Jido.Flow.DSL.InlineStepTest do
     end
   end
 
+  @tag obligation: "jido_action.inline.I5"
   test "normal recompilation keeps identity and replaces the body" do
     owner = unique_owner("Recompiled")
     compile_source(flow_source(owner, ~s(step "same", [], do: {:ok, %{version: 1}})))
@@ -385,6 +401,7 @@ defmodule Jido.Flow.DSL.InlineStepTest do
     assert target.run(%{}, %{}) == {:ok, %{version: 2}}
   end
 
+  @tag obligation: "jido_action.inline.I5"
   test "repeated runtime access creates no target modules or atoms from unknown names" do
     owner = JidoActionTest.Fixtures.InlineGreetingFlow
 
@@ -413,6 +430,7 @@ defmodule Jido.Flow.DSL.InlineStepTest do
     end
   end
 
+  @tag obligation: "jido_action.inline.I5"
   test "inline bindings compile and run through ordinary Steps with inferred dependencies" do
     flow = JidoActionTest.Fixtures.InlineGreetingFlow.flow()
     assert %{call: %{target: action, params: params}} = flow.components["normalize"]
@@ -434,6 +452,7 @@ defmodule Jido.Flow.DSL.InlineStepTest do
            }
   end
 
+  @tag obligation: "jido_action.inline.I5"
   test "bodies retain the declaration's aliases, imports, helpers, module, and attributes" do
     module = JidoActionTest.Fixtures.InlineLexicalFlow
     assert {:ok, result} = Jido.Exec.run(module, %{name: " Ada "})
@@ -456,6 +475,7 @@ defmodule Jido.Flow.DSL.InlineStepTest do
         Jido.Flow.DSL.Helpers,
         Spark.Dsl.Helpers
       ] do
+    @tag obligation: "jido_action.inline.I5"
     test "inline bodies retain imports from #{inspect(namespace)}" do
       helper = Module.concat(unquote(namespace), "Inline#{System.unique_integer([:positive])}")
       owner = unique_owner("SimilarNamespace")
@@ -479,6 +499,7 @@ defmodule Jido.Flow.DSL.InlineStepTest do
     end
   end
 
+  @tag obligation: "jido_action.inline.I5"
   test "canonical inline Steps contain only ordinary Action author data" do
     flow = JidoActionTest.Fixtures.InlineGreetingFlow.flow()
     map = Jido.Flow.to_map(flow)
@@ -494,6 +515,7 @@ defmodule Jido.Flow.DSL.InlineStepTest do
     assert canonical_data?(map)
   end
 
+  @tag obligation: "jido_action.inline.I5"
   test "compiler, validation, and inspection do not run inline work" do
     source = """
     defmodule Jido.Flow.DSL.InlineStepTest.InertFlow do
@@ -523,6 +545,7 @@ defmodule Jido.Flow.DSL.InlineStepTest do
     assert_received {:inline_work, ^marker}
   end
 
+  @tag obligation: "jido_action.inline.I5"
   test "undefined body calls report the user body file and line" do
     source = """
     defmodule Jido.Flow.DSL.InlineStepTest.UndefinedFlow do
@@ -549,6 +572,7 @@ defmodule Jido.Flow.DSL.InlineStepTest do
            end)
   end
 
+  @tag obligation: "jido_action.inline.I5"
   test "declaration imports are not available inside the body function" do
     source = """
     defmodule Jido.Flow.DSL.InlineStepTest.NoDeclarationFlow do
@@ -573,6 +597,7 @@ defmodule Jido.Flow.DSL.InlineStepTest do
            end)
   end
 
+  @tag obligation: "jido_action.inline.I5"
   test "unused user variables retain warnings at the header line" do
     source = """
     defmodule Jido.Flow.DSL.InlineStepTest.UnusedFlow do
@@ -604,6 +629,7 @@ defmodule Jido.Flow.DSL.InlineStepTest do
            end)
   end
 
+  @tag obligation: "jido_action.inline.I5"
   test "all inline macro arities lower their params, needs, and meta through normal Steps" do
     source = """
     defmodule Jido.Flow.DSL.InlineStepTest.BindingFormsFlow do
@@ -667,6 +693,7 @@ defmodule Jido.Flow.DSL.InlineStepTest do
              {:ok, %{list: %{name: "Ada!Ada!", suffix: "!"}, path: "/home"}}
   end
 
+  @tag obligation: "jido_action.inline.I5"
   test "a runtime raise keeps the user body file and line" do
     source = """
     defmodule Jido.Flow.DSL.InlineStepTest.RaisingFlow do
@@ -693,6 +720,7 @@ defmodule Jido.Flow.DSL.InlineStepTest do
            end)
   end
 
+  @tag obligation: "jido_action.inline.I5"
   test "normal invalid nested patterns are rejected by the owner function compiler" do
     source = """
     defmodule Jido.Flow.DSL.InlineStepTest.BadPatternFlow do
@@ -718,6 +746,7 @@ defmodule Jido.Flow.DSL.InlineStepTest do
            end)
   end
 
+  @tag obligation: "jido_action.inline.I5"
   test "one named binding retains the input and body syntax" do
     {:step, _, [_name, binding, options]} =
       ast("step :greet, name <- input(:name), do: {:ok, %{name: name}}")
@@ -732,6 +761,7 @@ defmodule Jido.Flow.DSL.InlineStepTest do
     assert ValueParser.parse(parsed.params_ast) == {:ok, %{name: Ref.input(:name)}}
   end
 
+  @tag obligation: "jido_action.inline.I5"
   test "binding lists use named atom keys" do
     two = parse("step :sum, [left <- input(:left), right <- result(:load)], do: :ok")
     list = parse("step :sum, [a <- input(), b <- context(), _c <- value(3)], do: :ok")
@@ -747,6 +777,7 @@ defmodule Jido.Flow.DSL.InlineStepTest do
     assert Macro.to_string(list.pattern_ast) == "%{a: a, b: b, _c: _c}"
   end
 
+  @tag obligation: "jido_action.inline.I5"
   test "explicit negative literals match direct construction and stored Flow execution" do
     owner = unique_owner("NegativeLiteral")
 
@@ -788,6 +819,7 @@ defmodule Jido.Flow.DSL.InlineStepTest do
     end
   end
 
+  @tag obligation: "jido_action.inline.I5"
   test "a sole map pattern retains nested matches and uses the whole source as params" do
     source = """
     step :read,
@@ -808,6 +840,7 @@ defmodule Jido.Flow.DSL.InlineStepTest do
     assert ValueParser.parse(list.params_ast) == {:ok, Ref.result(:load)}
   end
 
+  @tag obligation: "jido_action.inline.I5"
   test "an explicit empty binding list produces empty params and a map pattern" do
     parsed = parse("step :ready, [], do: {:ok, %{ready: true}}")
 
@@ -815,6 +848,7 @@ defmodule Jido.Flow.DSL.InlineStepTest do
     assert parsed.pattern_ast == {:%{}, [line: @source_line], []}
   end
 
+  @tag obligation: "jido_action.inline.I5"
   test "all header forms retain needs and meta options without body evaluation" do
     marker = :inline_body_ran
     body = quote do: send(self(), unquote(marker))
@@ -844,6 +878,7 @@ defmodule Jido.Flow.DSL.InlineStepTest do
     refute_received ^marker
   end
 
+  @tag obligation: "jido_action.inline.I5"
   test "needs headers keep nested after clauses as normal Elixir syntax" do
     source = """
     step :read, names <- input(:names), needs: [:load] do
@@ -864,6 +899,7 @@ defmodule Jido.Flow.DSL.InlineStepTest do
     assert Macro.to_string(parsed.action.body_ast) =~ "after"
   end
 
+  @tag obligation: "jido_action.inline.I5"
   test "native do blocks keep separate header options for all binding forms" do
     for header <- [
           "name <- input()",
@@ -885,12 +921,14 @@ defmodule Jido.Flow.DSL.InlineStepTest do
     end
   end
 
+  @tag obligation: "jido_action.inline.I5"
   test "split header and body options reject duplicate fields" do
     assert_raise CompileError, ~r/duplicate inline Step field: :needs/, fn ->
       InlineStep.parse!([], [needs: [:one]], [needs: [:two], do: :ok], caller())
     end
   end
 
+  @tag obligation: "jido_action.inline.I5"
   test "inline Step expressions can match validated parameters with case" do
     owner = unique_owner("ClauseStep")
 
@@ -912,6 +950,7 @@ defmodule Jido.Flow.DSL.InlineStepTest do
              Jido.Exec.run(target, %{operand: 0})
   end
 
+  @tag obligation: "jido_action.inline.I5"
   test "invalid bindings fail at the source declaration" do
     cases = [
       {"[name <- input(), name <- context()]", ~r/duplicate inline Step binding: :name/},
@@ -940,6 +979,7 @@ defmodule Jido.Flow.DSL.InlineStepTest do
     end
   end
 
+  @tag obligation: "jido_action.inline.I5"
   test "binding sources use direct Flow data without operations" do
     for header <- [
           "name <- String.trim(input(:name))",
@@ -960,6 +1000,7 @@ defmodule Jido.Flow.DSL.InlineStepTest do
     end
   end
 
+  @tag obligation: "jido_action.inline.I5"
   test "source errors retain the offending expression line" do
     error =
       assert_raise CompileError, ~r/unsupported Flow expression/, fn ->
@@ -970,6 +1011,7 @@ defmodule Jido.Flow.DSL.InlineStepTest do
     assert error.line == @source_line + 2
   end
 
+  @tag obligation: "jido_action.inline.I5"
   test "inline options reject explicit target fields, schema fields, and unknown fields" do
     for field <- [:action, :after, :params, :run, :schema, :output_schema, :unknown] do
       error =
@@ -988,6 +1030,7 @@ defmodule Jido.Flow.DSL.InlineStepTest do
     end
   end
 
+  @tag obligation: "jido_action.inline.I5"
   test "duplicate fields, missing bodies, and malformed options fail before parsing bindings" do
     for field <- [:needs, :meta, :do] do
       assert_raise CompileError, ~r/duplicate inline Step field/, fn ->
@@ -1006,12 +1049,14 @@ defmodule Jido.Flow.DSL.InlineStepTest do
     assert parse("step :read, [], do: nil").body_ast == nil
   end
 
+  @tag obligation: "jido_action.inline.I5"
   test "a second binding is not a Step options list" do
     assert_raise CompileError, ~r/inline Step options must be a keyword list/, fn ->
       InlineStep.parse!([ast("name <- input()")], ast("other <- context()"), [do: :ok], caller())
     end
   end
 
+  @tag obligation: "jido_action.inline.I5"
   test "map patterns reject nested updates, guards, and dynamic keys" do
     for pattern <- [
           "%{name: (name when is_binary(name))}",
@@ -1024,6 +1069,7 @@ defmodule Jido.Flow.DSL.InlineStepTest do
     end
   end
 
+  @tag obligation: "jido_action.inline.I5"
   test "map patterns retain normal nested structs, binary matches, aliases, and matches" do
     pattern =
       "%{uri: %URI{path: path}, pair: {first, second, _}, bytes: <<head::integer, tail::binary>>, value: value = [item | _], module: String, prefix: \"x\" <> suffix}"
@@ -1034,6 +1080,7 @@ defmodule Jido.Flow.DSL.InlineStepTest do
     assert parsed.pattern_ast == pattern_ast
   end
 
+  @tag obligation: "jido_action.inline.I5"
   test "map patterns retain binary size references and signed literal keys" do
     source =
       "step :read, %{-1 => name, data: <<width, body::binary-size(width * 8)>>} <- input(), do: :ok"
@@ -1043,6 +1090,7 @@ defmodule Jido.Flow.DSL.InlineStepTest do
     assert parse(source).pattern_ast == pattern_ast
   end
 
+  @tag obligation: "jido_action.inline.I5"
   test "map patterns reject equivalent signed literal keys" do
     for pattern <- [
           "%{-1 => first,\n  -1 => second}",

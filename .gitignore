@@ -25,6 +25,9 @@ jido_action-*.tar
 # Temporary files, for example, from tests.
 /tmp/
 
+# Generated Covenant trial coverage.
+/contracts/coverage*.json
+
 # Exploratory ad-hoc examples.
 /lib/examples/
 

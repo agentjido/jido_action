@@ -1,8 +1,9 @@
 defmodule Jido.Exec.ValidationContractTest do
-  use ExUnit.Case, async: true
+  use Covenant.Case, component: "jido_action.boundary", async: true
 
   alias Jido.Action.{Error, Output}
   alias Jido.Exec
+  alias Jido.Exec.Validation
   alias Jido.Flow
   alias Jido.Flow.Ref
 
@@ -86,6 +87,8 @@ defmodule Jido.Exec.ValidationContractTest do
   def fail(:invalid), do: :invalid
   def fail(:reason), do: {:error, :rejected}
   def fail(:exception), do: {:error, Error.validation_error("rejected", %{original: true})}
+  def fail(:scalar_success), do: {:ok, 42}
+  def fail(:invalid_envelope), do: {:ok, %Output{kind: :stream, value: 42, meta: %{}}}
 
   def scalar(_value, _opts), do: 42
 
@@ -94,6 +97,11 @@ defmodule Jido.Exec.ValidationContractTest do
     Map.update!(value, :value, &(&1 + 1))
   end
 
+  @tag obligation: [
+         "jido_action.boundary.I1",
+         "jido_action.boundary.I2",
+         "jido_action.boundary.I3"
+       ]
   test "Action and Flow validators protect each execution boundary" do
     for target <- [ActionValidator, FlowValidator], phase <- [:input, :output] do
       for {executable, expected_phase, node_path} <- boundaries(target, phase),
@@ -148,6 +156,56 @@ defmodule Jido.Exec.ValidationContractTest do
     end
   end
 
+  @tag obligation: ["jido_action.boundary.I1", "jido_action.boundary.I3"]
+  test "custom validators reject scalar success at root and nested boundaries" do
+    for target <- [ActionValidator, FlowValidator],
+        phase <- [:input, :output],
+        {executable, expected_phase, _node_path} <- boundaries(target, phase) do
+      assert {:error, %Error.InternalError{} = error} =
+               Exec.run(executable, %{phase: phase, failure: :scalar_success})
+
+      assert error.message == "Action validator returned an invalid value"
+      assert error.details.action == target
+      assert error.details.phase == expected_phase
+      assert error.details.return == {:ok, 42}
+      assert error.details.reason == :invalid_validator_return
+    end
+  end
+
+  @tag obligation: ["jido_action.boundary.I3", "jido_action.boundary.I4"]
+  test "custom output validators reject malformed envelopes at root and nested boundaries" do
+    invalid = %Output{kind: :stream, value: 42, meta: %{}}
+
+    for target <- [ActionValidator, FlowValidator],
+        {executable, _expected_phase, _node_path} <- boundaries(target, :output) do
+      assert {:error, %Error.InvalidInputError{} = error} =
+               Exec.run(executable, %{phase: :output, failure: :invalid_envelope})
+
+      assert error.message == "invalid action output envelope"
+      assert error.details.value == invalid
+    end
+  end
+
+  @tag obligation: "jido_action.boundary.I1"
+  test "absent validation targets preserve input and output values" do
+    for value <- [%{value: 1}, Output.raw(42)] do
+      assert {:ok, ^value} = Validation.input(nil, value)
+      assert {:ok, ^value} = Validation.output(nil, value)
+    end
+  end
+
+  @tag obligation: ["jido_action.boundary.I1", "jido_action.boundary.I3"]
+  test "schema validation retains context when a transformation returns a scalar" do
+    details = %{module: Jido.Flow, flow: "scalar", context: "Flow output"}
+
+    assert {:error, %Error.InvalidInputError{} = error} =
+             Validation.schema(scalar_schema(), %{}, details)
+
+    assert error.message == "Flow output validation must return a map"
+    assert error.details == Map.put(details, :value, 42)
+  end
+
+  @tag obligation: "jido_action.boundary.I1"
   test "root and nested data Flow input schemas reject scalar transformations" do
     flow = data_flow(%{name: "scalar_input", schema: scalar_schema(), output: %{}})
 
@@ -155,11 +213,14 @@ defmodule Jido.Exec.ValidationContractTest do
       assert {:error, %Error.InvalidInputError{} = error} = run.(%{})
       assert error.message == "Flow input must be a map"
       assert error.details.flow == "scalar_input"
+      assert error.details.module == Jido.Flow
+      assert error.details.context == "Flow"
       assert error.details.value == 42
       assert error.details.phase in [:flow_input, :subflow_input]
     end
   end
 
+  @tag obligation: ["jido_action.boundary.I1", "jido_action.boundary.I10"]
   test "managed Flow input failures preserve the validator error" do
     runner = :"validation_contract_runner_#{System.unique_integer([:positive])}"
     start_supervised!({Runic.Runner, name: runner})
@@ -173,6 +234,7 @@ defmodule Jido.Exec.ValidationContractTest do
     end
   end
 
+  @tag obligation: "jido_action.boundary.I3"
   test "root and nested data Flow output schemas reject scalar transformations" do
     flow = data_flow(%{name: "scalar_output", output_schema: scalar_schema(), output: %{}})
 
@@ -180,11 +242,14 @@ defmodule Jido.Exec.ValidationContractTest do
       assert {:error, %Error.InvalidInputError{} = error} = run.(%{})
       assert error.message == "Action output validation must return a map"
       assert error.details.flow == "scalar_output"
+      assert error.details.module == Jido.Flow
+      assert error.details.context == "Flow output"
       assert error.details.value == 42
       assert Map.get(error.details, :phase, :subflow_output) in [:flow_output, :subflow_output]
     end
   end
 
+  @tag obligation: ["jido_action.boundary.I1", "jido_action.boundary.I3"]
   test "module validators run once and retain each transformation" do
     for target <- [ActionValidator, FlowValidator, ParentAction, ParentFlow] do
       assert {:ok, %{value: 2}} = Exec.run(target, %{test_pid: self(), value: 0})
@@ -194,6 +259,7 @@ defmodule Jido.Exec.ValidationContractTest do
     end
   end
 
+  @tag obligation: ["jido_action.boundary.I1", "jido_action.boundary.I3"]
   test "preparation and Action schemas run once and retain unknown root keys" do
     assert {:ok, %{value: 3, extra: :kept}} =
              Exec.run(PreparedAction, %{test_pid: self(), value: "1", extra: :kept})
@@ -205,6 +271,7 @@ defmodule Jido.Exec.ValidationContractTest do
     refute_received {:transformed, _phase}
   end
 
+  @tag obligation: ["jido_action.boundary.I1", "jido_action.boundary.I3"]
   test "data Flow schemas run once at root and nested boundaries" do
     flow =
       data_flow(%{
@@ -224,6 +291,7 @@ defmodule Jido.Exec.ValidationContractTest do
     end
   end
 
+  @tag obligation: ["jido_action.boundary.I3", "jido_action.boundary.I4"]
   test "data Flow output validates envelopes without running the output schema" do
     flow =
       data_flow(%{

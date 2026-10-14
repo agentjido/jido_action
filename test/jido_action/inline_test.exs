@@ -1,9 +1,27 @@
 defmodule Jido.Action.InlineTest do
-  use ExUnit.Case, async: false
+  use Covenant.Case, component: "jido_action.inline", async: false
 
   alias Jido.Action.Inline
 
   defmodule Host do
+    defmacro action_zero_import(path, pattern, options) do
+      parsed = Jido.Action.Inline.parse_callback!(pattern, options, __CALLER__)
+
+      compiled =
+        Jido.Action.Inline.compile!(path, parsed, __CALLER__,
+          default_name: "zero_import",
+          remove_imports: [{__MODULE__, [helper_marker: 0]}]
+        )
+
+      compiled.declaration_ast
+    end
+
+    defmacro action_named(path, pattern, options) do
+      parsed = Jido.Action.Inline.parse_callback!(pattern, options, __CALLER__)
+      compiled = Jido.Action.Inline.compile!(path, parsed, __CALLER__)
+      compiled.declaration_ast
+    end
+
     defmacro action(path, mode, header, options) do
       compile_declaration(path, mode, header, options, __CALLER__)
     end
@@ -85,6 +103,7 @@ defmodule Jido.Action.InlineTest do
     end)
   end
 
+  @tag obligation: "jido_action.inline.I2"
   test "the public facade creates an ordinary Action without Flow state" do
     owner = unique_owner("Plain")
 
@@ -105,6 +124,7 @@ defmodule Jido.Action.InlineTest do
     assert target.run(%{value: 2}, %{}) == {:ok, %{value: 3, owner: owner}}
   end
 
+  @tag obligation: "jido_action.inline.I1"
   test "bound parsing returns host source AST without evaluating or validating it" do
     source = quote line: 40, do: value <- unknown_host_source()
     parsed = Inline.parse_bound!(source, [do: quote(do: {:ok, %{value: value}})], env())
@@ -113,6 +133,7 @@ defmodule Jido.Action.InlineTest do
     assert Macro.to_string(parsed.pattern_ast) == "%{value: value}"
   end
 
+  @tag obligation: "jido_action.inline.I1"
   test "bound headers preserve the current source and pattern shapes" do
     for {source, params, pattern} <- [
           {"value <- 1", "%{value: 1}", "%{value: value}"},
@@ -123,9 +144,15 @@ defmodule Jido.Action.InlineTest do
       parsed = Inline.parse_bound!(quoted(source), [do: nil], env())
       assert Macro.to_string(parsed.params_ast) == params
       assert Macro.to_string(parsed.pattern_ast) == pattern
+
+      if source != "%{value: value} <- host_ref()" do
+        assert elem(parsed.params_ast, 1)[:line] == 40
+        assert elem(parsed.pattern_ast, 1)[:line] == 40
+      end
     end
   end
 
+  @tag obligation: "jido_action.inline.I1"
   test "callback headers receive parameters directly without a source map" do
     for pattern <- ["params", "%{value: value, nested: %{item: item}}"] do
       parsed = Inline.parse_callback!(quoted(pattern), [do: nil], env())
@@ -135,11 +162,16 @@ defmodule Jido.Action.InlineTest do
     end
   end
 
+  @tag obligation: ["jido_action.inline.I1", "jido_action.inline.I4"]
   test "header errors preserve the source location" do
     for {mode, source, message} <- [
           {:bound, "[value <- 1, value <- 2]", "duplicate inline Action binding"},
           {:bound, "[%{value: value} <- %{}, other <- 1]", "map pattern must be the only"},
           {:bound, "_ <- 1", "bare _"},
+          {:bound, "42", "expected a binding in the form"},
+          {:bound, "42 <- 1", "requires a named variable"},
+          {:bound, "_() <- 1", "requires a named variable"},
+          {:bound, "%{old | replacement: new} <- %{}", "map updates are not supported"},
           {:bound, "^value <- 1", "pinned variables"},
           {:bound, "(value when is_map(value)) <- %{}", "guards"},
           {:bound, "%URI{} <- %{}", "top-level struct"},
@@ -150,6 +182,7 @@ defmodule Jido.Action.InlineTest do
           {:callback, "[params <- context()]", "callback requires"},
           {:callback, "[]", "callback requires"},
           {:callback, "_", "bare _"},
+          {:callback, "_()", "callback requires a named variable"},
           {:callback, "%URI{}", "top-level struct"}
         ] do
       error =
@@ -163,6 +196,7 @@ defmodule Jido.Action.InlineTest do
     end
   end
 
+  @tag obligation: "jido_action.inline.I1"
   test "Action options and context reject ambiguous declarations" do
     for {header, options, message} <- [
           {"params", [], "requires a do block"},
@@ -187,6 +221,7 @@ defmodule Jido.Action.InlineTest do
     end
   end
 
+  @tag obligation: "jido_action.inline.I2"
   test "bodies retain lexical scope, explicit context, private helpers and declaration attributes" do
     owner = unique_owner("Lexical")
 
@@ -226,6 +261,7 @@ defmodule Jido.Action.InlineTest do
     assert owner.last_target() == second
   end
 
+  @tag obligation: "jido_action.inline.I2"
   test "metadata and schemas evaluate in the declaration environment and use normal Action validation" do
     owner = unique_owner("Schema")
 
@@ -258,6 +294,7 @@ defmodule Jido.Action.InlineTest do
              target.validate_output(%{value: "bad"})
   end
 
+  @tag obligation: "jido_action.inline.I2"
   test "bound Actions keep context out of params and evaluate configuration expressions once" do
     owner = unique_owner("BoundSchema")
 
@@ -280,6 +317,7 @@ defmodule Jido.Action.InlineTest do
              {:ok, %{value: 4, prefix: "new"}}
   end
 
+  @tag obligation: "jido_action.inline.I2"
   test "invalid metadata or static schema cannot start replacement of an existing wrapper" do
     for option <- [
           "name: \"\"",
@@ -315,6 +353,7 @@ defmodule Jido.Action.InlineTest do
     end
   end
 
+  @tag obligation: "jido_action.inline.I4"
   test "setup is idempotent and retains host hooks in either registration order" do
     for position <- [:before, :after] do
       owner = unique_owner("Hooks")
@@ -327,7 +366,7 @@ defmodule Jido.Action.InlineTest do
         #{after_setup}
         action [host: :test, declaration: "first", role: :action], :bound, [], do: {:ok, %{first: true}}
         use Jido.Action.Inline
-        Jido.Action.Inline.setup!(__ENV__)
+        :ok = Jido.Action.Inline.setup!(__ENV__)
         action [host: :test, declaration: "second", role: :action], :bound, [], do: {:ok, %{second: true}}
         send(self(), {:hook_counts,
           Enum.count(Module.get_attribute(__MODULE__, :on_definition), fn {module, _} -> module == Jido.Action.Inline.Owner end),
@@ -346,6 +385,7 @@ defmodule Jido.Action.InlineTest do
     end
   end
 
+  @tag obligation: "jido_action.inline.I3"
   test "target identity uses the owner and complete typed path, not metadata" do
     paths = [
       [host: :test, choice: "first", option: "otherwise", role: :action],
@@ -374,6 +414,7 @@ defmodule Jido.Action.InlineTest do
     assert Enum.all?(targets, &(&1.name() == "shared_name"))
   end
 
+  @tag obligation: "jido_action.inline.I3"
   test "compilation does not intern a separate atom for the owner callback" do
     owner = unique_owner("CallbackAtom")
     declaration_path = path("bounded")
@@ -395,6 +436,7 @@ defmodule Jido.Action.InlineTest do
     assert Inline.target!(owner, declaration_path).run(%{}, %{}) == {:ok, %{bounded: true}}
   end
 
+  @tag obligation: ["jido_action.inline.I2", "jido_action.inline.I3"]
   test "duplicate and foreign identities fail before target replacement" do
     owner = unique_owner("Duplicate")
 
@@ -416,6 +458,7 @@ defmodule Jido.Action.InlineTest do
     assert target.untouched() == :foreign
   end
 
+  @tag obligation: "jido_action.inline.I3"
   test "names evaluate once and false compile branches emit no target or index entry" do
     owner = unique_owner("Evaluation")
 
@@ -434,6 +477,7 @@ defmodule Jido.Action.InlineTest do
     refute Code.ensure_loaded?(skipped)
   end
 
+  @tag obligation: "jido_action.inline.I3"
   test "lookup is inert and unknown paths do not create atoms" do
     owner = unique_owner("Lookup")
 
@@ -463,6 +507,7 @@ defmodule Jido.Action.InlineTest do
     assert_received :inline_work
   end
 
+  @tag obligation: "jido_action.inline.I3"
   test "compilation requires an open owner and lookup requires a completed owner" do
     parsed = Inline.parse_bound!([], [do: nil], env())
 
@@ -478,6 +523,7 @@ defmodule Jido.Action.InlineTest do
     end
   end
 
+  @tag obligation: "jido_action.inline.I1"
   test "host source rejection occurs before target creation and a corrected declaration can compile" do
     owner = unique_owner("SourceRepair")
 
@@ -500,6 +546,7 @@ defmodule Jido.Action.InlineTest do
     assert target.run(%{value: 3}, %{}) == {:ok, %{value: 3}}
   end
 
+  @tag obligation: "jido_action.inline.I1"
   test "invalid paths and option lists have the documented error types" do
     for invalid <- [
           nil,
@@ -507,6 +554,7 @@ defmodule Jido.Action.InlineTest do
           [],
           [host: :test, role: :action],
           [host: :test, declaration: %{}, role: :action],
+          [{:host, :test}, {"declaration", "x"}, {:role, :action}],
           [{:host, :test}, {:declaration, "x"}, {:role, :action} | :invalid]
         ] do
       assert_raise ArgumentError, fn -> Inline.target!(__MODULE__, invalid) end
@@ -524,21 +572,29 @@ defmodule Jido.Action.InlineTest do
     end
   end
 
+  @tag obligation: "jido_action.inline.I1"
   test "malformed compiler options and import-removal lists have source errors" do
     parsed = Inline.parse_bound!([], [do: nil], env())
 
-    for options <- [
-          [identity: {__MODULE__, :identity}],
-          [default_name: "one", default_name: "two"]
+    for {options, message} <- [
+          {[identity: {__MODULE__, :identity}], "unsupported inline Action compiler: :identity"},
+          {[default_name: "one", default_name: "two"],
+           "duplicate inline Action compiler: :default_name"}
         ] do
-      assert_raise CompileError, fn ->
-        Inline.compile!(Macro.escape(path("bad")), parsed, env(), options)
-      end
+      error =
+        assert_raise CompileError, fn ->
+          Inline.compile!(Macro.escape(path("bad")), parsed, env(), options)
+        end
+
+      assert error.description == message
     end
 
     for removals <- [
           :all,
           [String],
+          [{nil, []}],
+          [{"String", []}],
+          [{String, [upcase: 0.5]}],
           [{String, :all}],
           [{String, [upcase: -1]}],
           [{String, [upcase: 1]} | :bad]
@@ -563,12 +619,14 @@ defmodule Jido.Action.InlineTest do
     end
   end
 
+  @tag obligation: "jido_action.inline.I1"
   test "an improper bound header reports a source error" do
     assert_raise CompileError, ~r/bindings must be a proper list/, fn ->
       Inline.parse_bound!([quoted("value <- 1") | :bad], [do: nil], env())
     end
   end
 
+  @tag obligation: "jido_action.inline.I4"
   test "owner body and index functions reject user clauses and default-argument arities" do
     for kind <- [:index, :body], position <- [:before, :after], defaults <- [0, 1] do
       owner = unique_owner("Reserved")
@@ -601,6 +659,7 @@ defmodule Jido.Action.InlineTest do
     end
   end
 
+  @tag obligation: "jido_action.inline.I4"
   test "warnings, compile failures and runtime stacktraces retain the body source" do
     warning_owner = unique_owner("Warning")
 
@@ -661,6 +720,7 @@ defmodule Jido.Action.InlineTest do
            end)
   end
 
+  @tag obligation: "jido_action.inline.I1"
   test "callback clause bodies compile to several owner-function heads" do
     owner = unique_owner("CallbackClauses")
 
@@ -700,6 +760,7 @@ defmodule Jido.Action.InlineTest do
     refute_received :ok
   end
 
+  @tag obligation: "jido_action.inline.I1"
   test "bound clause bodies match the resolved parameter map" do
     owner = unique_owner("BoundClauses")
 
@@ -715,6 +776,7 @@ defmodule Jido.Action.InlineTest do
     assert {:ok, %{value: 25.0}} = target.run(%{operand: 4}, %{})
   end
 
+  @tag obligation: "jido_action.inline.I4"
   test "clause definitions retain their source line" do
     owner = unique_owner("ClauseLine")
 
@@ -742,6 +804,7 @@ defmodule Jido.Action.InlineTest do
            end)
   end
 
+  @tag obligation: ["jido_action.inline.I1", "jido_action.inline.I4"]
   test "clause-body parse errors preserve the source location" do
     clauses = case_clauses("%{operand: 0} -> :zero\n%{operand: operand} -> :ok")
 
@@ -753,6 +816,7 @@ defmodule Jido.Action.InlineTest do
     bound = Inline.parse_bound!(quoted("operand <- 1"), [do: clauses], env())
     assert bound.mode == :bound
     assert is_list(bound.clauses)
+    assert bound.pattern_ast == quoted("%{operand: operand}")
 
     [arrow] = case_clauses("%{operand: 0} -> :zero")
     mixed = {:__block__, [line: 40], [arrow, :ok]}
@@ -762,6 +826,8 @@ defmodule Jido.Action.InlineTest do
            "clause body cannot include a header pattern"},
           {:callback, nil, [do: mixed], "cannot mix clause heads with an expression body"},
           {:callback, nil, [do: case_clauses("{1, 2} -> :ok")],
+           "named variable, `_`, or a map pattern"},
+          {:callback, nil, [do: case_clauses("_() -> :ok")],
            "named variable, `_`, or a map pattern"},
           {:bound, quoted("operand <- 1"), [do: case_clauses("%URI{} -> :ok")],
            "struct patterns"},
@@ -777,6 +843,189 @@ defmodule Jido.Action.InlineTest do
 
       assert error.description =~ message
       assert error.file == "inline_header.ex"
+    end
+  end
+
+  @tag obligation: "jido_action.inline.I2"
+  test "the three-argument compiler uses explicit Action metadata" do
+    owner = unique_owner("NamedCompiler")
+
+    compile_source(owner, """
+    action_named [host: :test, declaration: "named", role: :action], params,
+      name: "explicit_name", do: {:ok, params}
+    """)
+
+    target = Inline.target!(owner, path("named"))
+    assert target.name() == "explicit_name"
+    assert Jido.Exec.run(target, %{value: 1}) == {:ok, %{value: 1}}
+  end
+
+  @tag obligation: "jido_action.inline.I1"
+  test "single and block clause ASTs keep their patterns guards and bodies" do
+    [arrow] = case_clauses("%{value: value} when is_integer(value) -> {:ok, value}")
+    {:->, _, [[{:when, _, [pattern, guard]}], body]} = arrow
+
+    for ast <- [arrow, [arrow], {:__block__, [], [arrow]}] do
+      parsed = Inline.parse_callback!(nil, [do: ast], env())
+      assert parsed.clauses == [{pattern, guard, body}]
+    end
+
+    parsed = Inline.parse_callback!(quoted("params"), [do: {:__block__, [], []}], env())
+    assert parsed.clauses == nil
+
+    for head <- [
+          "first, second -> :both",
+          "() -> :none",
+          "first, is_map(first) when true -> :both"
+        ] do
+      error =
+        assert_raise CompileError, fn ->
+          Inline.parse_callback!(nil, [do: case_clauses(head)], env())
+        end
+
+      assert error.description == "inline Action clause requires one parameter pattern"
+      assert error.line == 41
+    end
+
+    error =
+      assert_raise CompileError, fn ->
+        Inline.parse_callback!(nil, [do: case_clauses("first,\nsecond -> :both")], env())
+      end
+
+    assert error.description == "inline Action clause requires one parameter pattern"
+    assert error.line == 41
+  end
+
+  @tag obligation: "jido_action.inline.I1"
+  test "signed map keys retain distinct values and reject duplicate or executable keys" do
+    for source <- ["%{-1 => left, nil => right}", "%{+1 => left, nil => right}"] do
+      parsed = Inline.parse_callback!(quoted(source), [do: nil], env())
+      assert parsed.pattern_ast == quoted(source)
+    end
+
+    for source <- ["%{+1 => left, 1 => right}", "%{-1 => left, -1 => right}"] do
+      assert_raise CompileError, ~r/duplicate inline Action map key/, fn ->
+        Inline.parse_callback!(quoted(source), [do: nil], env())
+      end
+    end
+
+    for source <- ["%{-unknown => value}", "%{+unknown => value}", "%{+:invalid => value}"] do
+      assert_raise CompileError, ~r/map pattern keys must be literals/, fn ->
+        Inline.parse_callback!(quoted(source), [do: nil], env())
+      end
+    end
+  end
+
+  @tag obligation: ["jido_action.inline.I1", "jido_action.inline.I4"]
+  test "guarded clauses keep one parameter and native repeated when guards" do
+    owner = unique_owner("GuardedHead")
+
+    error =
+      assert_raise CompileError, fn ->
+        compile_source(owner, """
+        action [host: :test, declaration: "invalid", role: :action], :callback, nil do
+          params, is_map(params) when true -> {:ok, params}
+        end
+        """)
+      end
+
+    assert error.description == "inline Action clause requires one parameter pattern"
+    assert error.file == "inline_compile.ex"
+    assert error.line == 6
+    {target, _} = generated_identity(owner, path("invalid"))
+    refute Code.ensure_loaded?(target)
+
+    compile_source(owner, """
+    action [host: :test, declaration: "valid", role: :action], :callback, nil do
+      params when is_map_key(params, :first) when is_map_key(params, :second) -> {:ok, params}
+      _ -> {:ok, %{fallback: true}}
+    end
+    """)
+
+    target = Inline.target!(owner, path("valid"))
+
+    for params <- [%{first: true}, %{second: true}],
+        do: assert(target.run(params, %{}) == {:ok, params})
+
+    assert target.run(%{}, %{}) == {:ok, %{fallback: true}}
+  end
+
+  @tag obligation: "jido_action.inline.I3"
+  test "lookup rejects non-module owners with the public identity error" do
+    for owner <- [nil, "Owner", %{}, 42] do
+      error = assert_raise ArgumentError, fn -> Inline.target!(owner, path("missing")) end
+
+      assert error.message ==
+               "unknown inline Action identity in #{inspect(owner)}: #{inspect(path("missing"))}"
+    end
+  end
+
+  @tag obligation: "jido_action.inline.I2"
+  test "a host can remove a zero-arity import and use its own helper" do
+    owner = unique_owner("ZeroImport")
+
+    compile_source(owner, """
+    action_zero_import [host: :test, declaration: "zero", role: :action], params do
+      {:ok, Map.put(params, :marker, helper_marker())}
+    end
+    defp helper_marker, do: :owner_helper
+    """)
+
+    target = Inline.target!(owner, path("zero"))
+    assert target.run(%{value: 1}, %{}) == {:ok, %{value: 1, marker: :owner_helper}}
+  end
+
+  @tag obligation: ["jido_action.inline.I3", "jido_action.inline.I4"]
+  test "compilation rejects function scope even while the owner is open" do
+    owner = unique_owner("FunctionScope")
+
+    error =
+      assert_raise CompileError, fn ->
+        compile_source(owner, """
+        def invalid do
+          action [host: :test, declaration: "invalid", role: :action], :bound, [],
+            do: {:ok, %{}}
+        end
+        """)
+      end
+
+    assert error.description == "inline Action compilation requires a compiling owner module"
+    {target, _} = generated_identity(owner, path("invalid"))
+    refute Code.ensure_loaded?(target)
+  end
+
+  @tag obligation: "jido_action.inline.I4"
+  test "generated pattern lines use positive source lines or the caller line" do
+    for {metadata, expected} <- [{[], 40}, {[line: 0], 40}, {[line: 1], 1}] do
+      owner = unique_owner("PatternLine")
+      pattern = {:params, metadata, nil}
+      tag = System.unique_integer([:positive])
+
+      Module.create(
+        owner,
+        quote do
+          use Jido.Action.Inline
+
+          parsed =
+            Jido.Action.Inline.parse_callback!(unquote(Macro.escape(pattern)), [do: nil], __ENV__)
+
+          compiled =
+            Jido.Action.Inline.compile!([], parsed, __ENV__, default_name: "source_line")
+
+          send(self(), {unquote(tag), compiled.declaration_ast})
+        end,
+        env()
+      )
+
+      assert_received {^tag, declaration}
+
+      {_ast, lines} =
+        Macro.prewalk(declaration, [], fn
+          {:def, meta, _} = ast, lines -> {ast, [meta[:line] | lines]}
+          ast, lines -> {ast, lines}
+        end)
+
+      assert lines == [expected]
     end
   end
 

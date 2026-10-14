@@ -1,5 +1,5 @@
 defmodule Jido.Exec.PortableTest do
-  use ExUnit.Case, async: false
+  use Covenant.Case, component: "jido_action.boundary", async: false
 
   alias Jido.Exec
   alias Jido.Flow
@@ -28,6 +28,7 @@ defmodule Jido.Exec.PortableTest do
     def run(_params, _context), do: {:ok, %{pid: self()}}
   end
 
+  @tag obligation: "jido_action.boundary.I10"
   test "managed execution rejects process-local input before it starts" do
     runner = start_runner!()
     execution_id = unique_id()
@@ -38,6 +39,7 @@ defmodule Jido.Exec.PortableTest do
     assert Runic.Runner.lookup(runner, execution_id) == nil
   end
 
+  @tag obligation: "jido_action.boundary.I10"
   test "managed execution fails a process-local Action result before persistence" do
     runner = start_runner!()
     execution_id = unique_id()
@@ -57,6 +59,7 @@ defmodule Jido.Exec.PortableTest do
     assert error.details.type == :pid
   end
 
+  @tag obligation: "jido_action.boundary.I10"
   test "rejected Runic input closes the new Worker and permits a corrected retry" do
     runner = start_runner!()
     id = unique_id()
@@ -85,6 +88,7 @@ defmodule Jido.Exec.PortableTest do
     assert Exec.result(runner, id) == {:ok, %{value: 1}}
   end
 
+  @tag obligation: "jido_action.boundary.I10"
   test "a duplicate start leaves the existing Worker intact" do
     runner = start_runner!()
     id = unique_id()

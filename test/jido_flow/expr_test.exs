@@ -1,11 +1,12 @@
 defmodule JidoActionTest.Flow.ExprTest do
-  use ExUnit.Case, async: true
+  use Covenant.Case, component: "jido_action.expression", async: true
   alias Jido.Expr
   alias Jido.Flow
   alias Jido.Flow.{Codec, Ref}
   alias Jido.Flow.DSL.ValueParser
   alias JidoActionTest.Fixtures.Actions.EchoParamsAction
 
+  @tag obligation: "jido_action.expression.I2"
   test "Flow parses transparent calculations and optional wrappers" do
     source =
       quote do
@@ -20,6 +21,7 @@ defmodule JidoActionTest.Flow.ExprTest do
              Jido.Exec.run(output_flow(value), %{quantity: 2, price: 3, name: "Ada"})
   end
 
+  @tag obligation: ["jido_action.expression.I1", "jido_action.expression.I2"]
   test "direct, and stored calculations have the same model and result" do
     total = Expr.new!(:*, [Ref.result("load", :quantity), Ref.input(:price)])
     label = Expr.new!(:<>, [Ref.context(:prefix), Ref.input(:name)])
@@ -63,6 +65,7 @@ defmodule JidoActionTest.Flow.ExprTest do
     end
   end
 
+  @tag obligation: "jido_action.expression.I1"
   test "Boolean references and literals are strict conditions and short circuit" do
     for {ast, input, expected} <- [
           {quote do
@@ -103,6 +106,7 @@ defmodule JidoActionTest.Flow.ExprTest do
     end
   end
 
+  @tag obligation: "jido_action.expression.I1"
   test "data fields accept native Boolean results but condition boundaries reject them" do
     assert Jido.Exec.run(NativeOutput) == {:ok, %{value: 123, fallback: "fallback"}}
 
@@ -138,6 +142,7 @@ defmodule JidoActionTest.Flow.ExprTest do
     assert error.details.phase == :iterate_completion
   end
 
+  @tag obligation: ["jido_action.expression.I1", "jido_action.expression.I2"]
   test "nested result references remain dependencies even when skipped" do
     expression = Expr.new!(:or, [true, Expr.new!(:==, [Ref.result(:later, :value), 1])])
 
@@ -184,6 +189,7 @@ defmodule JidoActionTest.Flow.ExprTest do
              )
   end
 
+  @tag obligation: "jido_action.expression.I3"
   test "operation failures and missing references keep a useful location" do
     assert {:error, error} = Jido.Exec.run(output_flow(%{nested: [Expr.new!(:/, [1, 0])]}))
     assert error.details.operator == :/
@@ -205,6 +211,7 @@ defmodule JidoActionTest.Flow.ExprTest do
     assert {:ok, %{value: 3}} = Jido.Exec.run(output_flow(%{value: Expr.new!(:+, [1, 2])}))
   end
 
+  @tag obligation: ["jido_action.expression.I3", "jido_action.expression.I4"]
   test "resolved private map keys are absent from complete Flow errors" do
     private_key = "private-token-as-key"
     private_value = String.duplicate("private-value", 100_000)
@@ -223,6 +230,7 @@ defmodule JidoActionTest.Flow.ExprTest do
     refute inspect(Jido.Flow.Error.to_map(error), limit: :infinity) =~ private_key
   end
 
+  @tag obligation: ["jido_action.expression.I1", "jido_action.expression.I3"]
   test "operations preserve all local reference scopes" do
     scopes = [
       :flow,
@@ -261,6 +269,7 @@ defmodule JidoActionTest.Flow.ExprTest do
     end
   end
 
+  @tag obligation: "jido_action.expression.I3"
   test "malformed references inside calculated conditions return validation errors" do
     reference = %Ref{source: :unknown, path: []}
     expression = Expr.new!(:+, [reference, 1])
@@ -271,6 +280,7 @@ defmodule JidoActionTest.Flow.ExprTest do
     assert error.details.ref_type == :unknown
   end
 
+  @tag obligation: "jido_action.expression.I3"
   test "iterator completion failures retain the expression and reference locations" do
     iterator =
       JidoActionTest.FlowComponent.iterate!(
@@ -295,6 +305,7 @@ defmodule JidoActionTest.Flow.ExprTest do
     assert error.details.retry == false
   end
 
+  @tag obligation: "jido_action.expression.I2"
   test "version one supports expressions and keeps literal maps distinct" do
     literal = %{"$expr" => %{"operator" => "+", "operands" => [1, 2]}}
     legacy = output_flow(literal)
@@ -314,6 +325,7 @@ defmodule JidoActionTest.Flow.ExprTest do
              Flow.semantic_identity(output_flow(%{value: %{operator: :+, operands: [1, 2]}}))
   end
 
+  @tag obligation: ["jido_action.expression.I1", "jido_action.expression.I2"]
   test "native source and canonical binary operators produce the same Flow model" do
     assert {:ok, from_dsl} =
              ValueParser.parse_condition(
@@ -331,6 +343,7 @@ defmodule JidoActionTest.Flow.ExprTest do
     assert choice_flow(from_dsl) == choice_flow(from_helper)
   end
 
+  @tag obligation: ["jido_action.expression.I2", "jido_action.expression.I4"]
   test "malformed stored expressions fail with JSON paths and no atom creation" do
     assert {:ok, document, registry} = Codec.encode(output_flow(Expr.new!(:+, [1, 2])))
     unknown = "unknown_operator_#{System.unique_integer([:positive])}"
@@ -352,6 +365,7 @@ defmodule JidoActionTest.Flow.ExprTest do
     assert_raise ArgumentError, fn -> String.to_existing_atom(unknown) end
   end
 
+  @tag obligation: ["jido_action.expression.I3", "jido_action.expression.I4"]
   test "nested invalid expression definitions and evaluation limits stay structured" do
     for invalid <- [
           %Expr{operator: :unknown, operands: []},

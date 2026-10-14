@@ -1,7 +1,7 @@
 Code.require_file("../support/runtime.exs", __DIR__)
 
 defmodule JidoActionTest.Property.Instruction.TargetContractTest do
-  use ExUnit.Case, async: true
+  use Covenant.Case, component: "jido_action.instruction", async: true
   use ExUnitProperties
   @moduletag :property
   alias Jido.Instruction
@@ -21,6 +21,7 @@ defmodule JidoActionTest.Property.Instruction.TargetContractTest do
   end
 
   @tag contracts: ["TARGET-001", "FLOW-004"]
+  @tag obligation: ["jido_action.instruction.I5", "jido_action.instruction.I6"]
   @tag contract_cases: [
          "TARGET-001/action",
          "TARGET-001/flow-module",

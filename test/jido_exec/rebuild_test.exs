@@ -1,5 +1,5 @@
 defmodule Jido.Exec.RebuildTest do
-  use ExUnit.Case, async: true
+  use Covenant.Case, component: "jido_action.boundary", async: true
 
   alias Jido.Exec
   alias Jido.Exec.Frame
@@ -44,6 +44,7 @@ defmodule Jido.Exec.RebuildTest do
     def run(%{value: value}, _context), do: {:continue, %{value: value}, Child}
   end
 
+  @tag obligation: "jido_action.boundary.I5"
   test "every component kind rebuilds from its build log and returns the same result" do
     flow =
       Jido.Flow.new!(%{
@@ -109,6 +110,7 @@ defmodule Jido.Exec.RebuildTest do
     assert rebuilt_output(flow, input) == expected
   end
 
+  @tag obligation: "jido_action.boundary.I5"
   test "a Dispatch rebuilds and runs its dynamic Flow target" do
     flow =
       Jido.Flow.new!(%{
@@ -129,6 +131,7 @@ defmodule Jido.Exec.RebuildTest do
     assert rebuilt_output(flow, %{value: 1}) == expected
   end
 
+  @tag obligation: "jido_action.boundary.I5"
   test "Instructions and Action nodes transmute to Runic workflows" do
     instruction = Jido.Instruction.new!(target: Add, params: %{value: 1, amount: 1})
 
@@ -143,6 +146,7 @@ defmodule Jido.Exec.RebuildTest do
     assert %Workflow{} = Runic.Transmutable.to_workflow(flow_instruction)
   end
 
+  @tag obligation: "jido_action.boundary.I5"
   test "root Action and Flow result ports rebuild from component logs" do
     action = Exec.compile!(Add)
     rebuilt_action = action |> Workflow.build_log() |> Workflow.from_log()

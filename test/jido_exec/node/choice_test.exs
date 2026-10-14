@@ -1,11 +1,12 @@
 defmodule Jido.Exec.Node.ChoiceTest do
-  use ExUnit.Case, async: true
+  use Covenant.Case, component: "jido_action.boundary", async: true
 
   alias Jido.Exec
   alias Jido.Flow
   alias Jido.Flow.Ref
   alias JidoActionTest.Fixtures.Actions.Add
 
+  @tag obligation: "jido_action.boundary.I5"
   test "Choice uses Runic Conditions and selects the first matching branch" do
     flow =
       Flow.new!(%{

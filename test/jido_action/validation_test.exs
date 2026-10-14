@@ -1,5 +1,5 @@
 defmodule JidoActionTest.Action.ValidationTest do
-  use ExUnit.Case, async: true
+  use Covenant.Case, component: "jido_action.validation", async: true
 
   alias Jido.Action.Validation
 
@@ -8,11 +8,91 @@ defmodule JidoActionTest.Action.ValidationTest do
     defstruct [:value]
   end
 
+  defmodule ExtendedParams do
+    defstruct [:value, :tag]
+  end
+
+  @tag obligation: ["jido_action.validation.I1", "jido_action.validation.I2"]
+  test "schema transforms retain their chosen result and omit removed input fields" do
+    struct_schema = Zoi.struct(ExtendedParams, %{value: Zoi.integer()}, coerce: true)
+    input = %{value: 2, extra: :kept}
+
+    transformed = Zoi.transform(struct_schema, &%{&1 | tag: :added})
+
+    assert {:ok, %{value: 2, tag: :added, extra: :kept}} =
+             Validation.open_validate(transformed, input, %{})
+
+    removed =
+      Zoi.struct(Params, %{value: Zoi.integer()})
+      |> Zoi.transform(fn params -> %{changed: params.value + 1} end)
+
+    assert Validation.open_validate(removed, %Params{value: 2}, %{}) == {:ok, %{changed: 3}}
+
+    scalar = Zoi.transform(Zoi.object(%{value: Zoi.integer()}), & &1.value)
+    assert {:ok, 2} = Validation.open_validate(scalar, %{value: 2}, %{})
+    assert {:ok, 2} = Validation.open_validate_preserving_shape(scalar, %{value: 2}, %{})
+  end
+
+  @tag obligation: [
+         "jido_action.validation.I1",
+         "jido_action.validation.I2",
+         "jido_action.validation.I3"
+       ]
+  test "struct roots preserve extra fields and keep strict and non-coercing failures" do
+    schema = Zoi.struct(ExtendedParams, %{value: Zoi.integer()}, coerce: false)
+
+    assert Validation.open_validate(schema, %ExtendedParams{value: 2, tag: :kept}, %{}) ==
+             {:ok, %{value: 2, tag: :kept}}
+
+    coercing = Zoi.struct(Params, %{value: Zoi.integer()}, coerce: true)
+
+    assert Validation.open_validate(coercing, %{"value" => 2, "extra" => :kept}, %{}) ==
+             {:ok, %{"extra" => :kept, value: 2}}
+
+    strict = Zoi.struct(Params, %{value: Zoi.integer()}, coerce: true, unrecognized_keys: :error)
+    assert Validation.open_validate(strict, %{value: 2}, %{}) == {:ok, %{value: 2}}
+
+    for {schema, data} <- [{schema, %{value: 2}}, {strict, %{value: 2, extra: :rejected}}] do
+      assert {:error, expected} = Zoi.parse(schema, data)
+      assert {:error, error} = Validation.open_validate(schema, data, %{phase: :input})
+      assert error.message == Zoi.prettify_errors(expected)
+
+      assert error.details == %{
+               phase: :input,
+               errors: Enum.map(expected, &Map.take(&1, [:path, :message, :code]))
+             }
+    end
+  end
+
+  @tag obligation: "jido_action.validation.I4"
+  test "classification rejects foreign schemas, failed lazy builders and mixed codecs" do
+    for value <- [%{}, %{inner: Zoi.any()}, %URI{}, nil, :unsupported] do
+      assert Validation.zoi_schema?(value) == false
+      assert Validation.map_schema?(value) == false
+    end
+
+    map = Zoi.object(%{value: Zoi.integer()})
+    scalar = Zoi.integer()
+    unresolved = Zoi.lazy(fn -> Zoi.lazy(fn -> map end) end)
+    failed = Zoi.lazy(fn -> raise "builder failed" end)
+
+    for lazy <- [unresolved, failed] do
+      assert Validation.map_schema?(lazy) == false
+    end
+
+    for {from, to} <- [{map, scalar}, {scalar, map}] do
+      codec = Zoi.codec(from, to, decode: &Function.identity/1, encode: &Function.identity/1)
+      assert Validation.map_schema?(codec) == false
+    end
+  end
+
   describe "open_validate/3" do
+    @tag obligation: "jido_action.validation.I1"
     test "validates whole values for non-object Zoi schemas" do
       assert {:ok, 3} = Validation.open_validate(Zoi.integer(), 3, %{context: "Validation"})
     end
 
+    @tag obligation: "jido_action.validation.I1"
     test "keeps Zoi parsing behavior for map and struct schemas" do
       generic_map = Zoi.map(Zoi.string(), Zoi.integer())
 
@@ -35,6 +115,7 @@ defmodule JidoActionTest.Action.ValidationTest do
                Validation.open_validate(struct_schema, %Params{value: 1}, %{})
     end
 
+    @tag obligation: "jido_action.validation.I1"
     test "keeps struct refinements when coercing open input" do
       schema =
         Zoi.struct(URI, %{scheme: Zoi.string()}, coerce: true)
@@ -49,6 +130,7 @@ defmodule JidoActionTest.Action.ValidationTest do
       assert result.extra == "kept"
     end
 
+    @tag obligation: "jido_action.validation.I2"
     test "uses explicit Zoi open policies in nested and wrapped schemas" do
       nested_schema =
         Zoi.object(%{
@@ -86,6 +168,7 @@ defmodule JidoActionTest.Action.ValidationTest do
       end
     end
 
+    @tag obligation: "jido_action.validation.I2"
     test "opens default root objects and honors strict Zoi unknown-key policies" do
       default_open = Zoi.object(%{name: Zoi.string()})
 
@@ -134,6 +217,7 @@ defmodule JidoActionTest.Action.ValidationTest do
     end
   end
 
+  @tag obligation: "jido_action.validation.I1"
   test "validates fieldless struct schemas without schema traversal" do
     fieldless = Zoi.struct(Params)
 
@@ -147,6 +231,7 @@ defmodule JidoActionTest.Action.ValidationTest do
   end
 
   describe "open_validate_preserving_shape/3" do
+    @tag obligation: "jido_action.validation.I1"
     test "keeps structs and plain values in their validated shape" do
       schema = Zoi.struct(Params, %{value: Zoi.integer()})
 
@@ -165,6 +250,7 @@ defmodule JidoActionTest.Action.ValidationTest do
       assert {:ok, :unchanged} = Validation.open_validate_preserving_shape([], :unchanged, %{})
     end
 
+    @tag obligation: "jido_action.validation.I3"
     test "returns validation and unsupported-schema errors" do
       assert {:error, error} =
                Validation.open_validate_preserving_shape(Zoi.integer(), "bad", %{phase: :test})
@@ -179,6 +265,7 @@ defmodule JidoActionTest.Action.ValidationTest do
     end
   end
 
+  @tag obligation: "jido_action.validation.I2"
   test "uses Zoi open policies inside collection and combination schemas" do
     cat =
       Zoi.object(%{type: Zoi.literal("cat"), name: Zoi.string()},
@@ -215,6 +302,7 @@ defmodule JidoActionTest.Action.ValidationTest do
     assert validated.pair |> elem(0) |> Map.fetch!(:extra)
   end
 
+  @tag obligation: "jido_action.validation.I2"
   test "uses a Zoi open policy inside map sets" do
     schema =
       Zoi.object(%{
@@ -227,6 +315,7 @@ defmodule JidoActionTest.Action.ValidationTest do
     assert MapSet.member?(users, %{id: 7, name: "Ada"})
   end
 
+  @tag obligation: "jido_action.validation.I3"
   test "converts raised and thrown schema failures to structured errors" do
     raising = Zoi.lazy(fn -> raise "schema boom" end)
     throwing = Zoi.lazy(fn -> throw(:schema_boom) end)
@@ -242,6 +331,7 @@ defmodule JidoActionTest.Action.ValidationTest do
     assert thrown.details.phase == :thrown
   end
 
+  @tag obligation: "jido_action.validation.I4"
   test "classifies Action-compatible schema containers" do
     map = Zoi.object(%{value: Zoi.integer()})
     any = Zoi.any()
@@ -286,6 +376,7 @@ defmodule JidoActionTest.Action.ValidationTest do
 
   def map_schema, do: Zoi.object(%{value: Zoi.integer()})
 
+  @tag obligation: "jido_action.validation.I4"
   test "defaults do not make scalar schemas map-compatible" do
     for schema <- [Zoi.integer(), Zoi.string(), Zoi.literal(:not_a_map)] do
       refute Validation.map_schema?(Zoi.default(schema, %{value: 0}))

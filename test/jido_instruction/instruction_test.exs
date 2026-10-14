@@ -1,12 +1,20 @@
 defmodule JidoActionTest.InstructionTest do
-  use ExUnit.Case, async: true
+  use Covenant.Case, component: "jido_action.instruction", async: true
 
   alias Jido.Instruction
   alias JidoActionTest.Fixtures.MathFlow
 
-  alias JidoActionTest.Fixtures.Actions.{Add, BasicAction, MissingRun}
+  alias JidoActionTest.Fixtures.Actions.{
+    Add,
+    BasicAction,
+    MissingRun,
+    MissingValidateParams,
+    MissingValidateOutput
+  }
 
   describe "template/3" do
+    @describetag obligation: "jido_action.instruction.I1"
+
     test "creates an inert module template without loading the target" do
       target = Module.concat(__MODULE__, "NotLoaded#{System.unique_integer([:positive])}")
 
@@ -28,8 +36,10 @@ defmodule JidoActionTest.InstructionTest do
         apply(Instruction, :template, [:worker, BasicAction])
       end
 
-      assert_raise ArgumentError, ~r/module atom/, fn ->
-        apply(Instruction, :template, [:action, "Elixir.MyApp.Action"])
+      for target <- ["Elixir.MyApp.Action", nil, 42] do
+        assert_raise ArgumentError, ~r/module atom/, fn ->
+          apply(Instruction, :template, [:action, target])
+        end
       end
 
       assert_raise ArgumentError, ~r/metadata/, fn ->
@@ -39,6 +49,8 @@ defmodule JidoActionTest.InstructionTest do
   end
 
   describe "bind/4" do
+    @describetag obligation: "jido_action.instruction.I2"
+
     test "binds and validates an Action template" do
       template =
         Instruction.template(:action, BasicAction, %{
@@ -94,12 +106,18 @@ defmodule JidoActionTest.InstructionTest do
     end
 
     test "validates the executable callbacks" do
-      template = Instruction.template(:action, MissingRun)
+      for {target, callback} <- [
+            {MissingRun, "run/2"},
+            {MissingValidateParams, "validate_params/1"},
+            {MissingValidateOutput, "validate_output/1"}
+          ] do
+        template = Instruction.template(:action, target)
 
-      assert {:error,
-              %Jido.Action.Error.InvalidInputError{
-                details: %{target: MissingRun, reason: "missing run/2"}
-              }} = Instruction.bind(template, %{}, %{})
+        assert {:error, %Jido.Action.Error.InvalidInputError{} = error} =
+                 Instruction.bind(template, %{}, %{})
+
+        assert error.details == %{target: target, reason: "missing #{callback}"}
+      end
     end
 
     test "keeps raw parameters for target input validation" do
@@ -120,29 +138,41 @@ defmodule JidoActionTest.InstructionTest do
           ] do
         assert {:error,
                 %Jido.Action.Error.InvalidInputError{
-                  details: %{field: ^field, reason: :invalid_binding_data}
+                  message: message,
+                  details: %{field: ^field, value: value, reason: :invalid_binding_data}
                 }} = Instruction.bind(template, %{}, context, metadata)
+
+        assert value === if(field == :context, do: context, else: metadata)
+        assert String.contains?(message, Atom.to_string(field))
       end
     end
 
     test "rejects bound or malformed template values" do
       for {template, reason} <- [
+            {nil, :invalid_template},
+            {%{}, :invalid_template},
             {%Instruction{kind: nil, target: BasicAction}, :invalid_kind},
             {%Instruction{kind: :action, target: "BasicAction"}, :invalid_target},
+            {%Instruction{kind: :action, target: nil}, :invalid_target},
             {%Instruction{kind: :action, target: BasicAction, params: %{value: 1}},
              :bound_params},
             {%Instruction{kind: :action, target: BasicAction, context: %{tenant: "acme"}},
-             :bound_context}
+             :bound_context},
+            {%Instruction{kind: :action, target: BasicAction, metadata: nil}, :invalid_metadata},
+            {%Instruction{kind: :action, target: BasicAction, metadata: []}, :invalid_metadata}
           ] do
-        assert {:error,
-                %Jido.Action.Error.InvalidInputError{
-                  details: %{reason: ^reason}
-                }} = Instruction.bind(template, %{}, %{})
+        assert {:error, %Jido.Action.Error.InvalidInputError{} = error} =
+                 Instruction.bind(template, %{}, %{})
+
+        assert error.details == %{template: template, reason: reason}
+        assert String.contains?(error.message, "template")
       end
     end
   end
 
   describe "new/1" do
+    @describetag obligation: "jido_action.instruction.I3"
+
     test "exposes the resolved kind and four call-data fields" do
       assert Instruction.new!(target: BasicAction)
              |> Map.from_struct()
@@ -168,6 +198,7 @@ defmodule JidoActionTest.InstructionTest do
                  Instruction.new(attrs)
 
         assert details == %{fields: [field], reason: :removed_instruction_fields}
+        assert byte_size(error.message) > 0
         refute Jido.Action.Error.retryable?(error)
 
         assert_raise Jido.Action.Error.InvalidInputError, error.message, fn ->
@@ -262,10 +293,11 @@ defmodule JidoActionTest.InstructionTest do
     end
 
     test "returns structured errors for missing and invalid targets" do
-      assert {:error, %Jido.Action.Error.InvalidInputError{details: missing_details}} =
+      assert {:error, %Jido.Action.Error.InvalidInputError{} = error} =
                Instruction.new(%{params: %{value: 1}})
 
-      assert missing_details == %{field: :target, reason: :missing}
+      assert error.details == %{field: :target, reason: :missing}
+      assert byte_size(error.message) > 0
 
       for target <- ["not_a_module", nil] do
         assert {:error, %Jido.Action.Error.ConfigurationError{details: details}} =
@@ -280,6 +312,8 @@ defmodule JidoActionTest.InstructionTest do
                Instruction.new(target: BasicAction, params: ["not", "keyword"])
 
       refute Jido.Action.Error.retryable?(params_error)
+      assert params_error.details.params == ["not", "keyword"]
+      assert byte_size(params_error.details.expected_format) > 0
 
       assert {:error, %Jido.Action.Error.InvalidInputError{}} =
                Instruction.new(target: BasicAction, context: ["not", "keyword"])
@@ -316,6 +350,8 @@ defmodule JidoActionTest.InstructionTest do
   end
 
   describe "normalize!/3" do
+    @describetag obligation: ["jido_action.instruction.I4", "jido_action.instruction.I7"]
+
     for field <- [:params, :context, :metadata] do
       @field field
       test "rejects false #{@field} in a raw Instruction" do
@@ -454,6 +490,8 @@ defmodule JidoActionTest.InstructionTest do
   end
 
   describe "new!/1" do
+    @describetag obligation: "jido_action.instruction.I7"
+
     test "returns the instruction on success" do
       instruction = Instruction.new!(target: BasicAction, params: %{value: 7})
       assert instruction.target == BasicAction

@@ -1,30 +1,35 @@
 defmodule Jido.Exec.ApiTest do
-  use ExUnit.Case, async: true
+  use Covenant.Case, component: "jido_action.boundary", async: true
 
   alias Jido.Exec
   alias Jido.Instruction
   alias JidoActionTest.Fixtures.Actions.{Add, BasicAction, ErrorAction, ExtrasAction}
 
+  @tag obligation: "jido_action.boundary.I5"
   test "compile/2 returns a real one-node Runic Workflow" do
     assert {:ok, %Runic.Workflow{} = workflow} = Exec.compile(Add)
     assert %Jido.Exec.Node.Action{} = Runic.Workflow.get_component(workflow, "add_one")
   end
 
+  @tag obligation: "jido_action.boundary.I5"
   test "run/4 executes an Action module through Runic" do
     assert Exec.run(Add, %{value: 3, amount: 4}) == {:ok, %{value: 7}}
   end
 
+  @tag obligation: "jido_action.boundary.I5"
   test "run/4 executes a bound Instruction through the same path" do
     instruction = Instruction.new!(target: Add, params: %{amount: 3})
 
     assert Exec.run(instruction, %{value: 4}) == {:ok, %{value: 7}}
   end
 
+  @tag obligation: "jido_action.boundary.I4"
   test "run/4 returns deferred effects" do
     assert Exec.run(ExtrasAction, %{value: 8}, %{trace_id: "trace-1"}) ==
              {:ok, %{value: 8}, [%{trace_id: "trace-1"}]}
   end
 
+  @tag obligation: "jido_action.boundary.I5"
   test "caller Instruction metadata does not select Flow execution behavior" do
     instruction =
       Instruction.new!(
@@ -36,6 +41,7 @@ defmodule Jido.Exec.ApiTest do
     assert Exec.run(instruction) == {:ok, %{value: 3}}
   end
 
+  @tag obligation: "jido_action.boundary.I6"
   test "invalid compile and Task Supervisor options return configuration errors" do
     assert {:error, %Jido.Action.Error.ConfigurationError{details: %{option: :name}}} =
              Exec.compile(Add, name: %{})
@@ -62,6 +68,7 @@ defmodule Jido.Exec.ApiTest do
              Exec.run(Add, %{value: 1, amount: 1}, %{}, task_supervisor: supervisor)
   end
 
+  @tag obligation: "jido_action.boundary.I1"
   test "run/4 projects validation failures" do
     assert {:error, %Jido.Action.Error.InvalidInputError{}} =
              Exec.run(BasicAction, %{value: "bad"})
@@ -87,6 +94,7 @@ defmodule Jido.Exec.ApiTest do
     def run(%{mode: mode}, _context), do: {:ok, %{mode: mode}}
   end
 
+  @tag obligation: "jido_action.boundary.I5"
   test "run/4 executes Actions whose schemas have no JSON Schema form" do
     assert_raise ArgumentError, fn -> StructSchemaAction.to_json() end
 
@@ -102,6 +110,7 @@ defmodule Jido.Exec.ApiTest do
     def run(%{label: label}, _context), do: {:error, label}
   end
 
+  @tag obligation: "jido_action.boundary.I6"
   test "run/4 rejects invalid max_concurrency values" do
     for value <- [0, -1, :bogus, 2.5, nil, "2"] do
       assert {:error, %Jido.Action.Error.ConfigurationError{details: details}} =
@@ -111,6 +120,7 @@ defmodule Jido.Exec.ApiTest do
     end
   end
 
+  @tag obligation: "jido_action.boundary.I2"
   test "run/4 reports the same failure for serial and concurrent execution" do
     flow =
       Jido.Flow.new!(%{
@@ -131,6 +141,7 @@ defmodule Jido.Exec.ApiTest do
     assert [message, message, message] = messages
   end
 
+  @tag obligation: "jido_action.boundary.I2"
   test "run/4 projects Action exceptions" do
     assert {:error, %Jido.Action.Error.ExecutionFailureError{details: %{phase: :run}}} =
              Exec.run(ErrorAction, %{error_type: :runtime})

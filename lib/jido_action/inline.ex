@@ -111,7 +111,8 @@ defmodule Jido.Action.Inline do
 
   A `do` body of only `->` clauses compiles to several owner-function heads
   over the validated parameter map. Binding-header guards stay illegal.
-  Clause heads may use `when`.
+  Each clause has one parameter pattern. Clause heads may use `when`; guards
+  do not permit additional parameter patterns.
 
   Options:
 

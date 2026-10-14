@@ -1,5 +1,5 @@
 defmodule Jido.Exec.FlowExecutionTest do
-  use ExUnit.Case, async: true
+  use Covenant.Case, component: "jido_action.boundary", async: true
 
   alias Jido.Exec
   alias Jido.Flow
@@ -20,6 +20,7 @@ defmodule Jido.Exec.FlowExecutionTest do
     def run(%{label: label, value: value}, _context), do: {:ok, %{value: value}, [label]}
   end
 
+  @tag obligation: "jido_action.boundary.I5"
   test "independent branches join through Runic readiness" do
     flow =
       flow!(
@@ -38,6 +39,7 @@ defmodule Jido.Exec.FlowExecutionTest do
     assert Exec.run(flow, %{value: 3}) == {:ok, %{a: 4, b: 6, result: 10}}
   end
 
+  @tag obligation: "jido_action.boundary.I5"
   test "Flow parameters read input, prior results, and runtime context" do
     flow =
       flow!(
@@ -50,6 +52,7 @@ defmodule Jido.Exec.FlowExecutionTest do
              {:ok, %{value: 7, trace_id: "trace-7"}}
   end
 
+  @tag obligation: "jido_action.boundary.I4"
   test "deferred effects use canonical component order after a branch join" do
     flow =
       flow!(
@@ -73,6 +76,7 @@ defmodule Jido.Exec.FlowExecutionTest do
     end
   end
 
+  @tag obligation: "jido_action.boundary.I5"
   test "a nested Flow waits for every parent dependency" do
     parent =
       flow!(
@@ -112,6 +116,7 @@ defmodule Jido.Exec.FlowExecutionTest do
     def run(_params, _context), do: {:ok, Jido.Action.Output.raw("done")}
   end
 
+  @tag obligation: "jido_action.boundary.I3"
   test "data and module Flows apply the same map output rule" do
     add = step("add", Add, %{value: Ref.input(:value), amount: 1})
     data = flow!("list_output", [add], [Ref.result("add")])
@@ -147,6 +152,7 @@ defmodule Jido.Exec.FlowExecutionTest do
     end
   end
 
+  @tag obligation: "jido_action.boundary.I2"
   test "control component failures in a nested Flow keep the parent path" do
     for {input, node} <- [
           {%{items: [:runtime], route: "pass"}, "items"},
@@ -171,6 +177,7 @@ defmodule Jido.Exec.FlowExecutionTest do
     end
   end
 
+  @tag obligation: "jido_action.boundary.I2"
   test "an Action failure stops dependent Flow work" do
     flow =
       flow!(

@@ -1,5 +1,5 @@
 defmodule Jido.Exec.Node.MapTest do
-  use ExUnit.Case, async: true
+  use Covenant.Case, component: "jido_action.boundary", async: true
 
   alias Jido.Exec
   alias Jido.Flow
@@ -47,6 +47,7 @@ defmodule Jido.Exec.Node.MapTest do
     end
   end
 
+  @tag obligation: "jido_action.boundary.I7"
   test "Map uses native Batch and keeps input order" do
     flow = map_flow(EchoParamsAction, %{index: Ref.item_index(), value: Ref.item()}, :fail_fast)
 
@@ -77,6 +78,7 @@ defmodule Jido.Exec.Node.MapTest do
     assert Exec.run(flow, %{items: []}) == {:ok, %{items: []}}
   end
 
+  @tag obligation: "jido_action.boundary.I7"
   test "an empty native batch has no item invocation" do
     flow = map_flow(EchoParamsAction, %{value: Ref.item()}, :fail_fast)
     definition = Exec.compile!(flow)
@@ -92,6 +94,7 @@ defmodule Jido.Exec.Node.MapTest do
     assert Runic.Workflow.raw_productions(workflow, batch.component.name) == []
   end
 
+  @tag obligation: "jido_action.boundary.I7"
   test "shared parent data stays outside native item Facts" do
     flow = map_flow(EchoParamsAction, %{value: Ref.item()}, :fail_fast)
     input = %{items: [2, 2, 1], padding: Enum.to_list(1..1_000)}
@@ -119,6 +122,7 @@ defmodule Jido.Exec.Node.MapTest do
     end
   end
 
+  @tag obligation: "jido_action.boundary.I7"
   test "native batches preserve local item values" do
     flow = map_flow(EchoParamsAction, %{value: Ref.item()}, :fail_fast)
     item = %{owner: self(), reference: make_ref(), uri: URI.parse("/batch")}
@@ -127,6 +131,7 @@ defmodule Jido.Exec.Node.MapTest do
              {:ok, %{items: [%{value: item}, %{value: item}]}}
   end
 
+  @tag obligation: "jido_action.boundary.I7"
   test "a completed batch preserves local execution for a following Action" do
     flow =
       Flow.new!(%{
@@ -151,6 +156,7 @@ defmodule Jido.Exec.Node.MapTest do
     end
   end
 
+  @tag obligation: "jido_action.boundary.I7"
   test "repeated native executions have separate batches and keep public item IDs" do
     flow = map_flow(EchoParamsAction, %{id: Ref.item_id(), value: Ref.item()}, :fail_fast)
     definition = Exec.compile!(flow)
@@ -173,6 +179,7 @@ defmodule Jido.Exec.Node.MapTest do
     assert length(Enum.uniq(ids)) == 3
   end
 
+  @tag obligation: "jido_action.boundary.I7"
   test "nested Map exports rebuild with separate native batches" do
     flow =
       Flow.new!(%{
@@ -202,6 +209,7 @@ defmodule Jido.Exec.Node.MapTest do
   end
 
   @tag :capture_log
+  @tag obligation: "jido_action.boundary.I7"
   test "native batches retry fail-fast items but keep collected errors as data" do
     for mode <- [:fail_fast, :collect_errors] do
       counter = start_supervised!({Agent, fn -> %{} end}, id: mode)
@@ -225,6 +233,16 @@ defmodule Jido.Exec.Node.MapTest do
     end
   end
 
+  @tag obligation: "jido_action.boundary.I7"
+  test "a failed Map Action retains its source item position" do
+    flow = map_flow(FallibleAction, %{value: Ref.item()}, :fail_fast)
+    assert {:error, error} = Exec.run(flow, %{items: [:a, :bad, :c]})
+    assert error.details.node == "items"
+    assert error.details.item_index == 1
+    assert is_binary(error.details.item_id)
+  end
+
+  @tag obligation: "jido_action.boundary.I7"
   test "Map can collect Action errors as ordered data" do
     flow = map_flow(FallibleAction, %{value: Ref.item()}, :collect_errors)
 
@@ -247,6 +265,7 @@ defmodule Jido.Exec.Node.MapTest do
     assert third == %{status: :ok, value: %{value: :c}}
   end
 
+  @tag obligation: "jido_action.boundary.I7"
   test "Map collects parameter reference failures without item identity" do
     flow = map_flow(EchoParamsAction, %{value: Ref.item(:value)}, :collect_errors)
 
@@ -263,6 +282,7 @@ defmodule Jido.Exec.Node.MapTest do
     refute Map.has_key?(details, :target)
   end
 
+  @tag obligation: "jido_action.boundary.I7"
   test "Map handles a large collection read from Flow input" do
     flow = map_flow(EchoParamsAction, %{value: Ref.item()}, :fail_fast)
     items = Enum.to_list(1..1_000)
@@ -271,6 +291,7 @@ defmodule Jido.Exec.Node.MapTest do
     assert Enum.map(results, & &1.value) == items
   end
 
+  @tag obligation: "jido_action.boundary.I7"
   test "Map item IDs follow the Flow, component name, and source index" do
     flow =
       Flow.new!(%{

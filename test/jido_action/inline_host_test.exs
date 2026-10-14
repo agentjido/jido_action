@@ -1,5 +1,5 @@
 defmodule Jido.Action.InlineHostTest do
-  use ExUnit.Case, async: false
+  use Covenant.Case, component: "jido_action.inline", async: false
 
   alias JidoActionTest.Fixtures.Action.InlineHost
   alias JidoActionTest.Fixtures.Action.InlineHost.Field
@@ -45,6 +45,7 @@ defmodule Jido.Action.InlineHostTest do
     end)
   end
 
+  @tag obligation: "jido_action.inline.I2"
   test "a downstream bound host resolves its own fields through Expr" do
     owner =
       compile_owner(:bound, """
@@ -68,6 +69,7 @@ defmodule Jido.Action.InlineHostTest do
     assert InlineHost.run(owner, "double", %{value: 3}) == {:ok, %{value: 6}}
   end
 
+  @tag obligation: "jido_action.inline.I2"
   test "both modes expose typed metadata, defaults, context, and lexical helpers" do
     for {mode, header, input} <- [
           {:bound, "%{name: name, suffix: suffix} <- field(:value)", %{value: %{name: " Ada "}}},
@@ -111,6 +113,7 @@ defmodule Jido.Action.InlineHostTest do
     end
   end
 
+  @tag obligation: "jido_action.inline.I2"
   test "Exec rejects invalid input before either body and validates normal output" do
     for {mode, header} <- [
           {:bound, "%{value: value} <- field(:value)"},
@@ -153,6 +156,7 @@ defmodule Jido.Action.InlineHostTest do
     end
   end
 
+  @tag obligation: "jido_action.inline.I2"
   test "reusing a target does not reuse bound sources or previous execution context" do
     owner =
       compile_owner(:bound, """
@@ -174,6 +178,7 @@ defmodule Jido.Action.InlineHostTest do
     assert target.output_schema() == []
   end
 
+  @tag obligation: "jido_action.inline.I2"
   test "custom host imports remain available in bodies and private helpers" do
     owner =
       compile_owner(:bound, """
@@ -187,6 +192,7 @@ defmodule Jido.Action.InlineHostTest do
              {:ok, %{body: "[body]", helper: "[helper]"}}
   end
 
+  @tag obligation: "jido_action.inline.I1"
   test "source validation rejects unknown references and calls before declaration creation" do
     for source <- [
           "field(:unknown)",
@@ -218,6 +224,7 @@ defmodule Jido.Action.InlineHostTest do
     end
   end
 
+  @tag obligation: "jido_action.inline.I2"
   test "missing runtime fields and invalid operands stop before the Action body" do
     owner =
       compile_owner(:bound, """
@@ -236,6 +243,7 @@ defmodule Jido.Action.InlineHostTest do
     refute_received :body_ran
   end
 
+  @tag obligation: "jido_action.inline.I1"
   test "host slots select one grammar and preserve empty and map-bound sources" do
     owner =
       compile_owner(:bound, """
@@ -267,6 +275,7 @@ defmodule Jido.Action.InlineHostTest do
     end
   end
 
+  @tag obligation: "jido_action.inline.I3"
   test "public metadata is independent of identity and declaration names evaluate once" do
     owner =
       compile_owner(:callback, """
@@ -295,6 +304,7 @@ defmodule Jido.Action.InlineHostTest do
     assert Jido.Exec.run(second) == {:ok, %{selected: :second}}
   end
 
+  @tag obligation: "jido_action.inline.I3"
   test "unknown lookup is inert and does not allocate atoms" do
     owner =
       compile_owner(:callback, """
@@ -316,6 +326,7 @@ defmodule Jido.Action.InlineHostTest do
     refute_received :body_ran
   end
 
+  @tag obligation: "jido_action.inline.I4"
   test "host hooks retain early and late targets in either registration order" do
     for first_position <- [:before, :after], second_position <- [:before, :after] do
       hooks = [
@@ -384,6 +395,7 @@ defmodule Jido.Action.InlineHostTest do
     end
   end
 
+  @tag obligation: "jido_action.inline.I4"
   test "a host hook can emit the first Action after the owner hook" do
     owner = Module.concat(__MODULE__, "Owner#{System.unique_integer([:positive])}")
 
@@ -405,6 +417,7 @@ defmodule Jido.Action.InlineHostTest do
     assert Jido.Exec.run(target, %{value: 7}) == {:ok, %{value: 7}}
   end
 
+  @tag obligation: "jido_action.inline.I4"
   test "late host declarations do not permit user clauses in the lookup function" do
     for position <- [:before, :after], defaults <- [0, 1] do
       args = if defaults == 0, do: "", else: "_ \\\\ []"

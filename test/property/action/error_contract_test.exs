@@ -1,10 +1,11 @@
 defmodule JidoActionTest.Property.Action.ErrorContractTest do
-  use ExUnit.Case, async: true
+  use Covenant.Case, component: "jido_action.errors", async: true
   use ExUnitProperties
   @moduletag :property
   alias Jido.Action.Error
 
   @tag contracts: ["ERROR-001"]
+  @tag obligation: ["jido_action.errors.I1", "jido_action.errors.I3", "jido_action.errors.I4"]
   @tag contract_cases: [
          "ERROR-001/constructor-types",
          "ERROR-001/retry-policy",

@@ -1,7 +1,7 @@
 Code.require_file("../support/fuzz.exs", __DIR__)
 
 defmodule JidoActionTest.Property.Expression.ExpressionContractTest do
-  use ExUnit.Case, async: true
+  use Covenant.Case, component: "jido_action.expression", async: true
   use ExUnitProperties
   alias JidoActionTest.Property.Fuzz
   alias Jido.Expr
@@ -15,6 +15,11 @@ defmodule JidoActionTest.Property.Expression.ExpressionContractTest do
          "EXPR-002/fuzz-limits",
          "EXPR-002/fuzz-arity",
          "EXPR-002/fuzz-host-call"
+       ]
+  @tag obligation: [
+         "jido_action.expression.I1",
+         "jido_action.expression.I2",
+         "jido_action.expression.I4"
        ]
   test "fuzz: expression trees agree with native operations and enforce limits", context do
     generator =
@@ -123,6 +128,7 @@ defmodule JidoActionTest.Property.Expression.ExpressionContractTest do
          "EXPR-001/concat",
          "EXPR-001/parse"
        ]
+  @tag obligation: "jido_action.expression.I1"
   property "the fixed operator set agrees with native Elixir for generated operands" do
     check all(left <- integer(-100..100), right <- integer(1..100), max_runs: 60) do
       cases = [
@@ -167,6 +173,7 @@ defmodule JidoActionTest.Property.Expression.ExpressionContractTest do
          "EXPR-001/strict-left",
          "EXPR-001/invalid-operands"
        ]
+  @tag obligation: "jido_action.expression.I1"
   property "Boolean operations short-circuit invalid branches and retain their result rules" do
     check all(value <- integer(), max_runs: 40) do
       invalid = Expr.new!(:/, [value, 0])
@@ -200,6 +207,7 @@ defmodule JidoActionTest.Property.Expression.ExpressionContractTest do
          "EXPR-002/unknown-operator",
          "EXPR-002/arbitrary-call"
        ]
+  @tag obligation: "jido_action.expression.I4"
   property "public limits reject oversized data and constructors reject unsupported operations" do
     check all(size <- integer(5..16), max_runs: 30) do
       for {value, options} <- [

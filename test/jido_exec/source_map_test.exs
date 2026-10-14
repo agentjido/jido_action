@@ -1,5 +1,5 @@
 defmodule Jido.Exec.SourceMapTest do
-  use ExUnit.Case, async: true
+  use Covenant.Case, component: "jido_action.boundary", async: true
 
   alias Jido.Exec
   alias Jido.Instruction
@@ -51,6 +51,7 @@ defmodule Jido.Exec.SourceMapTest do
     def validate_output(output), do: {:ok, output}
   end
 
+  @tag obligation: "jido_action.boundary.I5"
   test "Exec automatically applies a Flow module source map" do
     expected = FailingFlow.__jido_flow_source_map__()[[:components, "fail"]]
 
@@ -58,11 +59,20 @@ defmodule Jido.Exec.SourceMapTest do
     node = Runic.Workflow.get_component(workflow, "fail")
     assert node.flow.location == expected
 
+    fact = Runic.Workflow.Fact.new(value: Jido.Exec.Frame.new(%{}))
+    assert {:ok, runnable} = Runic.Workflow.Invokable.prepare(node, workflow, fact)
+    failed = Runic.Workflow.Invokable.execute(node, runnable)
+    assert failed.status == :failed
+    assert failed.error.details.node == "fail"
+    assert failed.error.details.source == expected
+    assert failed.error.details.node_path == ["fail"]
+
     assert {:error, error} = Exec.run(FailingFlow)
     assert error.details.source == expected
     assert error.details.node_path == ["fail"]
   end
 
+  @tag obligation: "jido_action.boundary.I3"
   test "Flow output validation includes the DSL output location" do
     expected = InvalidOutputFlow.__jido_flow_source_map__()[[:output]]
 
@@ -72,12 +82,14 @@ defmodule Jido.Exec.SourceMapTest do
     assert error.details.phase == :flow_output
   end
 
+  @tag obligation: "jido_action.boundary.I5"
   test "Flow Instructions transmute to the compiled Runic Workflow" do
     instruction = Instruction.new!(target: FailingFlow)
 
     assert %Runic.Workflow{} = Runic.Transmutable.to_workflow(instruction)
   end
 
+  @tag obligation: "jido_action.boundary.I2"
   test "compiler catches a non-local Flow definition failure" do
     assert {:error, error} = Exec.compile(ThrowingFlow)
     assert error.details.kind == :throw

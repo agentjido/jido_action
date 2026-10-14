@@ -213,25 +213,23 @@ defmodule Jido.Action.Inline.Parser do
     {pattern, guard, body}
   end
 
-  defp clause_head!([{:when, _meta, [pattern | guards]}], _caller) when guards != [] do
-    {pattern, join_guards(guards)}
-  end
+  defp clause_head!([{:when, _meta, [pattern, guard]}], _caller), do: {pattern, guard}
+
+  defp clause_head!([{:when, _meta, _args} = head], caller),
+    do: clause_head_error!(head, caller)
 
   defp clause_head!([pattern], _caller), do: {pattern, nil}
 
   defp clause_head!(other, caller) do
-    error!(
-      clause_head_node(other),
-      caller,
-      "inline Action clause requires one parameter pattern"
-    )
+    clause_head_error!(clause_head_node(other), caller)
   end
+
+  @spec clause_head_error!(term(), Macro.Env.t()) :: no_return()
+  defp clause_head_error!(head, caller),
+    do: error!(head, caller, "inline Action clause requires one parameter pattern")
 
   defp clause_head_node([node | _]), do: node
   defp clause_head_node(other), do: other
-
-  defp join_guards([guard]), do: guard
-  defp join_guards([guard | rest]), do: {:and, [], [guard, join_guards(rest)]}
 
   defp validate_clause_pattern!({:_, _, context}, _caller) when is_atom(context), do: :ok
 

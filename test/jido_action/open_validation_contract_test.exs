@@ -1,5 +1,5 @@
 defmodule JidoActionTest.Action.OpenValidationContractTest do
-  use ExUnit.Case, async: true
+  use Covenant.Case, component: "jido_action.validation", async: true
 
   alias Jido.Action.Error
   alias Jido.Action.Validation
@@ -8,6 +8,7 @@ defmodule JidoActionTest.Action.OpenValidationContractTest do
     defstruct [:count]
   end
 
+  @tag obligation: "jido_action.validation.I1"
   test "open validation modes retain distinct struct results and the same map results" do
     schema = Zoi.struct(Value, %{count: Zoi.integer()}, coerce: true)
     input = %{count: 2, extra: :kept}
@@ -26,6 +27,7 @@ defmodule JidoActionTest.Action.OpenValidationContractTest do
     end
   end
 
+  @tag obligation: "jido_action.validation.I3"
   test "open validation modes return the same complete public parse errors" do
     schema = Zoi.object(%{count: Zoi.integer()})
     details = %{phase: :input, errors: :replaced}
@@ -48,6 +50,7 @@ defmodule JidoActionTest.Action.OpenValidationContractTest do
     end
   end
 
+  @tag obligation: "jido_action.validation.I3"
   test "both modes contain raised, thrown, and exited schema failures" do
     cases = [
       {fn -> raise "schema failed" end, %{exception: RuntimeError, reason: "schema failed"}},

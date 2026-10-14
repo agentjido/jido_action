@@ -65,8 +65,30 @@ defmodule Jido.Exec.Validation do
   @spec callback(module(), atom(), term(), :input | :output) ::
           {:ok, term()} | {:error, Exception.t()}
   def callback(module, callback, value, phase) do
+    with {:ok, value} <- callback_input(module, value, phase) do
+      apply_callback(module, callback, value, phase)
+    end
+  end
+
+  defp callback_input(_module, %Output{} = output, :output), do: Output.validate(output)
+
+  defp callback_input(module, value, :output) when not is_map(value) do
+    {:error,
+     Error.validation_error("Action output validation must return a map", %{
+       context: "Action output",
+       module: module,
+       value: value
+     })}
+  end
+
+  defp callback_input(_module, value, _phase), do: {:ok, value}
+
+  defp apply_callback(module, callback, value, phase) do
     case apply(module, callback, [value], phase) do
-      {:ok, {:ok, validated}} ->
+      {:ok, {:ok, %Output{} = validated}} when phase == :output ->
+        Output.validate(validated)
+
+      {:ok, {:ok, validated}} when is_map(validated) ->
         {:ok, validated}
 
       {:ok, {:error, error}} when is_exception(error) ->

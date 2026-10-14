@@ -1,5 +1,5 @@
 defmodule Jido.Exec.Node.ActionTest do
-  use ExUnit.Case, async: true
+  use Covenant.Case, component: "jido_action.boundary", async: true
 
   alias Jido.Exec.Node.Action
   alias Jido.Instruction
@@ -16,6 +16,355 @@ defmodule Jido.Exec.Node.ActionTest do
   alias Runic.Workflow
   alias Runic.Workflow.{Fact, Invokable}
 
+  defmodule ValidatorProbe do
+    @behaviour Jido.Action
+    def validate_params(%{input_validation: result}), do: result
+    def validate_params(params), do: {:ok, params}
+    def validate_output(%{output_validation: result}), do: result
+    def validate_output(output), do: {:ok, output}
+
+    def run(params, context) do
+      send(context.observer, {context.token, :callback, params})
+      output = if context[:wrap], do: %{params: params}, else: params
+      {:ok, output, [:request]}
+    end
+  end
+
+  @tag obligation: ["jido_action.boundary.I1", "jido_action.boundary.I3"]
+  test "custom validator success must contain a map or a valid output envelope" do
+    for phase <- [:input, :output],
+        target <- [ValidatorProbe, boundary_flow(ValidatorProbe)] do
+      token = make_ref()
+      key = if phase == :input, do: :input_validation, else: :output_validation
+      params = %{key => {:ok, 42}}
+
+      assert {:error, %Jido.Action.Error.InternalError{} = error} =
+               Jido.Exec.run(target, params, %{observer: self(), token: token})
+
+      assert error.message == "Action validator returned an invalid value"
+      assert error.details.action == ValidatorProbe
+      assert error.details.phase == phase
+      assert error.details.return == {:ok, 42}
+      assert error.details.reason == :invalid_validator_return
+
+      if phase == :input do
+        refute_received {^token, :callback, _}
+      else
+        assert_received {^token, :callback, ^params}
+      end
+    end
+  end
+
+  @tag obligation: ["jido_action.boundary.I3", "jido_action.boundary.I4"]
+  test "custom output validators cannot pass a malformed output envelope" do
+    invalid = %Jido.Action.Output{kind: :stream, value: 42, meta: %{}}
+
+    for target <- [ValidatorProbe, boundary_flow(ValidatorProbe)] do
+      token = make_ref()
+      params = %{output_validation: {:ok, invalid}}
+
+      assert {:error, %Jido.Action.Error.InvalidInputError{} = error} =
+               Jido.Exec.run(target, params, %{observer: self(), token: token})
+
+      assert error.message == "invalid action output envelope"
+      assert error.details.value == invalid
+      assert_received {^token, :callback, ^params}
+    end
+  end
+
+  defmodule ConvertingOutput do
+    @behaviour Jido.Action
+    def validate_params(params), do: {:ok, params}
+    def validate_output(output), do: {:ok, %{converted: output}}
+    def run(%{output: output}, _context), do: {:ok, output, [:request]}
+  end
+
+  @tag obligation: ["jido_action.boundary.I3", "jido_action.boundary.I4"]
+  test "an output validator cannot conceal an invalid callback success value" do
+    invalid = %Jido.Action.Output{kind: :batch, value: [1 | :tail], meta: %{}}
+
+    for target <- [ConvertingOutput, boundary_flow(ConvertingOutput)] do
+      assert {:error, %Jido.Action.Error.InvalidInputError{} = scalar_error} =
+               Jido.Exec.run(target, %{output: 42})
+
+      assert scalar_error.message == "Action output validation must return a map"
+      assert scalar_error.details.value == 42
+      assert scalar_error.details.module == ConvertingOutput
+      assert scalar_error.details.context == "Action output"
+
+      assert {:error, %Jido.Action.Error.InvalidInputError{} = envelope_error} =
+               Jido.Exec.run(target, %{output: invalid})
+
+      assert envelope_error.message == "invalid action output envelope"
+      assert envelope_error.details.value == invalid
+
+      assert {:ok, %{converted: %{value: 1}}, [:request]} =
+               Jido.Exec.run(target, %{output: %{value: 1}})
+    end
+  end
+
+  @tag obligation: "jido_action.boundary.I1"
+  test "a validator map success keeps input structs separate from output envelope rules" do
+    input = %Jido.Action.Output{kind: :input_data, value: 42, meta: %{}}
+    token = make_ref()
+    params = %{input_validation: {:ok, input}}
+
+    assert {:ok, %{params: ^input}, [:request]} =
+             Jido.Exec.run(ValidatorProbe, params, %{observer: self(), token: token, wrap: true})
+
+    assert_received {^token, :callback, ^input}
+  end
+
+  defmodule ReturnProbe do
+    @behaviour Jido.Action
+    def validate_params(params), do: {:ok, params}
+    def validate_output(output), do: {:ok, output}
+    def run(%{reply: reply}, _context), do: reply
+  end
+
+  @tag obligation: ["jido_action.boundary.I1", "jido_action.boundary.I3"]
+  test "validator failures retain the phase Action reason and invalid return" do
+    for phase <- [:input, :output],
+        reply <- [{:error, :bad}, :ok],
+        target <- [ValidatorProbe, boundary_flow(ValidatorProbe)] do
+      token = make_ref()
+      key = if phase == :input, do: :input_validation, else: :output_validation
+      params = %{key => reply}
+
+      assert {:error, error} =
+               Jido.Exec.run(target, params, %{observer: self(), token: token})
+
+      assert error.details.action == ValidatorProbe
+      assert error.details.phase == phase
+
+      if reply == :ok do
+        assert %Jido.Action.Error.InternalError{} = error
+        assert error.message == "Action validator returned an invalid value"
+        assert error.details.return == :ok
+        assert error.details.reason == :invalid_validator_return
+      else
+        assert %Jido.Action.Error.InvalidInputError{} = error
+        assert error.message == "Action #{phase} validation failed"
+        assert error.details.reason == :bad
+      end
+
+      if phase == :input,
+        do: refute_received({^token, :callback, _}),
+        else: assert_received({^token, :callback, ^params})
+    end
+  end
+
+  @tag obligation: ["jido_action.boundary.I1", "jido_action.boundary.I3"]
+  test "validator exception errors retain the original exception" do
+    original = Jido.Action.Error.validation_error("original", %{marker: :preserved})
+
+    for phase <- [:input, :output] do
+      token = make_ref()
+      key = if phase == :input, do: :input_validation, else: :output_validation
+      params = %{key => {:error, original}}
+
+      assert {:error, ^original} =
+               Jido.Exec.run(ValidatorProbe, params, %{observer: self(), token: token})
+    end
+  end
+
+  @tag obligation: "jido_action.boundary.I2"
+  test "callback errors retain exact messages reasons and failure details" do
+    continuation = {:continue, %{value: 1}, Add}
+
+    for target <- [ReturnProbe, boundary_flow(ReturnProbe)] do
+      for reason <- ["rejected", :rejected, {:rejected, 42}],
+          reply <- [{:error, reason}, {:error, reason, [:discard]}] do
+        assert {:error, %Jido.Action.Error.ExecutionFailureError{} = error} =
+                 Jido.Exec.run(target, %{reply: reply})
+
+        expected =
+          if is_binary(reason),
+            do: reason,
+            else: if(is_atom(reason), do: Atom.to_string(reason), else: inspect(reason))
+
+        assert error.message == expected
+        assert error.details.action == ReturnProbe
+        assert error.details.phase == :run
+        assert error.details.reason == reason
+      end
+
+      for {reply, message, reason} <- [
+            {continuation, "Action continuations are not supported by Runic execution",
+             :unsupported_continuation},
+            {:bad_return, "Action returned an invalid value", :invalid_return}
+          ] do
+        assert {:error, %Jido.Action.Error.ExecutionFailureError{} = error} =
+                 Jido.Exec.run(target, %{reply: reply})
+
+        assert error.message == message
+        assert error.details.action == ReturnProbe
+        assert error.details.phase == :run
+        assert error.details.return == reply
+        assert error.details.reason == reason
+      end
+    end
+  end
+
+  @tag obligation: "jido_action.boundary.I4"
+  test "invalid effect lists retain their rejected value and Action detail" do
+    for target <- [ReturnProbe, boundary_flow(ReturnProbe)],
+        effects <- [nil, %{}, [:request | :tail]] do
+      assert {:error, %Jido.Action.Error.ExecutionFailureError{} = error} =
+               Jido.Exec.run(target, %{reply: {:ok, %{}, effects}})
+
+      assert error.message == "Action returned an invalid effects list"
+      assert error.details.action == ReturnProbe
+      assert error.details.phase == :run
+      assert error.details.reason == :invalid_effects
+      assert error.details.effects == effects
+    end
+  end
+
+  @tag obligation: [
+         "jido_action.boundary.I1",
+         "jido_action.boundary.I2",
+         "jido_action.boundary.I3"
+       ]
+  test "original callback and validator stacktraces remain in both documented fields" do
+    alias JidoActionTest.Fixtures.Actions.{StacktraceAction, StacktraceValidationAction}
+
+    for {action, mode, phase, frame} <- [
+          {StacktraceAction, :raise, :run, :raise_from_action},
+          {StacktraceAction, :throw, :run, :throw_from_action},
+          {StacktraceAction, :exit, :run, :exit_from_action},
+          {StacktraceValidationAction, :input, :input, :raise_from_input_validator},
+          {StacktraceValidationAction, :output, :output, :raise_from_output_validator}
+        ] do
+      assert {:error, %Jido.Action.Error.ExecutionFailureError{} = error} =
+               Jido.Exec.run(action, %{mode: mode})
+
+      assert error.details.action == action
+      assert error.details.phase == phase
+      assert %Splode.Stacktrace{stacktrace: frames} = error.stacktrace
+      assert frames == error.details.stacktrace
+      assert Enum.any?(frames, &match?({^action, ^frame, 0, _}, &1))
+
+      if mode in [:throw, :exit] do
+        assert error.message == "Action run #{mode}"
+        assert error.details.kind == mode
+
+        assert error.details.reason ==
+                 if(mode == :throw, do: :stacktrace_probe_thrown, else: :stacktrace_probe_exited)
+      else
+        assert error.details.exception == RuntimeError
+      end
+    end
+  end
+
+  @tag obligation: "jido_action.boundary.I5"
+  test "native root input overrides Instruction params and wraps scalar input" do
+    instruction = Instruction.new!(target: EchoParamsAction, params: %{fixed: 1, value: :before})
+    node = Action.new(instruction, name: "merge")
+    workflow = Workflow.new() |> Workflow.add(node)
+
+    for {input, expected} <- [
+          {%{value: :after, extra: true}, %{fixed: 1, value: :after, extra: true}},
+          {42, %{fixed: 1, value: :before, input: 42}}
+        ] do
+      {:ok, runnable} = Invokable.prepare(node, workflow, Fact.new(value: input))
+      executed = Invokable.execute(node, runnable)
+      assert executed.status == :completed
+      assert executed.result.value == expected
+    end
+  end
+
+  @tag obligation: "jido_action.boundary.I5"
+  test "Action components expose native ports connections and reconstructed result ports" do
+    instruction = Instruction.new!(target: Add)
+    node = Action.new(instruction, id: :public_id, name: "named")
+    parent = Action.new(Instruction.new!(target: EchoParamsAction), name: "parent")
+
+    assert Runic.Component.connectable?(node, parent) == true
+    assert [in: [type: :any, doc: input_doc, schema: input_schema]] = Runic.Component.inputs(node)
+
+    assert [out: [type: :any, doc: output_doc, schema: output_schema]] =
+             Runic.Component.outputs(node)
+
+    assert is_binary(input_doc)
+    assert is_binary(output_doc)
+    assert input_schema == Add.to_json()["input_schema"]
+    assert output_schema == Add.to_json()["output_schema"]
+
+    workflow = Runic.Transmutable.to_workflow(node)
+    assert workflow.name == "named"
+    assert workflow.output_ports == [result: [type: :any, from: "named"]]
+    assert Workflow.get_component(workflow, {"named", :action}) == [node]
+
+    second = Action.new(Instruction.new!(target: EchoParamsAction), name: "second")
+
+    joined =
+      Workflow.new()
+      |> Workflow.add(parent)
+      |> Workflow.add(second)
+      |> Workflow.add(node, to: ["parent", "second"])
+
+    assert Workflow.get_component(joined, "named") == node
+
+    assert Enum.any?(joined.graph.vertices, fn {_, value} ->
+             match?(%Runic.Workflow.Join{}, value)
+           end)
+
+    {rebuilt, []} = node |> Runic.Component.source() |> Code.eval_quoted()
+    assert rebuilt == node
+  end
+
+  @tag obligation: "jido_action.boundary.I5"
+  test "native identity distinguishes targets and IDs while excluding call data" do
+    first = Action.new(Instruction.new!(target: Add), id: :first)
+    other_target = Action.new(Instruction.new!(target: EchoParamsAction), id: :first)
+    assert first.hash != other_target.hash
+
+    for {left, right} <- [{:left, :right}, {"left", "right"}] do
+      a = Action.new(Instruction.new!(target: Add), id: left)
+      b = Action.new(Instruction.new!(target: Add), id: right)
+      assert a.hash != b.hash
+      assert Runic.Identity.Canonical.encode!(a) != Runic.Identity.Canonical.encode!(b)
+    end
+
+    changed_call =
+      Action.new(Instruction.new!(target: Add, params: %{value: 2}, context: %{runtime: self()}),
+        id: :first
+      )
+
+    assert first.hash == changed_call.hash
+
+    assert Runic.Identity.Canonical.encode!(first) ==
+             Runic.Identity.Canonical.encode!(changed_call)
+  end
+
+  @tag obligation: "jido_action.boundary.I5"
+  test "root compilation retains local term IDs without putting them in the native hash document" do
+    for id <- [self(), make_ref()] do
+      workflow = Jido.Exec.compile!(Add, id: id)
+      node = Workflow.get_component(workflow, "add_one")
+      assert node.id == id
+      assert %Runic.Identity{domain: :component_definition} = node.hash
+      {rebuilt, []} = node |> Runic.Component.source() |> Code.eval_quoted()
+      assert rebuilt.id == id
+      assert rebuilt.hash == node.hash
+    end
+  end
+
+  @tag obligation: "jido_action.boundary.I5"
+  test "native construction rejects a wrong Instruction kind and unresolved target" do
+    instruction = Instruction.new!(target: Add)
+
+    assert_raise Jido.Action.Error.InvalidInputError, fn ->
+      Action.new(%{instruction | target: Enum})
+    end
+
+    assert_raise ArgumentError, "expected an Action Instruction, got: :flow", fn ->
+      Action.new(%{instruction | kind: :flow})
+    end
+  end
+
+  @tag obligation: "jido_action.boundary.I5"
   test "an Action Instruction becomes a stable Action" do
     instruction = Instruction.new!(target: Add, params: %{amount: 2})
 
@@ -27,6 +376,7 @@ defmodule Jido.Exec.Node.ActionTest do
     assert Runic.Component.hash(first) == first.hash
   end
 
+  @tag obligation: "jido_action.boundary.I5"
   test "Action schemas are available through the Runic Component ports" do
     node = Add |> then(&Instruction.new!(target: &1)) |> Runic.Transmutable.to_component()
 
@@ -34,6 +384,7 @@ defmodule Jido.Exec.Node.ActionTest do
     assert Runic.Component.outputs(node)[:out][:schema] == Add.to_json()["output_schema"]
   end
 
+  @tag obligation: "jido_action.boundary.I5"
   test "Runic prepares, executes, and applies an Action" do
     node = Action.new(Instruction.new!(target: Add, params: %{amount: 2}), name: "add")
     workflow = Workflow.new(name: "one_action") |> Workflow.add(node)
@@ -50,6 +401,7 @@ defmodule Jido.Exec.Node.ActionTest do
     assert Workflow.raw_productions(applied, "add") == [%{value: 5}]
   end
 
+  @tag obligation: "jido_action.boundary.I5"
   test "an Action participates in a native SingleOutput batch" do
     node = Action.new(Instruction.new!(target: Add, params: %{amount: 2}), name: "item")
     batch = Runic.batch(node, name: "batch")
@@ -66,6 +418,7 @@ defmodule Jido.Exec.Node.ActionTest do
     assert Enum.all?(outcomes, &(&1.status == :completed))
   end
 
+  @tag obligation: ["jido_action.boundary.I4", "jido_action.boundary.I5"]
   test "successful output keeps application metadata and effects through the native lifecycle" do
     node = Action.new(Instruction.new!(target: ExtrasAction), name: "effects")
 
@@ -90,6 +443,7 @@ defmodule Jido.Exec.Node.ActionTest do
     assert executed.result.ancestry == {node.hash, fact.hash}
   end
 
+  @tag obligation: ["jido_action.boundary.I4", "jido_action.boundary.I5"]
   test "native completion preserves local values from marked and wrapped input Facts" do
     node = Action.new(Instruction.new!(target: EchoParamsAction), name: "local")
     workflow = Workflow.new() |> Workflow.add(node)
@@ -108,6 +462,7 @@ defmodule Jido.Exec.Node.ActionTest do
     end
   end
 
+  @tag obligation: "jido_action.boundary.I5"
   test "native hooks defer graph changes until successful application" do
     node = Action.new(Instruction.new!(target: Add, params: %{amount: 2}), name: "hooks")
     owner = self()
@@ -140,6 +495,7 @@ defmodule Jido.Exec.Node.ActionTest do
     assert_receive {:applied, :after}
   end
 
+  @tag obligation: "jido_action.boundary.I2"
   test "hook failures publish no Fact and discard deferred changes" do
     node = Action.new(Instruction.new!(target: ExtrasAction), name: "failed_hooks")
     owner = self()
@@ -169,6 +525,7 @@ defmodule Jido.Exec.Node.ActionTest do
     end
   end
 
+  @tag obligation: "jido_action.boundary.I1"
   test "input validation fails the Runnable" do
     node = Action.new(Instruction.new!(target: BasicAction), name: "basic")
     workflow = Workflow.new() |> Workflow.add(node)
@@ -181,6 +538,7 @@ defmodule Jido.Exec.Node.ActionTest do
     assert %Jido.Action.Error.InvalidInputError{} = executed.error
   end
 
+  @tag obligation: "jido_action.boundary.I2"
   test "an Action exception fails the Runnable with a structured error" do
     node = Action.new(Instruction.new!(target: ErrorAction), name: "error")
     workflow = Workflow.new() |> Workflow.add(node)
@@ -193,6 +551,7 @@ defmodule Jido.Exec.Node.ActionTest do
     assert %Jido.Action.Error.ExecutionFailureError{details: %{phase: :run}} = executed.error
   end
 
+  @tag obligation: "jido_action.boundary.I2"
   test "an invalid Action return fails the Runnable" do
     node = Action.new(Instruction.new!(target: UnsupportedResult), name: "unsupported")
     workflow = Workflow.new() |> Workflow.add(node)
@@ -207,7 +566,16 @@ defmodule Jido.Exec.Node.ActionTest do
              executed.error
   end
 
+  @tag obligation: "jido_action.boundary.I5"
   test "normal atoms keep Runic's normal Transmutable behavior" do
     refute match?(%Action{}, Runic.Transmutable.to_component(:ordinary_value))
+  end
+
+  defp boundary_flow(action) do
+    Jido.Flow.new!(%{
+      name: "validator_boundary",
+      components: [%{kind: :step, name: "work", action: action, params: Jido.Flow.Ref.input([])}],
+      output: Jido.Flow.Ref.result("work")
+    })
   end
 end

@@ -1,7 +1,7 @@
 Code.require_file("../support/fuzz.exs", __DIR__)
 
 defmodule JidoActionTest.Property.Instruction.CallContractTest do
-  use ExUnit.Case, async: true
+  use Covenant.Case, component: "jido_action.instruction", async: true
   use ExUnitProperties
   alias JidoActionTest.Property.Fuzz
   alias Jido.{Exec, Instruction}
@@ -33,6 +33,11 @@ defmodule JidoActionTest.Property.Instruction.CallContractTest do
   @tag fuzz_id: "instruction_targets"
   @tag max_runs: 500, max_run_time: 300_000, timeout: 900_000
   @tag contracts: ["INS-001", "TARGET-001"]
+  @tag obligation: [
+         "jido_action.instruction.I3",
+         "jido_action.instruction.I4",
+         "jido_action.instruction.I5"
+       ]
   @tag contract_cases: [
          "INS-001/fuzz-shallow-overrides",
          "INS-001/fuzz-metadata",
@@ -96,6 +101,7 @@ defmodule JidoActionTest.Property.Instruction.CallContractTest do
   end
 
   @tag contracts: ["INS-001"]
+  @tag obligation: ["jido_action.instruction.I3", "jido_action.instruction.I4"]
   @tag contract_cases: [
          "INS-001/action-target",
          "INS-001/flow-value",
@@ -142,6 +148,7 @@ defmodule JidoActionTest.Property.Instruction.CallContractTest do
   end
 
   @tag contracts: ["INS-001"]
+  @tag obligation: "jido_action.instruction.I3"
   @tag contract_cases: ["INS-001/nil-maps", "INS-001/invalid-maps", "INS-001/removed-fields"]
   property "nil maps normalize to empty and invalid invocation data remains rejected" do
     check all(value <- integer(), max_runs: 30) do

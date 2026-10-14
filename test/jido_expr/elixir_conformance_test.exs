@@ -1,5 +1,5 @@
 defmodule Jido.Expr.ElixirConformanceTest do
-  use ExUnit.Case, async: true
+  use Covenant.Case, component: "jido_action.expression", async: true
 
   require Jido.Expr
   alias Jido.Expr
@@ -31,6 +31,7 @@ defmodule Jido.Expr.ElixirConformanceTest do
     {:abs, 1, :abs, "abs(-2.5)", "abs(-2.5)"}
   ]
 
+  @tag obligation: "jido_action.expression.I1"
   test "every supported spelling and canonical operator has a reference case" do
     assert Enum.sort(Expr.Parser.syntax()) ==
              Enum.sort(Enum.map(@syntax, fn {name, arity, _, _, _} -> {name, arity} end))
@@ -40,6 +41,7 @@ defmodule Jido.Expr.ElixirConformanceTest do
   end
 
   for {name, arity, operator, source, native_source} <- @syntax do
+    @tag obligation: "jido_action.expression.I2"
     test "#{name}/#{arity} agrees through source, macro, and canonical data" do
       ast = Code.string_to_quoted!(unquote(source))
       assert {:ok, expression} = Expr.parse(ast)
@@ -101,6 +103,7 @@ defmodule Jido.Expr.ElixirConformanceTest do
   ]
 
   for source <- @edges do
+    @tag obligation: "jido_action.expression.I2"
     test "native edge: #{source}" do
       ast = Code.string_to_quoted!(unquote(source))
 
@@ -109,6 +112,7 @@ defmodule Jido.Expr.ElixirConformanceTest do
     end
   end
 
+  @tag obligation: "jido_action.expression.I1"
   test "ordering and selection match native term order across the supported data set" do
     values = [
       nil,
@@ -136,6 +140,7 @@ defmodule Jido.Expr.ElixirConformanceTest do
     end
   end
 
+  @tag obligation: "jido_action.expression.I1"
   test "binary Boolean operators skip only the unneeded resolver in operand order" do
     parent = self()
     left = Ref.input(:left)
@@ -155,6 +160,7 @@ defmodule Jido.Expr.ElixirConformanceTest do
     assert :ok = Expr.validate(Expr.new!(:or, [left, right]), validate_leaf: fn _ -> :ok end)
   end
 
+  @tag obligation: "jido_action.expression.I2"
   test "unsupported source never becomes a general evaluator" do
     for source <- [
           "1 === 1.0",
@@ -179,6 +185,7 @@ defmodule Jido.Expr.ElixirConformanceTest do
     end
   end
 
+  @tag obligation: "jido_action.expression.I1"
   test "stored documents use the supported Elixir rules" do
     assert Expr.expr(true and 123) == Expr.new!(:and, [true, 123])
     output = %{member: Expr.new!(:in, [1, [1.0]]), value: Expr.new!(:and, [true, 123])}

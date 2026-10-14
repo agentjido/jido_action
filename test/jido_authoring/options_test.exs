@@ -1,10 +1,11 @@
 defmodule Jido.Authoring.OptionsTest do
-  use ExUnit.Case, async: true
+  use Covenant.Case, component: "jido_action.inline", async: true
 
   alias Jido.Action.Inline
   alias Jido.Action.Inline.Parser
   alias Jido.Flow.DSL.{InlineStep, MacroSupport}
 
+  @tag obligation: ["jido_action.inline.I1", "jido_action.inline.I5"]
   test "each caller keeps its error label and source location" do
     for {validate, label, message, allowed} <- callers() do
       for invalid <- [:invalid, [:invalid], [{allowed, :ok} | :tail]] do
@@ -19,6 +20,7 @@ defmodule Jido.Authoring.OptionsTest do
     end
   end
 
+  @tag obligation: ["jido_action.inline.I1", "jido_action.inline.I5"]
   test "inline Action and Step checks keep their distinct diagnostic order" do
     error =
       assert_raise CompileError, fn ->
@@ -45,6 +47,7 @@ defmodule Jido.Authoring.OptionsTest do
     assert_source(error)
   end
 
+  @tag obligation: "jido_action.inline.I1"
   test "Action invalid option expressions retain their expression line" do
     error =
       assert_raise CompileError, fn ->
@@ -55,6 +58,7 @@ defmodule Jido.Authoring.OptionsTest do
     assert error.line == 29
   end
 
+  @tag obligation: ["jido_action.inline.I1", "jido_action.inline.I5"]
   test "valid options still produce inline Action and Step declarations" do
     assert %Inline{} = Inline.parse_callback!({:params, [], nil}, [do: :ok], caller())
 

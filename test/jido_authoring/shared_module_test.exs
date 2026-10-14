@@ -1,5 +1,5 @@
 defmodule Jido.Authoring.SharedModuleTest do
-  use ExUnit.Case, async: true
+  use Covenant.Case, component: "jido_action.action", async: true
 
   alias Jido.{Exec, Flow, Instruction}
   alias Jido.Flow.Ref
@@ -48,6 +48,7 @@ defmodule Jido.Authoring.SharedModuleTest do
     end
   end
 
+  @tag obligation: ["jido_action.action.I1", "jido_action.action.I4"]
   test "Action and Flow modules share the Action contract and retain distinct kinds" do
     for {module, kind} <- [{Echo, :action}, {EchoFlow, :flow}] do
       assert module.__info__(:attributes)[:behaviour] == [Jido.Action]
@@ -57,6 +58,7 @@ defmodule Jido.Authoring.SharedModuleTest do
     end
   end
 
+  @tag obligation: "jido_action.action.I1"
   test "shared metadata descriptions preserve schemas and distinguish module kinds" do
     for {module, kind} <- [{Echo, "action"}, {EchoFlow, "flow"}] do
       json = module.to_json()
@@ -71,6 +73,7 @@ defmodule Jido.Authoring.SharedModuleTest do
     end
   end
 
+  @tag obligation: "jido_action.action.I3"
   test "Flow validation runs once at each boundary with native child steps" do
     input = %{value: 1, observer: self()}
 
@@ -88,6 +91,7 @@ defmodule Jido.Authoring.SharedModuleTest do
     assert %Jido.Exec.Node.Action{} = Runic.Workflow.get_component(workflow, "echo")
   end
 
+  @tag obligation: ["jido_action.action.I1", "jido_action.action.I3"]
   test "a shared Flow target stays native when nested and bound as an Instruction" do
     parent =
       Flow.new!(%{
@@ -101,6 +105,7 @@ defmodule Jido.Authoring.SharedModuleTest do
     assert EchoFlow.run(%{value: 3}, %{}) == {:ok, %{value: 3}}
   end
 
+  @tag obligation: "jido_action.action.I1"
   test "shared Flow modules do not become Action targets in component fields" do
     for component <- [
           %{kind: :step, name: "child", action: EchoFlow, params: %{value: 1}},
@@ -115,9 +120,17 @@ defmodule Jido.Authoring.SharedModuleTest do
     end
   end
 
+  @tag obligation: "jido_action.action.I2"
   test "shared configuration evaluates module options and schemas once" do
     for kind <- [:action, :flow] do
       module = Module.concat(__MODULE__, "Counted#{kind}#{System.unique_integer([:positive])}")
+
+      on_exit(fn ->
+        :code.purge(module)
+        :code.delete(module)
+        :code.purge(module)
+      end)
+
       using = if kind == :action, do: Jido.Action, else: Jido.Flow
 
       body =

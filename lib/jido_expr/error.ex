@@ -5,6 +5,8 @@ defmodule Jido.Expr.Error do
   `path` identifies the expression location. Operand paths use `:operands`
   followed by the zero-based operand index. Lists use indexes and maps use
   keys. `details` contains types or limit information, not runtime values.
+  Map keys in resolved data are private runtime values and stay out of paths.
+  Limit failures in those maps retain the reference path and any list indexes.
   """
 
   defexception [:reason, :operator, path: [], details: %{}]

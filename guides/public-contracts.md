@@ -18,7 +18,7 @@ Keep an ID when its wording becomes more precise. Do not reuse a retired ID.
 | ACT-005 | An inline Step becomes an ordinary Action and keeps access to its owner's lexical helpers. | `test/property/flow/inline_contract_test.exs`, `test/jido_action/inline_host_test.exs` |
 | TARGET-001 | Resolution preserves each supported target and kind and rejects invalid descriptors. | `test/property/instruction/target_contract_test.exs`, `test/jido_instruction/target_test.exs` |
 | INS-001 | An Instruction carries call data and uses shallow params and context overrides without treating metadata as execution policy. | `test/property/instruction/call_contract_test.exs`, `test/jido_instruction/` |
-| ERROR-001 | Error maps preserve their documented type, details, and retry policy and omit top-level stacktraces. | `test/property/action/error_contract_test.exs` |
+| ERROR-001 | Error maps preserve their documented type, details, and retry policy and omit top-level stacktraces. | `test/property/action/error_contract_test.exs`, `test/jido_action/error_test.exs` |
 
 ## Expressions
 

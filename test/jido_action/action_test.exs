@@ -1,5 +1,7 @@
 defmodule JidoActionTest.ActionTest do
-  use JidoActionTest.Case, async: true
+  use Covenant.Case, component: "jido_action.action", async: true
+  import JidoActionTest.Case
+  @moduletag obligation: "jido_action.action.I1"
 
   alias Jido.Action
   alias Jido.Authoring.Config
@@ -86,6 +88,7 @@ defmodule JidoActionTest.ActionTest do
       assert_raise ArgumentError, ~r/invalid byte 0xFF/, fn -> module.to_json() end
     end
 
+    @tag obligation: "jido_action.action.I4"
     test "a missing run callback is reported during compilation" do
       module = unique_module("RuntimeDefaultAction")
 
@@ -163,6 +166,7 @@ defmodule JidoActionTest.ActionTest do
       assert {:ok, %{result: "ok"}} = module.validate_output(%{result: "ok"})
     end
 
+    @tag obligation: "jido_action.action.I2"
     test "supports static schemas with named MFA effects" do
       module = unique_module("StaticMfaSchemaAction")
 
@@ -200,6 +204,7 @@ defmodule JidoActionTest.ActionTest do
                module.validate_output(%{result: 3})
     end
 
+    @tag obligation: "jido_action.action.I2"
     test "rejects anonymous functions in Action schemas" do
       schema_ast =
         quote do
@@ -225,6 +230,7 @@ defmodule JidoActionTest.ActionTest do
       end
     end
 
+    @tag obligation: "jido_action.action.I2"
     test "rejects lazy Action schemas" do
       module = unique_module("LazySchemaAction")
 
@@ -240,6 +246,7 @@ defmodule JidoActionTest.ActionTest do
       end
     end
 
+    @tag obligation: "jido_action.action.I2"
     test "rejects the removed schema bindings options" do
       module = unique_module("RemovedSchemaBindingsAction")
 
@@ -256,6 +263,7 @@ defmodule JidoActionTest.ActionTest do
       end
     end
 
+    @tag obligation: "jido_action.action.I2"
     test "evaluates a static schema builder once" do
       module = unique_module("CountedStaticSchemaAction")
       counter = start_supervised!({Agent, fn -> 0 end})
@@ -279,6 +287,7 @@ defmodule JidoActionTest.ActionTest do
       assert Agent.get(counter, & &1) == 1
     end
 
+    @tag obligation: "jido_action.action.I2"
     test "evaluates non-literal options once" do
       module = unique_module("CountedDynamicOptionsAction")
       {:ok, counter} = Agent.start_link(fn -> 0 end)
@@ -297,6 +306,7 @@ defmodule JidoActionTest.ActionTest do
       assert module.name() == "counted_dynamic_options_action"
     end
 
+    @tag obligation: "jido_action.action.I2"
     test "invalid action configuration raises at compile time" do
       module = unique_module("InvalidActionConfig")
 
@@ -310,6 +320,7 @@ defmodule JidoActionTest.ActionTest do
       end
     end
 
+    @tag obligation: "jido_action.action.I2"
     test "unknown action options raise at compile time" do
       module = unique_module("UnknownActionOption")
 
@@ -326,11 +337,14 @@ defmodule JidoActionTest.ActionTest do
   end
 
   describe "configuration schema validation" do
+    @describetag obligation: "jido_action.action.I2"
     test "validates non-blank string action names" do
       assert :ok = Config.validate_name("valid_name")
       assert :ok = Config.validate_name("ValidName")
       assert :ok = Config.validate_name("a")
       assert :ok = Config.validate_name("A")
+      assert :ok = Config.validate_name(String.duplicate("a", 256))
+      assert :ok = Config.validate_name(String.duplicate("é", 128))
     end
 
     test "validates action names with external or display-oriented punctuation" do
@@ -409,19 +423,93 @@ defmodule JidoActionTest.ActionTest do
         end
       )
 
-      assert {:error, %Jido.Action.Error.InvalidInputError{message: params_message}} =
+      assert {:error,
+              %Jido.Action.Error.InvalidInputError{
+                message: params_message,
+                details: params_details
+              }} =
                module.validate_params(%{})
 
       assert params_message == "Action validation must return a map"
+      assert params_details == %{context: "Action", module: module, value: :invalid}
 
-      assert {:error, %Jido.Action.Error.InvalidInputError{message: output_message}} =
+      assert {:error,
+              %Jido.Action.Error.InvalidInputError{
+                message: output_message,
+                details: output_details
+              }} =
                module.validate_output(%{})
 
       assert output_message == "Action output validation must return a map"
+      assert output_details == %{context: "Action output", module: module, value: :invalid}
     end
   end
 
   describe "static data validation" do
+    @describetag obligation: "jido_action.action.I2"
+
+    test "rejects nested runtime process values" do
+      port = Port.open({:spawn_executable, System.find_executable("cat")}, [:binary])
+
+      try do
+        for value <- [self(), make_ref(), port] do
+          assert {:error, "runtime process values are not supported at [:values, 1]"} =
+                   Config.validate_static_data(%{values: [:static, value]})
+        end
+      after
+        Port.close(port)
+      end
+    end
+
+    test "reports the exact paths of map keys, tuple values and improper-list heads" do
+      function = fn -> :ok end
+
+      cases = [
+        {%{function => :value}, "anonymous functions are not supported at [:key]"},
+        {{:static, function}, "anonymous functions are not supported at [1]"},
+        {[:static, function], "anonymous functions are not supported at [1]"},
+        {[:static, function | :tail], "anonymous functions are not supported at [1]"}
+      ]
+
+      for {value, message} <- cases do
+        assert {:error, ^message} = Config.validate_static_data(value)
+      end
+    end
+
+    test "rejects runtime process values from computed Action schemas" do
+      module = unique_module("RuntimeValueSchemaAction")
+
+      assert_raise CompileError, ~r/runtime process values are not supported/, fn ->
+        create_module(
+          module,
+          quote do
+            use Jido.Action,
+              name: "runtime_value_schema_action",
+              schema: Zoi.object(%{value: Zoi.any() |> Zoi.default(self())})
+          end
+        )
+      end
+    end
+
+    test "rejects lazy schemas before their builders run" do
+      module = unique_module("ObservedLazySchemaAction")
+      parent = self()
+
+      assert_raise CompileError, ~r/lazy schemas are not supported/, fn ->
+        create_module(
+          module,
+          quote do
+            use Jido.Action,
+              name: "observed_lazy_schema_action",
+              schema:
+                Zoi.lazy({JidoActionTest.ActionTest, :observed_lazy_schema, [unquote(parent)]})
+          end
+        )
+      end
+
+      refute_received :lazy_schema_was_resolved
+    end
+
     test "rejects improper list tails at their paths" do
       assert {:error, "improper list tails are not supported at [1]"} =
                Config.validate_static_data([:schema | :tail])
@@ -432,6 +520,7 @@ defmodule JidoActionTest.ActionTest do
   end
 
   describe "parameter validation" do
+    @describetag obligation: "jido_action.action.I3"
     test "prepares raw parameters before schema validation" do
       module = unique_module("PrepareParamsAction")
 
@@ -600,6 +689,7 @@ defmodule JidoActionTest.ActionTest do
   end
 
   describe "output validation" do
+    @describetag obligation: "jido_action.action.I3"
     test "action with valid output schema validates successfully" do
       assert {:ok, result} =
                OutputSchemaAction.validate_output(%{result: "test", length: 4, extra: "data"})
@@ -610,11 +700,13 @@ defmodule JidoActionTest.ActionTest do
     end
 
     test "action with invalid output fails validation" do
-      assert {:error, %Jido.Action.Error.InvalidInputError{message: message}} =
+      assert {:error, %Jido.Action.Error.InvalidInputError{message: message, details: details}} =
                OutputSchemaAction.validate_output(%{result: "test"})
 
       assert message =~ "required"
       assert message =~ "length"
+      assert details.context == "Action output"
+      assert details.module == OutputSchemaAction
     end
 
     test "action without output schema skips validation" do
@@ -649,4 +741,9 @@ defmodule JidoActionTest.ActionTest do
   def invalid_transform(_value, _opts), do: :invalid
 
   def static_lazy_schema, do: Zoi.object(%{value: Zoi.integer()})
+
+  def observed_lazy_schema(parent) do
+    send(parent, :lazy_schema_was_resolved)
+    Zoi.object(%{value: Zoi.integer()})
+  end
 end

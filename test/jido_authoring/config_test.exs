@@ -1,5 +1,5 @@
 defmodule Jido.Authoring.ConfigTest do
-  use ExUnit.Case, async: false
+  use Covenant.Case, component: "jido_action.action", async: false
 
   alias Jido.Authoring.Config
   alias Jido.Flow.Error.InvalidDefinitionError
@@ -14,6 +14,7 @@ defmodule Jido.Authoring.ConfigTest do
     Zoi.object(%{value: Zoi.integer() |> Zoi.default(1)})
   end
 
+  @tag obligation: "jido_action.action.I1"
   test "Action and Flow keep omitted and nil schema defaults" do
     for kind <- [:action, :flow],
         options <- [
@@ -33,10 +34,12 @@ defmodule Jido.Authoring.ConfigTest do
              Config.validate_flow(%{name: "defaults", schema: nil, output_schema: nil})
   end
 
+  @tag obligation: "jido_action.action.I2"
   test "module configuration errors keep messages, order, and declaration locations" do
     action_cases = [
       {"[]", "is required, at name"},
       {":invalid", "invalid type: expected map"},
+      {"%{__struct__: __MODULE__, name: \"valid\"}", "invalid type: expected map"},
       {"name: :invalid", "invalid type: expected string, at name"},
       {"name: \"\"", "Action name cannot be blank., at name"},
       {"name: <<255>>", "Action name must be valid UTF-8., at name"},
@@ -73,6 +76,7 @@ defmodule Jido.Authoring.ConfigTest do
     end
   end
 
+  @tag obligation: "jido_action.action.I2"
   test "schema failures keep boundary formatting and static errors take Action priority" do
     for field <- [:schema, :output_schema] do
       for {source, reason} <- [
@@ -115,6 +119,7 @@ defmodule Jido.Authoring.ConfigTest do
     assert error.description =~ ":schema must be static module data; anonymous functions"
   end
 
+  @tag obligation: "jido_action.action.I2"
   test "Flow data retains field details and nil descriptions" do
     assert {:ok, %{description: nil}} = Config.validate_flow(%{name: "valid", description: nil})
 
@@ -126,8 +131,14 @@ defmodule Jido.Authoring.ConfigTest do
 
     assert {:error, %InvalidDefinitionError{details: %{key: :extra}}} =
              Config.validate_flow(%{name: 2, extra: true})
+
+    for {field, value} <- [name: nil, description: 2, schema: :invalid, output_schema: :invalid] do
+      attrs = Map.put(%{name: "valid", components: [], output: %{}}, field, value)
+      assert {:error, %InvalidDefinitionError{}} = Jido.Flow.new(attrs)
+    end
   end
 
+  @tag obligation: ["jido_action.action.I2", "jido_action.action.I3"]
   test "option and schema builders run once for both module forms and inline Actions" do
     for kind <- [:action, :flow] do
       module = compile_module(kind, "#{inspect(__MODULE__)}.options()")
@@ -201,6 +212,7 @@ defmodule Jido.Authoring.ConfigTest do
     on_exit(fn ->
       :code.purge(module)
       :code.delete(module)
+      :code.purge(module)
     end)
   end
 end

@@ -1,5 +1,5 @@
 defmodule Jido.Flow.DSL.InlineActionTest do
-  use ExUnit.Case, async: false
+  use Covenant.Case, component: "jido_action.inline", async: false
 
   alias Jido.Action.Inline
 
@@ -12,6 +12,7 @@ defmodule Jido.Flow.DSL.InlineActionTest do
     end
   end
 
+  @tag obligation: "jido_action.inline.I5"
   test "a direct inline Step uses the shared compiler and typed host path" do
     owner = unique_owner()
 
@@ -30,6 +31,7 @@ defmodule Jido.Flow.DSL.InlineActionTest do
     assert {:ok, %{value: 7}} = Jido.Exec.run(target, %{value: 3}, %{increment: 4})
   end
 
+  @tag obligation: "jido_action.inline.I5"
   test "inline settings configure Action metadata and schemas" do
     owner = unique_owner()
 
@@ -63,6 +65,7 @@ defmodule Jido.Flow.DSL.InlineActionTest do
              Jido.Exec.run(target, %{value: 2}, %{invalid_output: true})
   end
 
+  @tag obligation: "jido_action.inline.I5"
   test "invalid Step fields do not create an inline Action" do
     for field <- [:meta, :needs] do
       owner = unique_owner()
@@ -79,6 +82,7 @@ defmodule Jido.Flow.DSL.InlineActionTest do
     end
   end
 
+  @tag obligation: "jido_action.inline.I5"
   test "rejected Step edits preserve the loaded Action and allow a valid retry" do
     for field <- [:meta, :needs] do
       owner = unique_owner()
@@ -133,6 +137,7 @@ defmodule Jido.Flow.DSL.InlineActionTest do
     end
   end
 
+  @tag obligation: "jido_action.inline.I5"
   test "a direct inline Step uses case inside its expression body" do
     owner = unique_owner()
 
@@ -152,6 +157,7 @@ defmodule Jido.Flow.DSL.InlineActionTest do
              Jido.Exec.run(owner, %{operand: 0})
   end
 
+  @tag obligation: "jido_action.inline.I5"
   test "Flow rejects clause bodies before generating an Action" do
     for settings <- ["", ", inline: [context: ctx]"] do
       owner = unique_owner()
@@ -172,6 +178,7 @@ defmodule Jido.Flow.DSL.InlineActionTest do
     end
   end
 
+  @tag obligation: "jido_action.inline.I5"
   test "Flow rejects two separate binding arguments" do
     for tail <- [
           ", do: {:ok, %{value: left + right}}",
@@ -194,6 +201,7 @@ defmodule Jido.Flow.DSL.InlineActionTest do
     end
   end
 
+  @tag obligation: "jido_action.inline.I5"
   test "inline settings use shared option and context validation" do
     for {inline, message} <- [
           {"context: value", ~r/context variable collides/},
@@ -215,6 +223,7 @@ defmodule Jido.Flow.DSL.InlineActionTest do
     end
   end
 
+  @tag obligation: "jido_action.inline.I5"
   test "inline Step fields reject named Action fields" do
     for field <- [
           "action: JidoActionTest.Fixtures.Actions.Add",
@@ -231,6 +240,7 @@ defmodule Jido.Flow.DSL.InlineActionTest do
     end
   end
 
+  @tag obligation: "jido_action.inline.I5"
   test "Flow does not expose a generic nested inline Action" do
     declarations = [
       """
@@ -330,6 +340,7 @@ defmodule Jido.Flow.DSL.InlineActionTest do
 
   for target <- [JidoActionTest.Fixtures.Actions.Add, Downstream.action_target("add")] do
     @tag target: target
+    @tag obligation: "jido_action.inline.I5"
     test "advanced components accept Action module #{inspect(target)}", %{target: target} do
       owner = unique_owner()
 

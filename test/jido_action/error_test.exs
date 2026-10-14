@@ -1,10 +1,12 @@
 defmodule JidoActionTest.Action.ErrorTest do
-  use ExUnit.Case, async: true
+  use Covenant.Case, component: "jido_action.errors", async: true
 
   alias Jido.Action.Error
   alias Jido.Action.Error.Internal.UnknownError
 
   describe "error construction" do
+    @describetag obligation: "jido_action.errors.I1"
+
     test "constructors create the concrete Action errors" do
       assert %Error.InvalidInputError{message: "invalid"} =
                Error.validation_error("invalid")
@@ -40,6 +42,8 @@ defmodule JidoActionTest.Action.ErrorTest do
   end
 
   describe "Splode compatibility" do
+    @describetag obligation: "jido_action.errors.I2"
+
     test "concrete errors use their expected classes" do
       assert Error.validation_error("invalid").class == :invalid
       assert Error.execution_error("failed").class == :execution
@@ -60,6 +64,8 @@ defmodule JidoActionTest.Action.ErrorTest do
   end
 
   describe "to_map/1" do
+    @describetag obligation: "jido_action.errors.I3"
+
     test "normalizes the concrete Action errors" do
       cases = [
         {Error.validation_error("invalid", field: :count), :validation_error, false},
@@ -153,12 +159,28 @@ defmodule JidoActionTest.Action.ErrorTest do
     end
 
     test "uses the underlying message from a Splode unknown error" do
-      error = UnknownError.exception(error: :shutdown)
-      assert Error.to_map(error).message == "shutdown"
+      cases = [
+        {UnknownError.exception(message: "unknown"), "unknown"},
+        {UnknownError.exception(error: "remote failure"), "remote failure"},
+        {UnknownError.exception(error: :shutdown), "shutdown"},
+        {UnknownError.exception(error: 42), "42"},
+        {UnknownError.exception(error: {:remote, :failure}), "{:remote, :failure}"}
+      ]
+
+      for {error, message} <- cases do
+        assert Error.to_map(error) == %{
+                 type: :internal_error,
+                 message: message,
+                 details: %{},
+                 retryable?: false
+               }
+      end
     end
   end
 
   describe "retryable?/1" do
+    @describetag obligation: "jido_action.errors.I4"
+
     test "uses the concrete error type and a direct execution hint" do
       refute Error.retryable?(Error.validation_error("invalid"))
       refute Error.retryable?(Error.config_error("bad config"))
@@ -172,19 +194,45 @@ defmodule JidoActionTest.Action.ErrorTest do
     end
 
     test "unwraps error tuples" do
-      refute Error.retryable?({:error, Error.timeout_error("slow")})
-      assert Error.retryable?({:error, Error.timeout_error("slow", retry: true)})
-      refute Error.retryable?({:error, Error.validation_error("invalid"), []})
+      cases = [
+        {Error.timeout_error("slow"), false},
+        {Error.timeout_error("slow", retry: true), true},
+        {Error.execution_error("failed", retry: true), true},
+        {Error.validation_error("invalid", retry: true), false},
+        {UnknownError.exception(message: "unknown"), false}
+      ]
+
+      for {error, expected} <- cases do
+        assert Error.retryable?(error) === expected
+        assert Error.retryable?({:error, error}) === expected
+        assert Error.retryable?({:error, error, [:ignored]}) === expected
+      end
+    end
+
+    test "rejects non-Boolean direct retry hints" do
+      for constructor <- [:execution_error, :timeout_error],
+          hint <- [nil, 0, 1, "true", :retry, [], %{}] do
+        error = apply(Error, constructor, ["failed", %{retry: hint}])
+
+        assert Error.retryable?(error) === false
+        assert Error.to_map(error).retryable? === false
+      end
     end
 
     test "does not infer retry policy from unsupported values or nested details" do
-      refute Error.retryable?(:timeout)
-      refute Error.retryable?(%{type: :timeout, retryable?: true})
-      refute Error.retryable?(%{details: %{reason: %{retry: true}}})
+      for reason <- [
+            :timeout,
+            %{type: :timeout, retryable?: true},
+            %{details: %{reason: %{retry: true}}}
+          ] do
+        assert Error.retryable?(reason) === false
+      end
     end
   end
 
   describe "JSON encoding" do
+    @describetag obligation: "jido_action.errors.I5"
+
     test "does not provide transport encoding for error structs" do
       error = Error.execution_error("failed")
 

@@ -1,17 +1,49 @@
 defmodule Jido.ExprTest do
-  use ExUnit.Case, async: true
+  use Covenant.Case, component: "jido_action.expression", async: true
 
+  alias Jido.Expr
   import Jido.Expr, only: [expr: 1]
 
   defmodule Reference do
     defstruct [:key]
   end
 
+  @tag obligation: "jido_action.expression.I4"
+  test "documented default limits admit the boundary and reject the next value" do
+    # Root expression, list operand, items and right operand total 10_000 nodes.
+    assert :ok = Expr.validate(Expr.new!(:==, [List.duplicate(0, 9_997), nil]))
+
+    assert {:error, %Expr.Error{reason: :max_nodes}} =
+             Expr.validate(Expr.new!(:==, [List.duplicate(0, 9_998), nil]))
+
+    assert :ok = Expr.validate(Expr.new!(:==, [nest(0, 63), nil]))
+
+    assert {:error, %Expr.Error{reason: :max_depth}} =
+             Expr.validate(Expr.new!(:==, [nest(0, 64), nil]))
+
+    assert :ok = Expr.validate(Expr.new!(:==, [String.duplicate("x", 1_048_576), nil]))
+
+    assert {:error, %Expr.Error{reason: :max_binary_bytes}} =
+             Expr.validate(Expr.new!(:==, [String.duplicate("x", 1_048_577), nil]))
+
+    bound = Integer.pow(2, 4_096)
+
+    for value <- [bound - 1, -bound + 1],
+        do: assert(:ok = Expr.validate(Expr.new!(:+, [value, 0])))
+
+    for value <- [bound, -bound] do
+      assert {:error, %Expr.Error{reason: :max_integer_bits}} =
+               Expr.validate(Expr.new!(:+, [value, 0]))
+    end
+  end
+
+  @tag obligation: "jido_action.expression.I1"
   test "constructs and evaluates a portable calculation" do
     assert {:ok, expression} = Jido.Expr.new(:+, [2, 3])
     assert {:ok, 5} = Jido.Expr.evaluate(expression)
   end
 
+  @tag obligation: "jido_action.expression.I2"
   test "standalone macro inserts a prebuilt reference through an explicit variable pin" do
     reference = %Reference{key: :count}
     expression = expr(^reference * 2 + 1)
@@ -28,6 +60,7 @@ defmodule Jido.ExprTest do
     end
   end
 
+  @tag obligation: "jido_action.expression.I3"
   test "host callback errors retain their expression path" do
     reference = %Reference{key: :count}
     expression = Jido.Expr.new!(:+, [Jido.Expr.new!(:+, [reference, 1]), 2])
@@ -50,6 +83,7 @@ defmodule Jido.ExprTest do
              Jido.Expr.evaluate(expression, resolve: fn _ -> raise "private" end)
   end
 
+  @tag obligation: "jido_action.expression.I1"
   test "the complete operation set follows Elixir operator names" do
     cases = [
       {:==, [1, 1.0], true},
@@ -86,6 +120,7 @@ defmodule Jido.ExprTest do
     end
   end
 
+  @tag obligation: "jido_action.expression.I2"
   test "rejects unknown operators and incorrect arity" do
     for {operator, operands, reason} <- [
           {:custom, [], :unknown_operator},
@@ -100,6 +135,7 @@ defmodule Jido.ExprTest do
     end
   end
 
+  @tag obligation: "jido_action.expression.I4"
   test "fixed arities reject oversized operand lists with bounded work" do
     operands = List.duplicate(1, 1_000_000)
     improper_operands = [1 | operands] ++ :invalid_tail
@@ -138,6 +174,7 @@ defmodule Jido.ExprTest do
     assert {:ok, %Jido.Expr{}} = Jido.Expr.new(:-, [1, 2])
   end
 
+  @tag obligation: "jido_action.expression.I1"
   test "strict type and arithmetic failures contain no runtime values" do
     for {operator, operands, reason} <- [
           {:not, [1], :invalid_boolean_operand},
@@ -156,6 +193,7 @@ defmodule Jido.ExprTest do
     end
   end
 
+  @tag obligation: "jido_action.expression.I1"
   test "strict binary operators reject invalid types on either side" do
     for {operators, invalid, valid, reason} <- [
           {[:+, :-, :*, :/], "private", 1, :invalid_numeric_operands},
@@ -171,6 +209,7 @@ defmodule Jido.ExprTest do
     end
   end
 
+  @tag obligation: "jido_action.expression.I1"
   test "numeric operators handle zero and reject every zero divisor" do
     for {operator, operands, expected} <- [
           {:+, [0, 0], 0},
@@ -196,6 +235,7 @@ defmodule Jido.ExprTest do
     end
   end
 
+  @tag obligation: "jido_action.expression.I1"
   test "binary Boolean operations short-circuit like Elixir" do
     reference = %Reference{key: :missing}
     resolver = fn _ -> flunk("skipped operand must not resolve") end
@@ -215,6 +255,7 @@ defmodule Jido.ExprTest do
              )
   end
 
+  @tag obligation: "jido_action.expression.I2"
   test "shared parser supports the Elixir subset and precedence" do
     cases = [
       {quote(do: 1 + 2 * 3), 7},
@@ -236,6 +277,7 @@ defmodule Jido.ExprTest do
     end
   end
 
+  @tag obligation: "jido_action.expression.I1"
   test "a host DSL supplies reference leaves without changing the grammar" do
     parser = fn
       {:field, _, [key]} when is_atom(key) -> {:ok, %Reference{key: key}}
@@ -266,6 +308,7 @@ defmodule Jido.ExprTest do
              )
   end
 
+  @tag obligation: "jido_action.expression.I2"
   test "parser rejects general Elixir, aliases, and non-expression roots" do
     for ast <- [
           quote(do: System.unique_integer()),
@@ -295,6 +338,7 @@ defmodule Jido.ExprTest do
     end
   end
 
+  @tag obligation: "jido_action.expression.I1"
   test "resolved expression-shaped data is not executed" do
     data = Jido.Expr.new!(:/, [1, 0])
     left = %Reference{key: :left}
@@ -306,6 +350,7 @@ defmodule Jido.ExprTest do
              )
   end
 
+  @tag obligation: "jido_action.expression.I4"
   test "limits cover expression operands, resolved data, generated output, and comparison work" do
     deep = Enum.reduce(1..8, 0, fn _, child -> [child] end)
 
@@ -330,6 +375,7 @@ defmodule Jido.ExprTest do
              Jido.Expr.parse(quote(do: 1 + [[[2 + 3]]]), max_depth: 2)
   end
 
+  @tag obligation: "jido_action.expression.I4"
   test "resolved large data stops within the node work limit" do
     reference = %Reference{}
     expression = Jido.Expr.new!(:==, [reference, nil])
@@ -345,6 +391,7 @@ defmodule Jido.ExprTest do
     end
   end
 
+  @tag obligation: "jido_action.expression.I4"
   test "membership preserves cumulative budgets and the first failing data path" do
     left = %{items: ["abc", 1]}
     right = [%{items: ["xyz", 1]}, %{items: ["abc", 1.0]}]
@@ -364,6 +411,7 @@ defmodule Jido.ExprTest do
     assert {:ok, false} = Jido.Expr.evaluate(expression, max_nodes: 38, max_binary_bytes: 21)
   end
 
+  @tag obligation: "jido_action.expression.I3"
   test "invalid options and invalid host callbacks return structured errors" do
     expression = Jido.Expr.new!(:not, [%Reference{}])
 
@@ -389,6 +437,7 @@ defmodule Jido.ExprTest do
              Jido.Expr.evaluate(expression, resolve: fn _ -> {:error, :host_error} end)
   end
 
+  @tag obligation: "jido_action.expression.I3"
   test "ingress normalization visits host values once and never executes operations" do
     tag = make_ref()
     legacy = %Reference{key: :legacy}
@@ -419,6 +468,7 @@ defmodule Jido.ExprTest do
     refute_received {^tag, _, _, _}
   end
 
+  @tag obligation: ["jido_action.expression.I3", "jido_action.expression.I4"]
   test "normalization checks replacement scalar limits at their exact paths" do
     reference = %Reference{key: :value}
 
@@ -435,6 +485,7 @@ defmodule Jido.ExprTest do
     end
   end
 
+  @tag obligation: ["jido_action.expression.I3", "jido_action.expression.I4"]
   test "normalization counts replacement bytes cumulatively and each node once" do
     tag = make_ref()
     first = %Reference{key: :first}
@@ -463,6 +514,7 @@ defmodule Jido.ExprTest do
              )
   end
 
+  @tag obligation: ["jido_action.expression.I3", "jido_action.expression.I4"]
   test "normalization does not call a host callback after a limit is exhausted" do
     reference = %Reference{key: :value}
     tag = make_ref()
@@ -485,6 +537,7 @@ defmodule Jido.ExprTest do
     end
   end
 
+  @tag obligation: "jido_action.expression.I3"
   test "bounded reduction visits expressions, containers, and host leaves with exact paths" do
     reference = %Reference{key: :count}
     expression = Jido.Expr.new!(:+, [reference, 2])
@@ -543,4 +596,6 @@ defmodule Jido.ExprTest do
     {:reductions, after_count} = Process.info(self(), :reductions)
     {result, after_count - before_count}
   end
+
+  defp nest(value, depth), do: Enum.reduce(1..depth, value, fn _, value -> [value] end)
 end

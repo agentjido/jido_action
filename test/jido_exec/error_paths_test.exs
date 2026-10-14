@@ -1,5 +1,5 @@
 defmodule Jido.Exec.ErrorPathsTest do
-  use ExUnit.Case, async: true
+  use Covenant.Case, component: "jido_action.boundary", async: true
 
   alias Jido.Action.Error.{
     ConfigurationError,
@@ -59,6 +59,7 @@ defmodule Jido.Exec.ErrorPathsTest do
   end
 
   describe "run/4 options and targets" do
+    @tag obligation: "jido_action.boundary.I6"
     test "invalid option shapes return configuration errors" do
       assert {:error, %ConfigurationError{}} = Exec.run(Add, %{}, %{}, :bad)
       assert {:error, %ConfigurationError{}} = Exec.run(Add, %{}, %{}, bogus: true)
@@ -75,6 +76,7 @@ defmodule Jido.Exec.ErrorPathsTest do
                Exec.run(Add, %{}, %{}, task_supervisor: {:via, :no_such_registry, :name})
     end
 
+    @tag obligation: "jido_action.boundary.I6"
     test "an unknown target and invalid Flow input return structured errors" do
       assert {:error, %ConfigurationError{}} = Exec.run("not a target")
 
@@ -84,6 +86,7 @@ defmodule Jido.Exec.ErrorPathsTest do
   end
 
   describe "Action validator and callback failures" do
+    @tag obligation: "jido_action.boundary.I2"
     test "validator and callback returns become public errors" do
       assert {:error, %InvalidInputError{message: "Action input validation failed"}} =
                Exec.run(AtomValidationAction, %{})
@@ -103,6 +106,7 @@ defmodule Jido.Exec.ErrorPathsTest do
   end
 
   describe "loop failures" do
+    @tag obligation: "jido_action.boundary.I9"
     test "Reduce rejects invalid collections and initial values" do
       reduce = fn collection, initial ->
         flow([
@@ -130,6 +134,7 @@ defmodule Jido.Exec.ErrorPathsTest do
                })
     end
 
+    @tag obligation: "jido_action.boundary.I9"
     test "loop body failures report their item or iteration position" do
       reduce =
         flow([
@@ -151,9 +156,11 @@ defmodule Jido.Exec.ErrorPathsTest do
       iterate =
         flow([iterate(FailingBody, %{count: 0}, Jido.Expr.new!(:>=, [Ref.state(:count), 1]), 3)])
 
-      assert {:error, %{details: %{iteration_index: 0}}} = Exec.run(iterate, %{})
+      assert {:error, %{details: %{iteration_index: 0, state_revision: 0}}} =
+               Exec.run(iterate, %{})
     end
 
+    @tag obligation: "jido_action.boundary.I9"
     test "Iterate rejects invalid State and exhausted limits" do
       never = Jido.Expr.new!(:==, [Ref.state(:count), -1])
 
@@ -173,6 +180,7 @@ defmodule Jido.Exec.ErrorPathsTest do
   end
 
   describe "managed execution errors" do
+    @tag obligation: "jido_action.boundary.I6"
     test "start, step, resume, and result report invalid requests" do
       runner = :"error_paths_runner_#{System.unique_integer([:positive])}"
       start_supervised!({Runic.Runner, name: runner})
@@ -206,6 +214,7 @@ defmodule Jido.Exec.ErrorPathsTest do
   end
 
   describe "compile/2" do
+    @tag obligation: "jido_action.boundary.I6"
     test "invalid targets and options return configuration errors" do
       assert {:error, %ConfigurationError{}} = Exec.compile("not a target")
       assert {:error, %ConfigurationError{}} = Exec.compile(Add, :bad)
