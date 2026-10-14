@@ -20,11 +20,11 @@ defmodule Jido.Flow.DiagnosticPathsTest do
       })
 
     for name <- ["alpha", "mid", "zeta"] do
-      {instruction, _params} = flow.components[name].call
-      invalid = put_in(flow.components[name].call, {instruction, %{v: {:tuple}}})
+      instruction = flow.components[name].call
+      invalid = put_in(flow.components[name].call, Map.put(instruction, :params, %{v: {:tuple}}))
 
       assert {:error, error} = Flow.validate(invalid)
-      assert error.details.path == [:components, name, :params, :v]
+      assert error.details.path == [:components, name, :call, :params, :v]
     end
   end
 
@@ -55,7 +55,7 @@ defmodule Jido.Flow.DiagnosticPathsTest do
     assert {:error, errors} =
              Codec.diagnose(document([step("a", %{"needs" => ["missing"]})], nil), registry())
 
-    assert ["Flow reference points to an unknown component", "Flow output is required"] =
+    assert ["Flow output is required", "Flow reference points to an unknown component"] =
              messages(errors)
 
     assert {:error, errors} =
@@ -69,8 +69,6 @@ defmodule Jido.Flow.DiagnosticPathsTest do
     iterate = %{
       "kind" => "iterate",
       "name" => "loop",
-      "action" => "actions/echo",
-      "params" => @empty,
       "state" => %{
         "schema" => "schemas/none",
         "initial" => @empty,
@@ -79,21 +77,26 @@ defmodule Jido.Flow.DiagnosticPathsTest do
       "completion" => false,
       "max_iterations" => 20_000,
       "needs" => [],
-      "meta" => @empty
+      "meta" => @empty,
+      "call" => %{"kind" => "action", "target" => "actions/echo", "params" => @empty}
     }
 
     assert {:error, errors} = Codec.diagnose(document([iterate], result_ref("loop")), registry())
     assert [["components", 0, "max_iterations"]] = paths(errors)
 
     option = fn condition ->
-      %{"name" => "o", "condition" => condition, "action" => "actions/echo", "params" => @empty}
+      %{
+        "name" => "o",
+        "condition" => condition,
+        "call" => %{"kind" => "action", "target" => "actions/echo", "params" => @empty}
+      }
     end
 
     choice = %{
       "kind" => "choice",
       "name" => "c",
       "options" => [option.(true), option.(false)],
-      "fallback" => %{"action" => "actions/echo", "params" => @empty},
+      "fallback" => %{"kind" => "action", "target" => "actions/echo", "params" => @empty},
       "needs" => [],
       "meta" => @empty
     }
@@ -112,12 +115,11 @@ defmodule Jido.Flow.DiagnosticPathsTest do
   defp step(name, extra) do
     Map.merge(
       %{
-        "kind" => "step",
         "name" => name,
-        "action" => "actions/echo",
-        "params" => @empty,
         "needs" => [],
-        "meta" => @empty
+        "meta" => @empty,
+        "kind" => "call",
+        "call" => %{"kind" => "action", "target" => "actions/echo", "params" => @empty}
       },
       extra
     )

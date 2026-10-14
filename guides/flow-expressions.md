@@ -146,19 +146,19 @@ a replacement for Flow validation; it does not check Flow reference scopes.
 
 ## Stored JSON
 
-`Jido.Flow.Codec` stores each operation under a `$expr` tag. A document with
-operations uses version 2:
+`Jido.Flow.Codec` stores each operation under a `$expr` tag. All current features use
+document version 1:
 
 ```elixir
 {:ok, document, registry} = Jido.Flow.Codec.encode(built)
-2 = document["version"]
+1 = document["version"]
 json = JSON.encode!(document)
 {:ok, restored} = Jido.Flow.Codec.decode(JSON.decode!(json), registry)
 true = restored == built
 {:ok, %{total: 6}} = Jido.Exec.run(restored, %{name: "Ada", quantity: 2, price: 3})
 ```
 
-See [Store Flows As JSON](flow-storage.md) for document versions, tags,
+See [Store Flows As JSON](flow-storage.md) for the document version, tags,
 Registry identifiers, and storage limits.
 
 ## Errors And Limits

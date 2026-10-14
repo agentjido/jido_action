@@ -29,23 +29,29 @@ defmodule Jido.Flow.Ref do
           | :iterate_completion
   @type path :: [atom() | String.t() | non_neg_integer()]
 
+  @sources [
+    :input,
+    :context,
+    :result,
+    :item,
+    :item_index,
+    :item_id,
+    :accumulator,
+    :state,
+    :iteration_index,
+    :body_result
+  ]
+
+  @doc false
+  @spec sources() :: [source()]
+  def sources, do: @sources
+
   @schema Zoi.struct(
             __MODULE__,
             %{
               source:
                 Zoi.enum(
-                  [
-                    :input,
-                    :context,
-                    :result,
-                    :item,
-                    :item_index,
-                    :item_id,
-                    :accumulator,
-                    :state,
-                    :iteration_index,
-                    :body_result
-                  ],
+                  @sources,
                   description: "Reference source"
                 ),
               component: Zoi.string(description: "Result component name") |> Zoi.optional(),

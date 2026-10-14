@@ -16,9 +16,8 @@ defmodule Jido.Flow do
   @moduledoc """
   Defines the canonical Jido Flow data artifact and compile-time module DSL.
 
-  A Flow is a declarative control program. Its leaves are Instruction
-  templates, its values are computed by expressions, and Actions provide its
-  executable behavior.
+  A Flow is a declarative control program. Small call records identify its
+  targets and parameter expressions. Actions provide its executable behavior.
 
   A Flow contains named canonical components and one required output
   expression. Execution is delegated through `Jido.Exec`.
@@ -119,8 +118,8 @@ defmodule Jido.Flow do
   operation materializes it once. Put changing runtime data in Flow input or
   context.
 
-  Flow modules implement `Jido.Flow` and provide their definition through
-  `flow/0`. The generated `run/2` delegates to `Jido.Exec` with default options.
+  Flow modules provide their definition through `flow/0`. The generated
+  `run/2` delegates to `Jido.Exec` with default options.
 
   A Choice is one Flow component. It evaluates data-only conditions in authored
   order, runs the first matching target, and uses a required routing fallback
@@ -196,9 +195,11 @@ defmodule Jido.Flow do
   @doc """
   Builds and validates one canonical Flow value from a data definition.
 
-  Components accept tagged maps with a `kind` of `:step`, `:subflow`, `:choice`,
-  `:map`, `:reduce`, `:iterate`, or `:dispatch`. Data definitions use explicit
-  `:step`/`action` and `:subflow`/`flow` fields. Validation is inert.
+  Components use a `kind` of `:step`, `:subflow`, `:choice`, `:map`, `:reduce`,
+  `:iterate`, or `:dispatch`. Action targets use `action` and `params`; Subflow
+  targets use `flow` and `params`. Dispatch uses module targets in `decision`
+  and `expander`, with `params` for the decision. Validation is inert.
+  See the [data guide](flow-data.md) for component fields.
   """
   @spec new(map()) :: {:ok, t()} | {:error, Exception.t()}
   def new(attrs) when is_map(attrs) and not is_struct(attrs) do

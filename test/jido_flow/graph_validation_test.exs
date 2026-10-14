@@ -36,12 +36,15 @@ defmodule Jido.Flow.GraphValidationTest do
 
   defp stored_step(name, needs) do
     %{
-      "kind" => "step",
       "name" => name,
-      "action" => "action",
       "needs" => needs,
-      "params" => %{"$type" => "map", "entries" => []},
-      "meta" => %{"$type" => "map", "entries" => []}
+      "meta" => %{"$type" => "map", "entries" => []},
+      "kind" => "call",
+      "call" => %{
+        "kind" => "action",
+        "target" => "action",
+        "params" => %{"$type" => "map", "entries" => []}
+      }
     }
   end
 
@@ -129,7 +132,7 @@ end
     end
   end
 
-  test "canonical first errors and Codec aggregates retain their different dependency order" do
+  test "data and Codec diagnostics use the same dependency order" do
     component = step("one", ["z_missing", "a_missing"])
 
     assert {:error, error} =
@@ -144,8 +147,8 @@ end
     assert {:error, %Error.Invalid{errors: errors}} = Codec.diagnose(document, registry())
 
     assert Enum.map(errors, & &1.details) == [
-             %{owner: "one", component: "a_missing", path: ["components", 0]},
-             %{owner: "one", component: "z_missing", path: ["components", 0]}
+             %{owner: "one", component: "z_missing", path: ["components", 0]},
+             %{owner: "one", component: "a_missing", path: ["components", 0]}
            ]
 
     assert {:error, first} = Codec.decode(document, registry())
@@ -163,8 +166,8 @@ end
              %{name: "same", path: ["components", 1, "name"]},
              %{owner: :output, component: "out_z", path: ["output"]},
              %{owner: :output, component: "out_a", path: ["output"]},
-             %{owner: "same", component: "a_missing", path: ["components", 0]},
-             %{owner: "same", component: "z_missing", path: ["components", 0]}
+             %{owner: "same", component: "z_missing", path: ["components", 0]},
+             %{owner: "same", component: "a_missing", path: ["components", 0]}
            ]
 
     assert {:error, error} =
@@ -183,8 +186,8 @@ end
     assert {:error, %{message: "Flow output is required", details: %{path: [:output]}}} =
              JidoActionTest.FlowBuilder.new(name: "graph", components: components, output: nil)
 
-    # Stored diagnostics report graph errors first, then the required output.
-    assert {:error, %Error.Invalid{errors: [duplicate, output]}} =
+    # Data and stored diagnostics report the required output first.
+    assert {:error, %Error.Invalid{errors: [output, duplicate]}} =
              Codec.diagnose(
                stored([stored_step("same", []), stored_step("same", [])], nil),
                registry()

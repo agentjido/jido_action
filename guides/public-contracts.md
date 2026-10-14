@@ -37,7 +37,7 @@ Keep an ID when its wording becomes more precise. Do not reuse a retired ID.
 | FLOW-004 | Validation and inspection do not run Action work. | `test/property/flow/validation_contract_test.exs`, `test/jido_flow/` |
 | FLOW-005 | Semantic identity distinguishes references from literal data and survives a Codec round trip. | `test/property/flow/validation_contract_test.exs`, `test/jido_flow/graph_identity_test.exs` |
 | FLOW-006 | Host extensions lower to ordinary canonical declarations. | `test/property/flow/inline_contract_test.exs`, `test/jido_flow/` |
-| STORE-001 | Supported JSON versions preserve canonical Flow meaning and deterministic stored-map encoding. | `test/property/storage/codec_contract_test.exs`, `test/jido_flow/codec_test.exs` |
+| STORE-001 | The JSON document version preserves canonical Flow meaning and deterministic stored-map encoding. | `test/property/storage/codec_contract_test.exs`, `test/jido_flow/codec_test.exs` |
 | STORE-002 | Stored identifiers resolve through a trusted Registry without creating atoms from unknown identifiers. | `test/property/storage/codec_contract_test.exs`, `test/jido_flow/codec_test.exs` |
 | STORE-003 | Malformed or oversized stored documents return structured errors. | `test/property/storage/codec_contract_test.exs`, `test/jido_flow/codec_test.exs` |
 

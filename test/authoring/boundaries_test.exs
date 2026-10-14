@@ -67,14 +67,14 @@ defmodule JidoActionTest.Authoring.BoundariesTest do
     assert {:ok, document} = Codec.encode(direct, registry)
     assert {:ok, ^direct} = Codec.decode(JSON.decode!(JSON.encode!(document)), registry)
     reused = Enum.find(document["components"], &(&1["name"] == "reused"))
-    assert reused["action"] == "actions/inline-ctx/v1"
+    assert reused["call"]["target"] == "actions/inline-ctx/v1"
     unknown = "missing_#{System.unique_integer([:positive])}"
     assert_raise ArgumentError, fn -> String.to_existing_atom(unknown) end
     assert_raise ArgumentError, fn -> Boundaries.Inline.step_action(unknown) end
     assert_raise ArgumentError, fn -> String.to_existing_atom(unknown) end
   end
 
-  test "nested operations agree across source, direct, and version 2 JSON" do
+  test "nested operations agree across source, direct, and version 1 JSON" do
     output = %{
       total: Expr.new!(:+, [Expr.new!(:*, [Ref.input(:a), Ref.input(:b)]), 1]),
       flags: [
@@ -109,7 +109,7 @@ defmodule JidoActionTest.Authoring.BoundariesTest do
     assert {:ok, built} = JidoActionTest.FlowBuilder.new(data)
     assert built == direct
     assert {:ok, document, registry} = Codec.encode(direct)
-    assert document["version"] == 2
+    assert document["version"] == 1
     assert {:ok, restored} = Codec.decode(JSON.decode!(JSON.encode!(document)), registry)
     assert restored == direct
     input = %{name: "Ada", a: 2, b: 3, enabled: true, maybe: nil}
@@ -239,15 +239,17 @@ defmodule JidoActionTest.Authoring.BoundariesTest do
       })
 
     document = __DIR__ |> Path.join("support/saved_flow.json") |> File.read!() |> JSON.decode!()
-    old = put_in(document, ["components", Access.at(0), "action"], "actions/echo/old")
+    old = put_in(document, ["components", Access.at(0), "call", "target"], "actions/echo/old")
     assert {:ok, restored} = Codec.decode(old, registry)
     assert {:ok, ^document} = Codec.encode(restored, registry)
-    wrong_kind = put_in(document, ["components", Access.at(0), "action"], "schemas/none/v1")
+
+    wrong_kind =
+      put_in(document, ["components", Access.at(0), "call", "target"], "schemas/none/v1")
 
     assert {:error, %Jido.Flow.Error.InvalidDefinitionError{}} =
              Codec.decode(wrong_kind, registry)
 
-    unknown = put_in(document, ["components", Access.at(0), "action"], "actions/absent")
+    unknown = put_in(document, ["components", Access.at(0), "call", "target"], "actions/absent")
 
     assert {:error, %{message: "unknown flow registry identifier"}} =
              Codec.decode(unknown, registry)

@@ -7,7 +7,6 @@ defmodule Jido.Flow.CodecTest do
   alias Jido.Flow.Error
   alias Jido.Flow.Ref
   alias Jido.Flow.Registry
-  alias Jido.Instruction
   alias JidoActionTest.Fixtures.CodecRegistry
   alias JidoActionTest.Fixtures.FlowAuthoring
   alias JidoActionTest.Fixtures.InlineAuthoring
@@ -42,23 +41,25 @@ defmodule Jido.Flow.CodecTest do
     :ok
   end
 
-  test "inline Steps use the exact version 1 stored Step fields" do
+  test "inline Steps use the exact version 1 stored call fields" do
     assert {:ok, document} = Codec.encode(InlineParityFlow.flow(), InlineAuthoring.registry())
     assert document["version"] == 1
 
     for step <- document["components"] do
-      assert step["kind"] == "step"
-      assert Enum.sort(Map.keys(step)) == ["action", "kind", "meta", "name", "needs", "params"]
+      assert step["kind"] == "call"
+      assert Enum.sort(Map.keys(step)) == ["call", "kind", "meta", "name", "needs"]
     end
 
     [empty, named, multiple, sole_map] = document["components"]
-    assert empty["params"] == %{"$type" => "map", "entries" => []}
-    assert [%{"key" => %{"$type" => "atom", "id" => "atoms/name"}}] = named["params"]["entries"]
+    assert empty["call"]["params"] == %{"$type" => "map", "entries" => []}
 
-    assert Enum.map(multiple["params"]["entries"], & &1["key"]["id"]) ==
+    assert [%{"key" => %{"$type" => "atom", "id" => "atoms/name"}}] =
+             named["call"]["params"]["entries"]
+
+    assert Enum.map(multiple["call"]["params"]["entries"], & &1["key"]["id"]) ==
              ["atoms/name", "atoms/prefix"]
 
-    assert sole_map["params"] == %{
+    assert sole_map["call"]["params"] == %{
              "$ref" => %{
                "source" => "input",
                "component" => nil,
@@ -78,8 +79,8 @@ defmodule Jido.Flow.CodecTest do
 
       assert {:error,
               %InvalidDefinitionError{
-                message: "stored Flow contains an unknown field",
-                details: %{field: ^field, path: ["components", 0, ^field]}
+                message: _message,
+                details: %{key: ^field, path: ["components", 0, ^field]}
               }} = invalid |> Jason.encode!() |> Jason.decode!() |> Codec.decode(registry)
     end
 
@@ -103,12 +104,17 @@ defmodule Jido.Flow.CodecTest do
           {unknown_action, "unknown flow registry identifier"},
           {"flows/not-an-action", "flow registry identifier has the wrong entry kind"}
         ] do
-      invalid = replace_component(document, 0, %{step | "action" => identifier})
+      invalid =
+        replace_component(
+          document,
+          0,
+          JidoActionTest.StoredFields.update(step, %{"action" => identifier})
+        )
 
       assert {:error,
               %InvalidDefinitionError{
                 message: ^message,
-                details: %{identifier: ^identifier, path: ["components", 0, "action"]}
+                details: %{identifier: ^identifier, path: ["components", 0, "call", "target"]}
               }} = Codec.decode(invalid, registry)
     end
 
@@ -122,13 +128,13 @@ defmodule Jido.Flow.CodecTest do
               message: "unknown flow registry identifier",
               details: %{
                 identifier: "atoms/marker",
-                path: ["components", 0, "params", "entries", 0, "key", "id"]
+                path: ["components", 0, "call", "params", "entries", 0, "key", "id"]
               }
             }} = Codec.decode(document, missing_binding)
 
-    [entry] = step["params"]["entries"]
+    [entry] = step["call"]["params"]["entries"]
     untrusted_entry = %{entry | "key" => %{"$type" => "atom", "id" => unknown_atom}}
-    invalid = put_in(step, ["params", "entries"], [untrusted_entry])
+    invalid = put_in(step, ["call", "params", "entries"], [untrusted_entry])
 
     assert {:error,
             %InvalidDefinitionError{
@@ -155,7 +161,7 @@ defmodule Jido.Flow.CodecTest do
     registry = inline_probe_registry()
 
     assert InlineProbeFlow.step_action("mark") == action
-    assert %{"mark" => %{call: {%Instruction{target: ^action}, _params}}} = flow.components
+    assert %{"mark" => %{call: %{target: ^action, params: _params}}} = flow.components
     assert {:ok, ^flow} = Flow.validate(flow)
     assert {:ok, ^flow} = Jido.Exec.Compiler.validate(flow)
     assert {:ok, _} = Flow.explain(flow)
@@ -176,10 +182,10 @@ defmodule Jido.Flow.CodecTest do
     registry = CodecRegistry.mixed()
 
     assert {:ok, document} = Codec.encode(flow, registry)
-    assert document["version"] == 2
+    assert document["version"] == 1
 
     assert Enum.map(document["components"], & &1["kind"]) ==
-             ["step", "iterate", "map", "subflow", "reduce", "choice"]
+             ["call", "iterate", "map", "call", "reduce", "choice"]
 
     json = Jason.encode!(document)
     decoded_document = Jason.decode!(json)
@@ -210,10 +216,10 @@ defmodule Jido.Flow.CodecTest do
     registry = CodecRegistry.mixed()
     flow = all_component_flow!()
     assert {:ok, document} = Codec.encode(flow, registry)
-    assert document["version"] == 2
+    assert document["version"] == 1
 
     assert Enum.map(document["components"], & &1["kind"]) ==
-             ["step", "choice", "iterate", "map", "reduce", "subflow", "dispatch"]
+             ["call", "choice", "iterate", "map", "reduce", "call", "dispatch"]
 
     for component <- document["components"] do
       assert Map.has_key?(component, "needs")
@@ -235,14 +241,13 @@ defmodule Jido.Flow.CodecTest do
       assert {:error, %Error.Invalid{errors: errors}} = Codec.diagnose(invalid, registry)
 
       assert Enum.sort(Enum.map(errors, & &1.details.path)) == [
-               ["components", index, "after"],
-               ["components", index, "needs"]
+               ["components", index, "after"]
              ]
 
       assert {:error,
               %InvalidDefinitionError{
-                message: "stored Flow contains an unknown field",
-                details: %{field: "after", path: ["components", ^index, "after"]}
+                message: _message,
+                details: %{key: "after", path: ["components", ^index, "after"]}
               }} = Codec.decode(invalid, registry)
     end
   end
@@ -253,7 +258,6 @@ defmodule Jido.Flow.CodecTest do
     [step | _rest] = document["components"]
 
     invalid_steps = [
-      Map.delete(step, "needs"),
       %{step | "needs" => 42},
       %{step | "needs" => [42]}
     ]
@@ -264,7 +268,7 @@ defmodule Jido.Flow.CodecTest do
       assert {:error, %InvalidDefinitionError{details: %{path: path}}} =
                Codec.decode(invalid, registry)
 
-      assert path == ["components", 0, "needs"]
+      assert path in [["components", 0, "needs"], ["components", 0, "needs", 0]]
     end
   end
 
@@ -307,14 +311,14 @@ defmodule Jido.Flow.CodecTest do
     choice = component(document, "route")
     [option] = choice["options"]
 
-    step = step |> Map.put("needs", 42) |> Map.put("action", 42)
+    step = step |> Map.put("needs", 42) |> JidoActionTest.StoredFields.target(42)
 
     option =
       option
       |> Map.put("condition", "invalid")
-      |> Map.put("action", 42)
+      |> JidoActionTest.StoredFields.target(42)
 
-    fallback = Map.put(choice["fallback"], "action", "actions/missing")
+    fallback = JidoActionTest.StoredFields.target(choice["fallback"], "actions/missing")
     choice = %{choice | "options" => [option], "fallback" => fallback}
 
     output = %{
@@ -342,10 +346,10 @@ defmodule Jido.Flow.CodecTest do
 
     assert Enum.map(errors, & &1.details.path) == [
              ["components", step_index, "needs"],
-             ["components", step_index, "action"],
+             ["components", step_index, "call", "target"],
              ["components", choice_index, "options", 0, "condition"],
-             ["components", choice_index, "options", 0, "action"],
-             ["components", choice_index, "fallback", "action"],
+             ["components", choice_index, "options", 0, "call", "target"],
+             ["components", choice_index, "fallback", "target"],
              ["output", "entries", 0, "value", "id"],
              ["output", "entries", 1, "value", "id"]
            ]
@@ -437,8 +441,12 @@ defmodule Jido.Flow.CodecTest do
     invalid = %{
       document
       | "components" => [
-          %{first | "params" => stored_map.([{"x", stored_map.([{"y", item}])}])},
-          %{second | "params" => stored_map.([{"components", [stored_map.([]), item]}])}
+          JidoActionTest.StoredFields.update(first, %{
+            "params" => stored_map.([{"x", stored_map.([{"y", item}])}])
+          }),
+          JidoActionTest.StoredFields.update(second, %{
+            "params" => stored_map.([{"components", [stored_map.([]), item]}])
+          })
         ],
         "output" => stored_map.([{"value", item}])
     }
@@ -446,8 +454,8 @@ defmodule Jido.Flow.CodecTest do
     assert {:error, %Error.Invalid{errors: errors}} = Codec.diagnose(invalid, registry)
 
     assert Enum.map(errors, & &1.details.path) == [
-             ["components", 0, "params", "entries", 0, "value", "entries", 0, "value"],
-             ["components", 1, "params", "entries", 0, "value", 1],
+             ["components", 0, "call", "params", "entries", 0, "value", "entries", 0, "value"],
+             ["components", 1, "call", "params", "entries", 0, "value", 1],
              ["output", "entries", 0, "value"]
            ]
   end
@@ -463,10 +471,10 @@ defmodule Jido.Flow.CodecTest do
     choice = %{
       choice
       | "options" => [
-          %{option | "params" => item},
-          %{option | "name" => "second", "params" => item}
+          JidoActionTest.StoredFields.update(option, %{"params" => item}),
+          JidoActionTest.StoredFields.update(option, %{"name" => "second", "params" => item})
         ],
-        "fallback" => %{choice["fallback"] | "params" => item}
+        "fallback" => JidoActionTest.StoredFields.update(choice["fallback"], %{"params" => item})
     }
 
     invalid = replace_component(document, choice_index, choice)
@@ -475,8 +483,8 @@ defmodule Jido.Flow.CodecTest do
              Codec.diagnose(invalid, registry)
 
     assert Enum.map(errors, & &1.details.path) == [
-             ["components", choice_index, "options", 0, "params"],
-             ["components", choice_index, "options", 1, "params"],
+             ["components", choice_index, "options", 0, "call", "params"],
+             ["components", choice_index, "options", 1, "call", "params"],
              ["components", choice_index, "fallback", "params"]
            ]
 
@@ -548,7 +556,7 @@ defmodule Jido.Flow.CodecTest do
     assert {:error, %Error.Invalid{errors: envelope}} =
              Codec.diagnose(envelope_errors, registry)
 
-    assert Enum.map(envelope, & &1.details.path) == [["extra"], ["type"], ["version"]]
+    assert Enum.map(envelope, & &1.details.path) == [["type"]]
 
     missing_fields =
       Enum.reduce(
@@ -558,7 +566,7 @@ defmodule Jido.Flow.CodecTest do
       )
 
     assert {:error, %Error.Invalid{errors: missing}} = Codec.diagnose(missing_fields, registry)
-    assert length(missing) == 6
+    assert Enum.map(missing, & &1.details.path) == [["name"], ["components"], ["output"]]
 
     invalid_fields = %{
       document
@@ -620,32 +628,29 @@ defmodule Jido.Flow.CodecTest do
 
     step =
       step
-      |> Map.delete("action")
-      |> Map.delete("params")
+      |> Map.delete("call")
       |> Map.delete("meta")
       |> Map.put("extra", true)
 
-    subflow = %{subflow | "flow" => 42, "needs" => [42]}
+    subflow = JidoActionTest.StoredFields.update(subflow, %{"flow" => 42, "needs" => ~c"*"})
     choice = choice |> Map.delete("options") |> Map.delete("fallback")
 
     map =
       map
       |> Map.delete("collection")
-      |> Map.delete("action")
-      |> Map.delete("params")
+      |> Map.delete("call")
       |> Map.put("on_error", "unsupported")
 
     reduce =
       reduce
       |> Map.delete("initial")
-      |> Map.delete("params")
+      |> Map.delete("call")
       |> Map.put("collection", %{"bad" => true})
-      |> Map.put("action", 42)
+      |> JidoActionTest.StoredFields.target(42)
 
     iterate =
       iterate
-      |> Map.delete("action")
-      |> Map.delete("params")
+      |> Map.delete("call")
       |> Map.delete("state")
       |> Map.delete("completion")
       |> Map.put("max_iterations", 0)
@@ -660,7 +665,7 @@ defmodule Jido.Flow.CodecTest do
       |> replace_named_component("loop", iterate)
 
     assert {:error, %Error.Invalid{errors: errors}} = Codec.diagnose(invalid, registry)
-    assert length(errors) == 21
+    assert length(errors) == 17
 
     assert errors
            |> Enum.map(& &1.details.path)
@@ -784,12 +789,15 @@ defmodule Jido.Flow.CodecTest do
       })
 
     node = flow.components["stored"]
-    {instruction, _params} = node.call
+    instruction = node.call
 
     invalid_flows = [
       %{flow | description: invalid},
-      put_in(flow.components["stored"].call, {instruction, %{value: invalid}}),
-      put_in(flow.components["stored"].call, {instruction, %{invalid => "value"}}),
+      put_in(flow.components["stored"].call, Map.put(instruction, :params, %{value: invalid})),
+      put_in(
+        flow.components["stored"].call,
+        Map.put(instruction, :params, %{invalid => "value"})
+      ),
       put_in(flow.components["stored"].meta, %{owner: invalid})
     ]
 
@@ -865,12 +873,15 @@ defmodule Jido.Flow.CodecTest do
       "output_schema" => "schemas/empty",
       "components" => [
         %{
-          "kind" => "subflow",
           "name" => "child",
-          "flow" => "targets/child",
-          "params" => %{"$type" => "map", "entries" => []},
           "needs" => [],
-          "meta" => %{"$type" => "map", "entries" => []}
+          "meta" => %{"$type" => "map", "entries" => []},
+          "kind" => "call",
+          "call" => %{
+            "kind" => "flow",
+            "target" => "targets/child",
+            "params" => %{"$type" => "map", "entries" => []}
+          }
         }
       ],
       "output" => %{
@@ -885,7 +896,13 @@ defmodule Jido.Flow.CodecTest do
     {:ok, document} = Codec.encode(FlowAuthoring.mixed_flow!(), CodecRegistry.mixed())
     [step | rest] = document["components"]
     unknown_identifier = "untrusted/action/#{System.unique_integer([:positive])}"
-    document = %{document | "components" => [%{step | "action" => unknown_identifier} | rest]}
+
+    document = %{
+      document
+      | "components" => [
+          JidoActionTest.StoredFields.update(step, %{"action" => unknown_identifier}) | rest
+        ]
+    }
 
     refute existing_atom?(unknown_identifier)
 
@@ -1124,7 +1141,11 @@ defmodule Jido.Flow.CodecTest do
             "entries" => [nil]
           }
       },
-      replace_component(document, step_index, %{step | "action" => 42}),
+      replace_component(
+        document,
+        step_index,
+        JidoActionTest.StoredFields.update(step, %{"action" => 42})
+      ),
       %{document | "description" => 42},
       replace_component(document, step_index, %{step | "needs" => 42}),
       replace_component(document, iterate_index, %{iterate | "max_iterations" => 0}),

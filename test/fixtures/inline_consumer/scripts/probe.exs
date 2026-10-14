@@ -95,7 +95,7 @@ IO.puts(
       steps:
         snapshot.(
           Steps,
-          Map.new(steps, fn {name, %{call: {instruction, _params}}} ->
+          Map.new(steps, fn {name, %{call: instruction}} ->
             {name, instruction.target}
           end)
         ),

@@ -4,7 +4,8 @@ defmodule JidoActionTest.Authoring.AdversarialTest do
   use ExUnit.Case, async: false
   @moduletag :authoring
   alias Jido.{Exec, Flow}
-  alias Jido.Flow.{Codec, Definition, Ref}
+  alias Jido.Flow.{Codec, Ref}
+  alias JidoActionTest.FlowComponent
   alias JidoActionTest.Authoring.Adversarial.{Echo, Sum}
   @nodes ["load/α", "right.$ref", "left space", "combine"]
   test "unusual names and forward references keep the same result in all authoring forms" do
@@ -26,7 +27,7 @@ defmodule JidoActionTest.Authoring.AdversarialTest do
 
       data = %{
         output: output(),
-        components: Definition.to_definition(direct.components),
+        components: FlowComponent.to_definition(direct.components),
         name: name
       }
 
@@ -72,7 +73,7 @@ defmodule JidoActionTest.Authoring.AdversarialTest do
     ]
 
     for {{kind, expected_message, source_message, source_line}, index} <- Enum.with_index(cases) do
-      components = invalid_components(Definition.to_definition(valid.components), kind)
+      components = invalid_components(FlowComponent.to_definition(valid.components), kind)
 
       assert {:error, %{message: ^expected_message}} =
                JidoActionTest.FlowBuilder.new(
@@ -116,7 +117,7 @@ defmodule JidoActionTest.Authoring.AdversarialTest do
 
     changed =
       document
-      |> put_in(["components", Access.at(0), "action"], untrusted)
+      |> put_in(["components", Access.at(0), "call", "target"], untrusted)
       |> JSON.encode!()
       |> JSON.decode!()
 

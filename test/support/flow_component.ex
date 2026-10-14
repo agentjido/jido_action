@@ -26,7 +26,8 @@ defmodule JidoActionTest.FlowComponent do
              options: [attrs],
              fallback: %{action: __MODULE__}
            }) do
-      {instruction, params} = option.call
+      instruction = option.call
+      params = instruction.params
 
       {:ok,
        %{
@@ -43,7 +44,7 @@ defmodule JidoActionTest.FlowComponent do
   def fallback(attrs) do
     attrs = attrs |> attributes!() |> Map.put_new(:params, %{})
 
-    with {:ok, {_name, %{fallback: {instruction, params}}}} <-
+    with {:ok, {_name, %{fallback: %{params: params} = instruction}}} <-
            Definition.component(%{
              kind: :choice,
              name: "fixture",
@@ -74,6 +75,12 @@ defmodule JidoActionTest.FlowComponent do
 
   def state!(attrs), do: unwrap!(state(attrs))
 
+  def to_definition(components),
+    do: components |> Definition.to_definition() |> Enum.map(&authoring/1)
+
+  def component_to_definition(component),
+    do: component |> Definition.component_to_definition() |> authoring()
+
   defp build(kind, attrs) do
     attrs =
       attrs
@@ -82,7 +89,7 @@ defmodule JidoActionTest.FlowComponent do
       |> Map.put(:kind, kind)
 
     with {:ok, named_component} <- Definition.component(attrs) do
-      {:ok, Definition.component_to_definition(named_component)}
+      {:ok, component_to_definition(named_component)}
     end
   end
 
@@ -103,6 +110,36 @@ defmodule JidoActionTest.FlowComponent do
   end
 
   defp normalize_nested(attrs, _kind), do: attrs
+
+  defp authoring(%{kind: :call, call: call} = attrs) do
+    {kind, target_field} = if call.kind == :action, do: {:step, :action}, else: {:subflow, :flow}
+
+    attrs
+    |> Map.delete(:call)
+    |> Map.put(:kind, kind)
+    |> Map.put(target_field, call.target)
+    |> Map.put(:params, call.params)
+  end
+
+  defp authoring(%{kind: :choice} = attrs) do
+    attrs
+    |> Map.update!(:options, fn options -> Enum.map(options, &flat_call/1) end)
+    |> Map.update!(:fallback, &%{action: &1.target, params: &1.params})
+  end
+
+  defp authoring(%{kind: :dispatch, decision: decision, expander: expander} = attrs) do
+    %{attrs | decision: decision.target, expander: expander.target}
+    |> Map.put(:params, decision.params)
+  end
+
+  defp authoring(attrs), do: flat_call(attrs)
+
+  defp flat_call(%{call: call} = attrs) do
+    attrs
+    |> Map.delete(:call)
+    |> Map.put(:action, call.target)
+    |> Map.put(:params, call.params)
+  end
 
   defp attributes!(attrs) when is_map(attrs) and not is_struct(attrs), do: attrs
 

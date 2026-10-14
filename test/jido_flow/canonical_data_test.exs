@@ -4,7 +4,6 @@ defmodule JidoActionTest.Flow.CanonicalDataTest do
   alias Jido.Flow
   alias Jido.Flow.Error.InvalidDefinitionError
   alias Jido.Flow.Ref
-  alias Jido.Instruction
   alias JidoActionTest.Fixtures.Actions.Add
   alias JidoActionTest.Fixtures.NestedFlow
 
@@ -42,17 +41,17 @@ defmodule JidoActionTest.Flow.CanonicalDataTest do
               components: %{
                 "load" => %{
                   kind: :call,
-                  call: {%Instruction{kind: :action, target: Add}, load_params},
+                  call: %{kind: :action, target: Add, params: load_params},
                   meta: %{label: "Load"}
                 },
                 "save" => %{
                   kind: :call,
-                  call: {%Instruction{kind: :action, target: Add}, save_params},
+                  call: %{kind: :action, target: Add, params: save_params},
                   needs: ["audit"]
                 },
                 "audit" => %{
                   kind: :call,
-                  call: {%Instruction{kind: :action, target: Add}, audit_params}
+                  call: %{kind: :action, target: Add, params: audit_params}
                 }
               },
               output: %Ref{source: :result, component: "save", path: []}
@@ -79,28 +78,28 @@ defmodule JidoActionTest.Flow.CanonicalDataTest do
             }} = Flow.dependencies(flow)
   end
 
-  test "canonical validation rejects bound and malformed Instruction templates" do
+  test "canonical validation rejects malformed call fields and runtime values" do
     flow = step_flow()
     node = flow.components["step"]
-    {template, params} = node.call
+    template = node.call
 
     for {field, value} <- [
           kind: :worker,
           target: "Elixir.InvalidAction",
-          params: %{bound: true},
+          params: self(),
           context: %{bound: true},
           metadata: %{source: "canonical"},
           metadata: [:not_a_map]
         ] do
       invalid_template = Map.put(template, field, value)
-      invalid = put_in(flow.components["step"].call, {invalid_template, params})
+      invalid = put_in(flow.components["step"].call, invalid_template)
       assert_invalid_canonical(invalid)
     end
   end
 
-  test "canonical validation requires an exact Instruction call tuple" do
+  test "canonical validation requires an exact call record" do
     flow = step_flow()
-    {template, params} = flow.components["step"].call
+    %{params: params} = template = flow.components["step"].call
 
     for call <- [
           {%{kind: :action, target: Add}, params},
@@ -162,7 +161,7 @@ defmodule JidoActionTest.Flow.CanonicalDataTest do
     assert_invalid_canonical(invalid_state)
   end
 
-  test "canonical Dispatch requires an exact nil expander value" do
+  test "canonical Dispatch requires an exact target-only expander" do
     flow =
       Flow.new!(%{
         name: "canonical_dispatch",
@@ -180,9 +179,11 @@ defmodule JidoActionTest.Flow.CanonicalDataTest do
 
     assert Flow.validate(flow) == {:ok, flow}
 
-    {expander, nil} = flow.components["dispatch"].expander
+    expander = flow.components["dispatch"].expander
 
-    invalid = put_in(flow.components["dispatch"].expander, {expander, %{bound: true}})
+    invalid =
+      put_in(flow.components["dispatch"].expander, Map.put(expander, :params, %{bound: true}))
+
     assert_invalid_canonical(invalid)
 
     invalid =
@@ -206,8 +207,8 @@ defmodule JidoActionTest.Flow.CanonicalDataTest do
 
     assert {:error,
             %InvalidDefinitionError{
-              message: "Flow artifact contains non-canonical data",
-              details: %{path: [:output], reason: :non_canonical}
+              message: "flow expression contains an invalid reference",
+              details: %{path: [:output], ref_type: :result}
             }} = Flow.validate(%{flow | output: non_canonical_ref})
   end
 
@@ -253,8 +254,8 @@ defmodule JidoActionTest.Flow.CanonicalDataTest do
   end
 
   defp replace_params(flow, params) do
-    {template, _params} = flow.components["step"].call
-    {template, params}
+    template = flow.components["step"].call
+    Map.put(template, :params, params)
   end
 
   defp assert_invalid_canonical(flow) do

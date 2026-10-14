@@ -7,7 +7,7 @@ defmodule Jido.Exec do
   graph updates, and durable runtime state.
   """
 
-  alias Jido.Exec.{Compiler, Frame, Portable, Telemetry}
+  alias Jido.Exec.{Compiler, Frame, Portable, Telemetry, Validation}
   alias Jido.Instruction
   alias Runic.Workflow
 
@@ -777,42 +777,10 @@ defmodule Jido.Exec do
 
   defp validate_flow_input(%Instruction{kind: :action} = instruction), do: {:ok, instruction}
 
-  defp validate_flow_input(%Instruction{kind: :flow, target: module} = instruction)
-       when is_atom(module) do
-    case module.validate_params(instruction.params) do
-      {:ok, params} -> {:ok, %{instruction | params: params}}
-      {:error, error} -> {:error, put_error_phase(error, :flow_input)}
-    end
-  end
-
-  defp validate_flow_input(%Instruction{kind: :flow, target: %Jido.Flow{} = flow} = instruction) do
-    case validate_flow_input_value(flow.schema, instruction.params, flow.name) do
-      {:ok, params} -> {:ok, %{instruction | params: params}}
-      {:error, error} -> {:error, put_error_phase(error, :flow_input)}
-    end
-  end
-
-  defp put_error_phase(%{details: details} = error, phase) when is_map(details),
-    do: %{error | details: Map.put(details, :phase, phase)}
-
-  defp put_error_phase(error, _phase), do: error
-
-  defp validate_flow_input_value(schema, value, name) do
-    with {:ok, validated} <-
-           Jido.Action.Validation.open_validate(schema, value, %{
-             module: Jido.Flow,
-             flow: name,
-             context: "Flow"
-           }) do
-      if is_map(validated) do
-        {:ok, validated}
-      else
-        {:error,
-         Jido.Action.Error.validation_error("Flow input must be a map", %{
-           flow: name,
-           value: validated
-         })}
-      end
+  defp validate_flow_input(%Instruction{kind: :flow} = instruction) do
+    with {:ok, params} <-
+           Validation.input(instruction.target, instruction.params, %{phase: :flow_input}) do
+      {:ok, %{instruction | params: params}}
     end
   end
 end

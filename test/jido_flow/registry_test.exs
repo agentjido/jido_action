@@ -15,7 +15,7 @@ defmodule Jido.Flow.RegistryTest do
     assert {:ok, registry} = Registry.from_flow(flow)
     assert Registry.from_flow(flow) == {:ok, registry}
 
-    for {_name, %{call: {instruction, _params}}} <- flow.components do
+    for {_name, %{call: instruction}} <- flow.components do
       assert {:ok, identifier} = Registry.identifier(registry, :action, instruction.target)
       assert String.starts_with?(identifier, "actions/generated-")
       assert Registry.resolve(registry, identifier, :action) == {:ok, instruction.target}
@@ -28,7 +28,9 @@ defmodule Jido.Flow.RegistryTest do
 
     action =
       flow.components
-      |> Enum.map(fn {_name, %{call: {instruction, _params}}} -> instruction.target end)
+      |> Enum.map(fn {_name, %{call: instruction}} ->
+        instruction.target
+      end)
       |> Enum.max_by(&Atom.to_string/1)
 
     subset =

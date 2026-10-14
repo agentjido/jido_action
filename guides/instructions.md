@@ -109,8 +109,8 @@ call, choose an application-owned format with stable identifiers.
 
 ## Advanced: Templates
 
-Most applications do not need templates. Flow uses them internally, and tools
-that build Flow-like structures can use them too.
+Most applications do not need templates. Tools can use them to declare a
+target before binding runtime data.
 
 `template/3` records a declared target kind without loading the module or
 binding runtime data:
@@ -132,12 +132,9 @@ concrete call data:
   )
 ```
 
-A canonical Flow call stores `{template, params_expression}`. The template has
-empty params and context. Exec adds Flow location metadata, validates and binds
-the template with the current context, and attaches the evaluated parameter
-value. This lets Flow use the same Instruction target model as a direct call
-without putting runtime values in the authoring graph.
+A canonical Flow call uses `%{kind: kind, target: target, params: expression}`.
+The Dispatch expander uses only `kind` and `target`. These records contain no
+Instructions or runtime context. Exec creates Instructions at the execution
+boundary and evaluates parameters for each call.
 
-Flow data definitions use `action:` or `flow:` module fields, and
-`Jido.Flow.new/1` creates the templates. Data definitions do not accept bound
-Instructions. `Jido.Exec.run/4` does.
+Data definitions do not accept bound Instructions. `Jido.Exec.run/4` does.

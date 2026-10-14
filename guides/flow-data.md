@@ -65,7 +65,10 @@ There is no separate finalization step.
 ## Component Kinds
 
 Every component map has a `kind` and a `name`. All kinds also accept `needs`, a
-list of component names, and `meta`, a portable map. `params` is optional and
+list of component names that defaults to `[]`, and `meta`, a portable map that
+defaults to `%{}`.
+
+Targets are modules. `params` is an optional parameter expression that
 defaults to `%{}`.
 
 | `kind` | Target fields | Other fields |
@@ -80,7 +83,6 @@ defaults to `%{}`.
 
 List order matters for Choice options, which are tested in order. Component
 list order does not create dependencies; result references and `needs` do.
-
 A map definition never infers a child Flow. Use `kind: :subflow` with a `flow`
 field for a child Flow module, and `kind: :step` with an `action` field for an
 Action. See [Nested Flows](nested-flows.livemd).
@@ -312,28 +314,30 @@ or component maps, not with this internal shape.
 name, stored in the `components` field of `%Jido.Flow{}`. The map has no order;
 dependencies define the graph order.
 
-A Step and a Subflow both normalize to a `:call` node. An inert
-`Jido.Instruction` template holds the target and its kind:
+A Step and a Subflow normalize to a `:call` node. The component name becomes
+its key. The call record contains the target kind, module, and parameter
+expression:
 
 ```elixir
-%{kind: :call, needs: [], meta: %{}, call: {template, params}} =
-  flow.components["send"]
-
-%Jido.Instruction{
-  kind: :action,
-  target: MyApp.Actions.SendNotice,
-  params: %{},
-  context: %{}
-} = template
-
-%{address: %Jido.Flow.Ref{}} = params
+%{
+  kind: :call,
+  needs: [],
+  meta: %{},
+  call: %{
+    kind: :action,
+    target: MyApp.Actions.SendNotice,
+    params: %{address: %Jido.Flow.Ref{}}
+  }
+} = flow.components["send"]
 ```
 
-Choice, Map, Reduce, Iterate, and Dispatch use the same
-`{instruction_template, params}` tuple for each Action they call. The Dispatch
-expander stores `nil` as its params because it receives the decision result.
-A template holds no bound params or context; `Jido.Exec` evaluates the params
-and binds runtime data when it runs the call.
+Choice, Map, Reduce, Iterate, and Dispatch use the same small call records.
+Canonical components contain no Instructions or bound runtime context.
+`Jido.Exec` creates Instructions at the execution boundary, evaluates parameter
+expressions, and supplies the current context.
+
+`Jido.Flow.new/1` accepts only the data definition fields shown above. It
+rejects internal call records, including records mixed with authoring fields.
 
 Use `Jido.Flow.to_map/1` for a deterministic inspection view and
 `Jido.Flow.Codec` for storage.

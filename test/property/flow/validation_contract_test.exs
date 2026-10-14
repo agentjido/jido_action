@@ -6,7 +6,8 @@ defmodule JidoActionTest.Property.Flow.ValidationContractTest do
   use ExUnitProperties
   alias JidoActionTest.Property.Fuzz
   alias Jido.{Exec, Flow}
-  alias Jido.Flow.{Codec, Definition, Ref}
+  alias Jido.Flow.{Codec, Ref}
+  alias JidoActionTest.FlowComponent
   alias JidoActionTest.Property.Runtime
   @tag contracts: ["FLOW-003", "FLOW-004"]
   @tag contract_cases: [
@@ -229,13 +230,13 @@ defmodule JidoActionTest.Property.Flow.ValidationContractTest do
   end
 
   defp fault(flow, document, :duplicate) do
-    components = Definition.to_definition(flow.components)
+    components = FlowComponent.to_definition(flow.components)
     attrs = definition(flow, List.update_at(components, 1, &%{&1 | name: "a"}))
     {attrs, nil, put_in(document, ["components", Access.at(1), "name"], "a")}
   end
 
   defp fault(flow, document, :unknown) do
-    components = Definition.to_definition(flow.components)
+    components = FlowComponent.to_definition(flow.components)
     attrs = definition(flow, List.update_at(components, 1, &%{&1 | needs: ["absent"]}))
     invalid = update_node(flow, "b", &%{&1 | needs: ["absent"]})
     {attrs, invalid, put_in(document, ["components", Access.at(1), "needs"], ["absent"])}
@@ -244,7 +245,7 @@ defmodule JidoActionTest.Property.Flow.ValidationContractTest do
   defp fault(flow, document, :cycle) do
     definitions =
       flow.components
-      |> Definition.to_definition()
+      |> FlowComponent.to_definition()
       |> List.update_at(0, &%{&1 | needs: ["b"]})
       |> List.update_at(1, &%{&1 | needs: ["a"]})
 
@@ -262,7 +263,7 @@ defmodule JidoActionTest.Property.Flow.ValidationContractTest do
   end
 
   defp fault(flow, document, :output) do
-    {definition(flow, Definition.to_definition(flow.components), nil), %{flow | output: nil},
+    {definition(flow, FlowComponent.to_definition(flow.components), nil), %{flow | output: nil},
      Map.put(document, "output", nil)}
   end
 
@@ -279,8 +280,8 @@ defmodule JidoActionTest.Property.Flow.ValidationContractTest do
 
   defp replace_target(flow, name, target) do
     update_node(flow, name, fn node ->
-      {instruction, params} = node.call
-      %{node | call: {%{instruction | target: target}, params}}
+      instruction = node.call
+      %{node | call: %{instruction | target: target}}
     end)
   end
 

@@ -1,7 +1,7 @@
 defmodule Jido.Exec.Node.Input do
   @moduledoc false
 
-  alias Jido.Exec.{Frame, ValueResolver}
+  alias Jido.Exec.{Frame, Validation, ValueResolver}
   alias Runic.Identity
 
   @enforce_keys [:id, :name, :hash, :component, :params]
@@ -56,36 +56,11 @@ defmodule Jido.Exec.Node.Input do
          {:ok, params} <-
            ValueResolver.resolve(node.params, Frame.resolver_state(parent, context)),
          {:ok, params} <-
-           validate_params(node.validator, params, node.component, node.node_path) do
+           Validation.input(node.validator, params, %{
+             node_path: node.node_path,
+             phase: :subflow_input
+           }) do
       {:ok, Frame.nest(parent, params)}
-    end
-  end
-
-  defp validate_params(nil, params, _component, _node_path), do: {:ok, params}
-
-  defp validate_params(module, params, _component, node_path) when is_atom(module) do
-    case module.validate_params(params) do
-      {:error, %{details: details} = error} when is_map(details) ->
-        {:error,
-         %{error | details: Map.merge(details, %{node_path: node_path, phase: :subflow_input})}}
-
-      result ->
-        result
-    end
-  end
-
-  defp validate_params(%Jido.Flow{} = flow, params, _component, node_path) do
-    case Jido.Action.Validation.open_validate(flow.schema, params, %{
-           module: Jido.Flow,
-           flow: flow.name,
-           context: "Flow"
-         }) do
-      {:error, %{details: details} = error} when is_map(details) ->
-        {:error,
-         %{error | details: Map.merge(details, %{node_path: node_path, phase: :subflow_input})}}
-
-      result ->
-        result
     end
   end
 end

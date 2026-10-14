@@ -59,7 +59,7 @@ defmodule Jido.Flow.DSL.InlineStepTest do
       end
       """)
 
-      assert %{call: {%Jido.Instruction{target: action}, _params}} =
+      assert %{call: %{target: action, params: _params}} =
                owner.flow().components["increment"]
 
       assert owner.step_action("increment") == action
@@ -415,7 +415,7 @@ defmodule Jido.Flow.DSL.InlineStepTest do
 
   test "inline bindings compile and run through ordinary Steps with inferred dependencies" do
     flow = JidoActionTest.Fixtures.InlineGreetingFlow.flow()
-    assert %{call: {%Jido.Instruction{target: action}, params}} = flow.components["normalize"]
+    assert %{call: %{target: action, params: params}} = flow.components["normalize"]
     assert %{kind: :call} = flow.components["greet"]
 
     assert is_atom(action)
@@ -483,7 +483,7 @@ defmodule Jido.Flow.DSL.InlineStepTest do
     flow = JidoActionTest.Fixtures.InlineGreetingFlow.flow()
     map = Jido.Flow.to_map(flow)
 
-    for {name, %{call: {%Jido.Instruction{target: action}, _params}} = node} <- flow.components do
+    for {name, %{call: %{target: action, params: _params}} = node} <- flow.components do
       assert Map.keys(node) |> Enum.sort() == [:call, :kind, :meta, :needs]
       assert is_atom(action)
       assert action.name() == name
@@ -1113,7 +1113,7 @@ defmodule Jido.Flow.DSL.InlineStepTest do
   defp ast(source), do: Code.string_to_quoted!(source, line: @source_line, columns: true)
   defp caller, do: %{__ENV__ | file: @source_file, line: @source_line}
 
-  defp call_params(%{call: {_instruction, params}}), do: params
+  defp call_params(%{call: %{params: params}}), do: params
 
   defp canonical_data?(value) when is_map(value) do
     not is_struct(value, Macro.Env) and

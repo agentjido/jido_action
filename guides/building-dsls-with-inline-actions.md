@@ -433,8 +433,8 @@ An extracted target works with map definitions and a trusted Registry. Supply
 a new parameter mapping for each host position. Register
 the target under an application-owned identifier, not its generated module
 name. JSON stores ordinary targets and data, never bodies. Inline Actions do
-not change the stored document format. The Codec writes document version 2
-when a Flow contains `Jido.Expr` operations and version 1 otherwise.
+not change the stored document format. The Codec writes document version 1
+for all current features, including `Jido.Expr` operations.
 
 Normal source compilation produces the owner and generated Action BEAM files.
 Deploy them together. Generated names and graph identity are not code

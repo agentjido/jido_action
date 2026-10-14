@@ -5,7 +5,6 @@ defmodule Jido.Flow.ComponentValidationTest do
   alias Jido.Flow.Error.InvalidDefinitionError
   alias Jido.Flow.Ref
   alias Jido.Flow.Value
-  alias Jido.Instruction
   alias JidoActionTest.Fixtures.Actions.Add
   alias JidoActionTest.Fixtures.NestedFlow
 
@@ -25,7 +24,8 @@ defmodule Jido.Flow.ComponentValidationTest do
                max_iterations: 1
              })
 
-    assert {:error, %InvalidDefinitionError{details: %{path: [:params, :value, :operands, 1]}}} =
+    assert {:error,
+            %InvalidDefinitionError{details: %{path: [:call, :params, :value, :operands, 1]}}} =
              Definition.component(%{
                kind: :step,
                name: "old",
@@ -34,22 +34,26 @@ defmodule Jido.Flow.ComponentValidationTest do
              })
   end
 
-  test "all authoring forms normalize to tagged maps and Instruction call tuples" do
+  test "all authoring forms normalize to tagged maps and call records" do
     for attrs <- component_attrs() do
       assert {:ok, {name, %{kind: kind} = node}} = Definition.component(attrs)
       assert name == attrs.name
       assert kind in [:call, :choice, :map, :reduce, :iterate, :dispatch]
       assert is_map(node)
 
-      for {_role, instruction, _params} <- Definition.calls(node) do
-        assert %Instruction{params: %{}, context: %{}} = instruction
+      for {_role, call, _params} <- Definition.calls(node) do
+        assert %{kind: target_kind, target: target} = call
+        assert target_kind in [:action, :flow]
+        assert is_atom(target)
+        refute is_struct(call)
+        assert Map.keys(call) -- [:kind, :target, :params] == []
       end
     end
 
-    assert {:ok, {"step", %{kind: :call, call: {%Instruction{kind: :action}, %{}}}}} =
+    assert {:ok, {"step", %{kind: :call, call: %{kind: :action, params: %{}}}}} =
              Definition.component(%{kind: :step, name: "step", action: Add})
 
-    assert {:ok, {"subflow", %{kind: :call, call: {%Instruction{kind: :flow}, %{}}}}} =
+    assert {:ok, {"subflow", %{kind: :call, call: %{kind: :flow, params: %{}}}}} =
              Definition.component(%{kind: :subflow, name: "subflow", flow: NestedFlow})
 
     assert {:error, %InvalidDefinitionError{}} = Definition.component(%{legacy: true})

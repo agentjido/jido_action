@@ -192,7 +192,14 @@ API to use. See the guides on HexDocs for explanations and examples.
   maps with `kind:`), and `output` to build a Flow at runtime.
 - Use `Jido.Flow.Ref` constructors (`input/1`, `result/2`, `item/1`, ...) and
   `Jido.Expr.new/2` for references and operations in data definitions.
-- Use `kind: :subflow` with `flow:` for a child Flow in data definitions.
+- Use `kind: :step` with `action:` and `params:` for an Action, and
+  `kind: :subflow` with `flow:` and `params:` for a child Flow.
+- Dispatch uses modules in `decision:` and `expander:`, with `params:` for
+  the decision.
+- Data definitions use only these authoring fields. `Jido.Flow.new/1` rejects
+  internal call records.
+- Store all current features with document version 1. Other versions are
+  rejected. Data and JSON use the same validation error order.
 - Use `Jido.Flow.Codec.encode/2` and `decode/2` with an application-owned
   `Jido.Flow.Registry` for stored or transported Flows. Keep Registry
   identifiers stable.

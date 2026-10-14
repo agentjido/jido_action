@@ -70,9 +70,9 @@ defmodule Jido.Flow.ValuePreparationContractTest do
              })
 
     for {attrs, message, field} <- [
-          {%{kind: :map, name: "map", action: Add}, "map collection is required", :collection},
+          {%{kind: :map, name: "map", action: Add}, "Flow field is required", :collection},
           {%{kind: :reduce, name: "reduce", collection: [], action: Add},
-           "reduce initial is required", :initial},
+           "Flow field is required", :initial},
           {%{
              kind: :iterate,
              name: "iterate",
@@ -80,7 +80,7 @@ defmodule Jido.Flow.ValuePreparationContractTest do
              state: %{initial: nil},
              completion: true,
              max_iterations: 1
-           }, "iterate state update is required", :update}
+           }, "Flow field is required", :update}
         ] do
       assert {:error, error} = Definition.component(attrs)
       assert error.message == message
@@ -99,13 +99,13 @@ defmodule Jido.Flow.ValuePreparationContractTest do
     }
 
     assert {:error, local} = Definition.component(choice)
-    assert local.details.path == [:options, 0, :params, :nested, 0]
+    assert local.details.path == [:options, 0, :call, :params, :nested, 0]
 
     assert {:error, nested} =
              Jido.Flow.new(%{name: "nested", components: [choice], output: %{}})
 
     assert nested.message == local.message
-    assert nested.details.path == [:components, 0, :options, 0, :params, :nested, 0]
+    assert nested.details.path == [:components, 0, :options, 0, :call, :params, :nested, 0]
   end
 
   defp call_cases(params) do

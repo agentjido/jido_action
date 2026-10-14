@@ -253,7 +253,7 @@ defmodule Jido.Flow.BoundaryValidationTest do
     valid_fallback = %{action: Add}
     valid = %{kind: :choice, name: "route", options: [valid_option], fallback: valid_fallback}
 
-    assert {:ok, {"route", %{kind: :choice, options: [_], fallback: {_instruction, %{}}}}} =
+    assert {:ok, {"route", %{kind: :choice, options: [_], fallback: %{params: %{}}}}} =
              Definition.component(valid)
 
     invalid = [

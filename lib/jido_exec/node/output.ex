@@ -1,7 +1,7 @@
 defmodule Jido.Exec.Node.Output do
   @moduledoc false
 
-  alias Jido.Exec.{Frame, ValueResolver}
+  alias Jido.Exec.{Frame, Validation, ValueResolver}
   alias Runic.Identity
 
   @enforce_keys [:id, :name, :hash, :output, :effect_order]
@@ -69,7 +69,7 @@ defmodule Jido.Exec.Node.Output do
   def resolve(%__MODULE__{} = node, input, context) do
     with {:ok, frame} <- Frame.merge(input),
          {:ok, output} <- ValueResolver.resolve(node.output, Frame.resolver_state(frame, context)),
-         {:ok, output} <- validate_output(node.validator, output) do
+         {:ok, output} <- Validation.output(node.validator, output) do
       effects = Frame.effects(frame, node.effect_order)
       complete_output(node, frame, output, effects)
     end
@@ -94,30 +94,6 @@ defmodule Jido.Exec.Node.Output do
        reason: :invalid_nested_flow_frame,
        frame: frame
      })}
-  end
-
-  defp validate_output(nil, output), do: {:ok, output}
-  defp validate_output(module, output) when is_atom(module), do: module.validate_output(output)
-
-  defp validate_output(%Jido.Flow{}, %Jido.Action.Output{} = output),
-    do: Jido.Action.Output.validate(output)
-
-  # Data and stored Flows follow the same map rule as Flow modules.
-  defp validate_output(%Jido.Flow{} = flow, output) do
-    details = %{module: Jido.Flow, flow: flow.name, context: "Flow output"}
-
-    with {:ok, validated} <-
-           Jido.Action.Validation.open_validate(flow.output_schema, output, details) do
-      if is_map(validated) do
-        {:ok, validated}
-      else
-        {:error,
-         Jido.Action.Error.validation_error(
-           "Action output validation must return a map",
-           Map.put(details, :value, validated)
-         )}
-      end
-    end
   end
 end
 

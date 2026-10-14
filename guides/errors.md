@@ -127,6 +127,15 @@ output that fails its `output_schema`, or a nested Flow input that fails its
 `details.phase` set to `:flow_output`, `:subflow_output`, or
 `:subflow_input`.
 
+Action and Flow validator callbacks have the same error protection. A
+validator that raises, throws, or exits returns
+`Jido.Action.Error.ExecutionFailureError` with its original stacktrace.
+An invalid return tuple produces `Jido.Action.Error.InternalError` with
+`reason: :invalid_validator_return` and `return`. Flow boundaries set
+`phase` to `:flow_input`, `:subflow_input`, `:flow_output`, or
+`:subflow_output`. Input and output schemas must return maps; use an
+explicit `Jido.Action.Output` envelope for other output values.
+
 ### Execution Process Failures
 
 | Cause | Error | Useful details |

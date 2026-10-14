@@ -2,6 +2,7 @@ defmodule Jido.Flow.DSL.InlineStep do
   @moduledoc false
 
   alias Jido.Action.Inline
+  alias Jido.Authoring.Options
   alias Jido.Flow.DSL.{ValueParser, MacroSupport}
 
   @action_fields [:name, :description, :schema, :output_schema, :context]
@@ -118,14 +119,13 @@ defmodule Jido.Flow.DSL.InlineStep do
       "inline Step field"
     )
 
-    Enum.each(options, fn {field, _value} ->
-      unless field in (@component_fields ++ [:inline, :do]) do
-        MacroSupport.compile_error!(
-          caller,
-          "unsupported inline Step field: #{inspect(field)}; use only needs:, meta:, inline:, and do:"
-        )
-      end
-    end)
+    Options.allowed!(
+      options,
+      @component_fields ++ [:inline, :do],
+      caller,
+      "inline Step field",
+      "; use only needs:, meta:, inline:, and do:"
+    )
   end
 
   defp inline_options!(options, caller) do
@@ -141,14 +141,7 @@ defmodule Jido.Flow.DSL.InlineStep do
           "inline Step setting"
         )
 
-        Enum.each(inline_options, fn {field, _value} ->
-          unless field in @action_fields do
-            MacroSupport.compile_error!(
-              caller,
-              "unsupported inline Step setting: #{inspect(field)}"
-            )
-          end
-        end)
+        Options.allowed!(inline_options, @action_fields, caller, "inline Step setting")
 
         inline_options
     end

@@ -86,10 +86,10 @@ defmodule Jido.Flow.DSL.FlowTest do
     components = module.flow().components
 
     for name <- ["inline", "keyword", "field_block"] do
-      assert %{kind: :call, call: {%Jido.Instruction{kind: :action}, _params}} = components[name]
+      assert %{kind: :call, call: %{kind: :action, params: _params}} = components[name]
     end
 
-    assert %{kind: :call, call: {%Jido.Instruction{kind: :flow}, _params}} =
+    assert %{kind: :call, call: %{kind: :flow, params: _params}} =
              components["child"]
 
     assert Jido.Exec.run(module, %{name: " Ada "}) ==
@@ -105,11 +105,11 @@ defmodule Jido.Flow.DSL.FlowTest do
 
     for {name, step} <-
           Enum.zip(["inline", "keyword", "field_block"], [inline, keyword, field_block]) do
-      {instruction, _params} = step.call
+      instruction = step.call
       assert module.step_action(name) == instruction.target
     end
 
-    assert module.step_action(:inline) == elem(inline.call, 0).target
+    assert module.step_action(:inline) == inline.call.target
     assert module.step_action(:keyword) == JidoActionTest.Fixtures.Actions.Add
     assert module.step_action(:field_block) == JidoActionTest.Fixtures.Actions.Multiply
 
@@ -129,7 +129,7 @@ defmodule Jido.Flow.DSL.FlowTest do
   test "the unchanged Spark forms lower directly to canonical records" do
     flow = Jido.Flow.DSL.FlowTest.MixedFlow.flow()
 
-    assert %{call: {_instruction, %{amount: 1}}, meta: %{owner: "dsl"}} =
+    assert %{call: %{params: %{amount: 1}}, meta: %{owner: "dsl"}} =
              flow.components["load"]
 
     assert %{kind: :choice, needs: []} = flow.components["route"]

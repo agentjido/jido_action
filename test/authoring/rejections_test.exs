@@ -6,7 +6,8 @@ defmodule JidoActionTest.Authoring.RejectionsTest do
   @moduletag :authoring
 
   alias Jido.{Exec, Flow}
-  alias Jido.Flow.{Definition, Graph, Ref}
+  alias Jido.Flow.{Graph, Ref}
+  alias JidoActionTest.FlowComponent
   alias JidoActionTest.Authoring.Components
   alias JidoActionTest.Authoring.Hostile
 
@@ -139,7 +140,7 @@ defmodule JidoActionTest.Authoring.RejectionsTest do
     assert {:error, missing} =
              JidoActionTest.FlowComponent.choice(name: "route", options: [valid_option])
 
-    assert missing.message =~ "fallback"
+    assert missing.details.path == [:fallback]
 
     assert {:error, condition} =
              JidoActionTest.FlowComponent.option(
@@ -405,6 +406,6 @@ defmodule JidoActionTest.Authoring.RejectionsTest do
 
   defp definition(module, name) do
     flow = module.flow()
-    Definition.component_to_definition({name, Map.fetch!(flow.components, name)})
+    FlowComponent.component_to_definition({name, Map.fetch!(flow.components, name)})
   end
 end

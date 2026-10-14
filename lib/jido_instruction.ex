@@ -35,9 +35,9 @@ defmodule Jido.Instruction do
   `template/3` creates an inert module reference with a declared target kind.
   It does not load or inspect the module. `bind/4` turns a template into a
   resolved Instruction after it checks the current module kind and executable
-  callbacks. Canonical Flow components keep parameter expressions outside the
-  template. This prevents bound context, which can contain local runtime
-  values, from becoming part of portable Flow data.
+  callbacks. Canonical Flow components use small call records. Exec creates
+  Instructions at the execution boundary. Bound runtime context stays outside
+  portable Flow data.
 
   Use `:target` for every target kind. The removed `:action`, `:flow`, and
   `:opts` inputs return construction errors. Pass execution options directly to
@@ -312,6 +312,10 @@ defmodule Jido.Instruction do
   defp flatten(target) do
     {:ok, %__MODULE__{kind: nil, target: target, params: %{}, context: %{}, metadata: %{}}}
   end
+
+  @doc false
+  @spec target_kind(target() | term()) :: {:ok, kind()} | {:error, Exception.t()}
+  def target_kind(target), do: classify(target)
 
   @doc false
   @spec validate_template(term()) :: :ok | {:error, Exception.t()}

@@ -27,11 +27,11 @@ defmodule JidoActionTest.Property.Storage.CodecContractTest do
          "STORE-001/iterate",
          "STORE-001/dispatch",
          "STORE-001/version-one",
-         "STORE-001/version-two",
+         "STORE-001/version-one-expressions",
          "STORE-001/key-kinds",
          "STORE-001/step-wire-format"
        ]
-  property "every component kind and both document versions preserve portable generated data" do
+  property "every component kind preserves portable generated data in version one" do
     check all(value <- portable(), scalar <- integer(), max_runs: 40) do
       assert_portability(value, scalar)
     end
@@ -64,8 +64,8 @@ defmodule JidoActionTest.Property.Storage.CodecContractTest do
         )
 
       assert {:ok, document, registry} = Codec.encode(flow)
-      action_id = get_in(document, ["components", Access.at(0), "action"])
-      invalid = put_in(document, ["components", Access.at(0), "action"], identifier)
+      action_id = get_in(document, ["components", Access.at(0), "call", "target"])
+      invalid = put_in(document, ["components", Access.at(0), "call", "target"], identifier)
       assert {:error, %Flow.Error.InvalidDefinitionError{}} = Codec.decode(invalid, registry)
       refute existing_atom?(identifier)
       wrong = Registry.new!(Map.put(registry.entries, action_id, {:flow, Child}))
@@ -78,7 +78,7 @@ defmodule JidoActionTest.Property.Storage.CodecContractTest do
 
       alias_registry = Registry.new!(Map.put(registry.entries, "old_emit", {:alias, action_id}))
 
-      aliased = put_in(document, ["components", Access.at(0), "action"], "old_emit")
+      aliased = put_in(document, ["components", Access.at(0), "call", "target"], "old_emit")
       assert {:ok, ^flow} = Codec.decode(aliased, alias_registry)
       assert {:ok, ^document} = Codec.encode(flow, alias_registry)
     end
@@ -151,17 +151,20 @@ defmodule JidoActionTest.Property.Storage.CodecContractTest do
       "output_schema" => "schemas/empty",
       "components" => [
         %{
-          "kind" => "step",
           "name" => "work",
-          "action" => "actions/emit",
-          "params" => %{
-            "$type" => "map",
-            "entries" => [
-              %{"key" => %{"$type" => "atom", "id" => "atoms/value"}, "value" => value}
-            ]
-          },
           "needs" => [],
-          "meta" => %{"$type" => "map", "entries" => []}
+          "meta" => %{"$type" => "map", "entries" => []},
+          "kind" => "call",
+          "call" => %{
+            "kind" => "action",
+            "target" => "actions/emit",
+            "params" => %{
+              "$type" => "map",
+              "entries" => [
+                %{"key" => %{"$type" => "atom", "id" => "atoms/value"}, "value" => value}
+              ]
+            }
+          }
         }
       ],
       "output" => %{"$ref" => %{"source" => "result", "component" => "work", "path" => []}}
@@ -249,10 +252,10 @@ defmodule JidoActionTest.Property.Storage.CodecContractTest do
     assert_step_wire_format(scalar)
     flow = all_components(value)
     assert {:ok, document, registry} = Codec.encode(flow)
-    assert document["version"] == 2
+    assert document["version"] == 1
 
     assert Enum.map(document["components"], & &1["kind"]) ==
-             ["choice", "iterate", "map", "reduce", "step", "subflow", "dispatch"]
+             ["choice", "iterate", "map", "reduce", "call", "call", "dispatch"]
 
     assert {:ok, ^flow} = Codec.decode(JSON.decode!(JSON.encode!(document)), registry)
     assert {:ok, ^flow} = Codec.diagnose(document, registry)
@@ -337,7 +340,7 @@ defmodule JidoActionTest.Property.Storage.CodecContractTest do
               put_in(document, ["components", Access.at(0), "kind"], identifier)
 
             "action" ->
-              put_in(document, ["components", Access.at(0), "action"], identifier)
+              put_in(document, ["components", Access.at(0), "call", "target"], identifier)
 
             "needs" ->
               put_in(document, ["components", Access.at(0), "needs"], [identifier])
@@ -374,12 +377,12 @@ defmodule JidoActionTest.Property.Storage.CodecContractTest do
   @tag contracts: ["STORE-001", "STORE-002", "FLOW-005"]
   @tag contract_cases: [
          "STORE-001/fuzz-all-kinds",
-         "STORE-001/fuzz-versions",
+         "STORE-001/fuzz-version-one",
          "STORE-001/fuzz-wire-oracle",
          "STORE-002/fuzz-alias",
          "FLOW-005/fuzz-literal-reference"
        ]
-  test "fuzz: portable trees retain versions aliases and reference meaning", context do
+  test "fuzz: portable trees retain version-one data aliases and reference meaning", context do
     scalar = one_of([integer(), string(:alphanumeric, max_length: 80), boolean(), constant(nil)])
 
     values =
@@ -413,8 +416,8 @@ defmodule JidoActionTest.Property.Storage.CodecContractTest do
 
       for flow <- flows do
         assert {:ok, document, registry} = Codec.encode(flow)
-        id = get_in(document, ["components", Access.at(0), "action"])
-        aliased = put_in(document, ["components", Access.at(0), "action"], "legacy_emit")
+        id = get_in(document, ["components", Access.at(0), "call", "target"])
+        aliased = put_in(document, ["components", Access.at(0), "call", "target"], "legacy_emit")
         registry = Registry.new!(Map.put(registry.entries, "legacy_emit", {:alias, id}))
         assert {:ok, ^flow} = Codec.decode(aliased, registry)
         assert {:ok, ^document} = Codec.encode(flow, registry)
@@ -422,7 +425,7 @@ defmodule JidoActionTest.Property.Storage.CodecContractTest do
         assert Flow.semantic_identity(decoded) == Flow.semantic_identity(flow)
       end
 
-      ["all-components", "both-versions", "alias", "reference-and-literal"]
+      ["all-components", "version-one", "alias", "reference-and-literal"]
     end)
   end
 end

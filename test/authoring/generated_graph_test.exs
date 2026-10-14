@@ -3,7 +3,8 @@ defmodule JidoActionTest.Authoring.GeneratedGraphTest do
   use ExUnitProperties
   @moduletag :authoring
   alias Jido.{Exec, Flow}
-  alias Jido.Flow.{Codec, Definition, Ref}
+  alias Jido.Flow.{Codec, Ref}
+  alias JidoActionTest.FlowComponent
 
   defmodule Add do
     use Jido.Action, name: "generated_graph_add"
@@ -110,7 +111,7 @@ defmodule JidoActionTest.Authoring.GeneratedGraphTest do
     ) do
       valid = build_flow(graph.nodes)
       assert {:ok, document, registry} = Codec.encode(valid)
-      components = invalid_components(Definition.to_definition(valid.components), fault)
+      components = invalid_components(FlowComponent.to_definition(valid.components), fault)
       expected_message = expected_error(fault)
 
       assert {:error, %{message: ^expected_message}} =

@@ -4,7 +4,7 @@ defmodule Jido.Exec.Node.Action do
   use Runic.Workflow.SingleOutput, batch_parent: false
 
   alias Jido.Action.Error
-  alias Jido.Exec.{Frame, Portable, ValueResolver}
+  alias Jido.Exec.{Frame, Portable, Validation, ValueResolver}
   alias Jido.Exec.Node.Loop
   alias Jido.Exec.Telemetry
   alias Jido.Instruction
@@ -231,7 +231,7 @@ defmodule Jido.Exec.Node.Action do
     context = Map.merge(instruction.context, run_context)
     action = instruction.target
 
-    with {:ok, params} <- call_validator(action, :validate_params, decision, :input) do
+    with {:ok, params} <- Validation.callback(action, :validate_params, decision, :input) do
       case call_action(action, params, context, true) do
         {:continue, input, target} ->
           {:ok, {:jido_dispatch_continue, frame, component, input, target, effects}, []}
@@ -264,7 +264,7 @@ defmodule Jido.Exec.Node.Action do
   defp dispatch_output(instruction, frame, component, output, effects, requests, _run_context) do
     action = instruction.target
 
-    with {:ok, output} <- call_validator(action, :validate_output, output, :output) do
+    with {:ok, output} <- Validation.callback(action, :validate_output, output, :output) do
       {:ok, {:jido_dispatch_finish, frame, component, output, effects ++ requests}, []}
     end
   end
@@ -277,46 +277,16 @@ defmodule Jido.Exec.Node.Action do
     context = Map.merge(instruction.context, run_context)
     action = instruction.target
 
-    with {:ok, validated_params} <- call_validator(action, :validate_params, params, :input),
+    with {:ok, validated_params} <- Validation.callback(action, :validate_params, params, :input),
          {:ok, output, effects} <- call_action(action, validated_params, context),
-         {:ok, validated_output} <- call_validator(action, :validate_output, output, :output) do
+         {:ok, validated_output} <- Validation.callback(action, :validate_output, output, :output) do
       {:ok, validated_output, effects}
-    end
-  end
-
-  defp call_validator(action, callback, value, phase) do
-    case safe_apply(action, callback, [value], phase) do
-      {:ok, {:ok, validated}} ->
-        {:ok, validated}
-
-      {:ok, {:error, error}} when is_exception(error) ->
-        {:error, error}
-
-      {:ok, {:error, reason}} ->
-        {:error,
-         Error.validation_error(validation_message(phase), %{
-           action: action,
-           phase: phase,
-           reason: reason
-         })}
-
-      {:ok, other} ->
-        {:error,
-         Error.internal_error("Action validator returned an invalid value", %{
-           action: action,
-           phase: phase,
-           return: other,
-           reason: :invalid_validator_return
-         })}
-
-      {:error, error} ->
-        {:error, error}
     end
   end
 
   # Only a Dispatch expander can select the next executable.
   defp call_action(action, params, context, continue? \\ false) do
-    case safe_apply(action, :run, [params, context], :run) do
+    case Validation.apply(action, :run, [params, context], :run) do
       {:ok, {:ok, output}} ->
         {:ok, output, []}
 
@@ -360,37 +330,6 @@ defmodule Jido.Exec.Node.Action do
       {:error, error} ->
         {:error, error}
     end
-  end
-
-  defp safe_apply(action, callback, args, phase) do
-    {:ok, apply(action, callback, args)}
-  rescue
-    exception ->
-      stacktrace = __STACKTRACE__
-
-      error =
-        Error.execution_error(Exception.message(exception), %{
-          action: action,
-          phase: phase,
-          exception: exception.__struct__,
-          stacktrace: stacktrace
-        })
-
-      {:error, %{error | stacktrace: %Splode.Stacktrace{stacktrace: stacktrace}}}
-  catch
-    kind, reason ->
-      stacktrace = __STACKTRACE__
-
-      error =
-        Error.execution_error("Action #{phase} #{kind}", %{
-          action: action,
-          phase: phase,
-          kind: kind,
-          reason: reason,
-          stacktrace: stacktrace
-        })
-
-      {:error, %{error | stacktrace: %Splode.Stacktrace{stacktrace: stacktrace}}}
   end
 
   defp normalize_action_error(_action, error) when is_exception(error), do: error
@@ -442,9 +381,6 @@ defmodule Jido.Exec.Node.Action do
   defp identity_value(value) when is_atom(value), do: Atom.to_string(value)
   defp identity_value(value) when is_binary(value), do: value
   defp identity_value(value), do: inspect(value)
-
-  defp validation_message(:input), do: "Action input validation failed"
-  defp validation_message(:output), do: "Action output validation failed"
 
   defp error_message(message) when is_binary(message), do: message
   defp error_message(message) when is_atom(message), do: Atom.to_string(message)

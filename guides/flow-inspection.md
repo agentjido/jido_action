@@ -88,7 +88,7 @@ The explanation is versioned author data. Its keys are `version`, `kind`,
 `name`, `description`, `schema`, `output_schema`, `components`,
 `dependencies`, `output`, and `identity`. It contains no runtime state.
 Components appear as plain maps, such as
-`%{kind: :step, name: "audit", action: MyApp.Actions.Echo, params: %{checked: true}, needs: [], meta: %{}}`.
+`%{kind: :call, name: "audit", call: %{kind: :action, target: MyApp.Actions.Echo, params: %{checked: true}}, needs: [], meta: %{}}`.
 
 ## Compare Semantic Identity
 

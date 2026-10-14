@@ -36,7 +36,7 @@ defmodule Jido.Flow.GraphTest do
 
     child = %{
       components["child"]
-      | call: {Jido.Instruction.template(:action, Add), %{value: Ref.result("root", :value)}}
+      | call: %{kind: :action, target: Add, params: %{value: Ref.result("root", :value)}}
     }
 
     assert Graph.analyze(Map.put(components, "child", child)) == %{
@@ -85,7 +85,7 @@ defmodule Jido.Flow.GraphTest do
          kind: :call,
          needs: needs,
          meta: %{},
-         call: {Jido.Instruction.template(:action, Add), %{}}
+         call: %{kind: :action, target: Add, params: %{}}
        }}
     end)
   end

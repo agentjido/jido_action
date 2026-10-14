@@ -49,7 +49,7 @@ defmodule JidoActionTest.Flow.ExprTest do
 
     assert built == direct
     assert {:ok, document, registry} = Codec.encode(built)
-    assert document["version"] == 2
+    assert document["version"] == 1
 
     assert {:ok, restored} =
              document |> JSON.encode!() |> JSON.decode!() |> Codec.decode(registry)
@@ -295,7 +295,7 @@ defmodule JidoActionTest.Flow.ExprTest do
     assert error.details.retry == false
   end
 
-  test "version one remains stable and literal maps are never expression nodes" do
+  test "version one supports expressions and keeps literal maps distinct" do
     literal = %{"$expr" => %{"operator" => "+", "operands" => [1, 2]}}
     legacy = output_flow(literal)
     assert {:ok, document, registry} = Codec.encode(legacy)
@@ -305,8 +305,10 @@ defmodule JidoActionTest.Flow.ExprTest do
     expression = output_flow(%{value: Expr.new!(:+, [1, 2])})
     assert {:ok, expression_document, expression_registry} = Codec.encode(expression)
 
+    assert Codec.decode(expression_document, expression_registry) == {:ok, expression}
+
     assert {:error, _} =
-             Codec.decode(Map.put(expression_document, "version", 1), expression_registry)
+             Codec.decode(Map.put(expression_document, "version", 2), expression_registry)
 
     refute Flow.semantic_identity(expression) ==
              Flow.semantic_identity(output_flow(%{value: %{operator: :+, operands: [1, 2]}}))

@@ -161,8 +161,7 @@ defmodule Jido.Flow.DSL.ModuleCompiler do
     escaped_source_map = Macro.escape(source_map)
 
     step_actions =
-      for {name,
-           %{kind: :call, call: {%Jido.Instruction{kind: :action, target: action}, _params}}} <-
+      for {name, %{kind: :call, call: %{kind: :action, target: action}}} <-
             flow.components,
           into: %{},
           do: {name, action}
@@ -237,27 +236,9 @@ defmodule Jido.Flow.DSL.ModuleCompiler do
   defp source_line(%{line: line}, _flow, _env) when is_integer(line) and line > 0, do: line
 
   defp source_line(details, source_map, env) when is_map(source_map) do
-    case source_location(source_map, details) do
+    case Jido.Flow.DSL.SourceMap.lookup(source_map, details) do
       %{line: line} when is_integer(line) and line > 0 -> line
       _location -> env.line
     end
   end
-
-  defp source_location(source_map, details) do
-    details
-    |> source_paths()
-    |> Enum.find_value(&Map.get(source_map, &1))
-  end
-
-  defp source_paths(%{component: component, field: :fallback}) do
-    [[:components, component, :fallback], [:components, component]]
-  end
-
-  defp source_paths(%{component: component, field: field}) when is_binary(field) do
-    [[:components, component, :options, field], [:components, component]]
-  end
-
-  defp source_paths(%{path: [:output | _rest]}), do: [[:output]]
-  defp source_paths(%{component: component}), do: [[:components, component]]
-  defp source_paths(_details), do: []
 end

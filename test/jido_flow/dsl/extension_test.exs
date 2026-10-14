@@ -121,10 +121,7 @@ defmodule Jido.Flow.DSL.ExtensionTest do
 
   test "a Flow extension lowers its macros to canonical Flow declarations" do
     assert %{
-             "add" => %{
-               kind: :call,
-               call: {%Jido.Instruction{kind: :action}, _params}
-             }
+             "add" => %{kind: :call, call: %{kind: :action, params: _params}}
            } = ExtendedFlow.flow().components
 
     assert Jido.Exec.run(ExtendedFlow, %{value: 3}) == {:ok, %{value: 5}}
@@ -153,7 +150,7 @@ defmodule Jido.Flow.DSL.ExtensionTest do
   end
 
   test "an extension can expand to an inline Step that keeps the Flow owner scope" do
-    assert %{call: {%Jido.Instruction{target: action}, _params}} =
+    assert %{call: %{target: action, params: _params}} =
              InlineFlow.flow().components["double"]
 
     assert action == InlineFlow.step_action("double")

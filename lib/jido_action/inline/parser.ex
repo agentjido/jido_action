@@ -2,6 +2,7 @@ defmodule Jido.Action.Inline.Parser do
   @moduledoc false
 
   alias Jido.Action.Inline
+  alias Jido.Authoring.Options
 
   @doc false
   @spec bound!(Macro.t(), keyword(), Macro.Env.t()) :: Inline.t()
@@ -74,24 +75,13 @@ defmodule Jido.Action.Inline.Parser do
   @doc false
   @spec options!(term(), [atom()], Macro.Env.t(), String.t()) :: :ok
   def options!(options, supported, caller, kind \\ "option") do
-    unless is_list(options) and Keyword.keyword?(options) do
-      error!(options, caller, "inline Action #{kind}s must be a keyword list")
-    end
-
-    _seen =
-      Enum.reduce(options, MapSet.new(), fn {key, _}, seen ->
-        unless key in supported do
-          error!(nil, caller, "unsupported inline Action #{kind}: #{inspect(key)}")
-        end
-
-        if MapSet.member?(seen, key) do
-          error!(nil, caller, "duplicate inline Action #{kind}: #{inspect(key)}")
-        end
-
-        MapSet.put(seen, key)
-      end)
-
-    :ok
+    Options.validate!(
+      options,
+      source_env(options, caller),
+      "inline Action #{kind}s must be a keyword list",
+      "inline Action #{kind}",
+      supported
+    )
   end
 
   defp context_from_options!(options, patterns, caller) do
@@ -318,9 +308,11 @@ defmodule Jido.Action.Inline.Parser do
 
   @doc false
   @spec error!(term(), Macro.Env.t(), String.t()) :: no_return()
-  def error!({_form, metadata, _args}, caller, description) when is_list(metadata),
-    do: error!(nil, %{caller | line: Keyword.get(metadata, :line, caller.line)}, description)
+  def error!(value, caller, description),
+    do: Options.error!(source_env(value, caller), description)
 
-  def error!(_value, caller, description),
-    do: raise(CompileError, file: caller.file, line: caller.line, description: description)
+  defp source_env({_form, metadata, _args}, caller) when is_list(metadata),
+    do: with_line(caller, metadata)
+
+  defp source_env(_value, caller), do: caller
 end

@@ -163,11 +163,11 @@ defmodule Jido.Exec.Compiler do
 
   defp validate_component_target(
          name,
-         %{kind: :call, call: {%Instruction{kind: :flow} = template, _params}},
+         %{kind: :call, call: %{kind: :flow} = call},
          module_stack,
          children
        ) do
-    with {:ok, instruction} <- bind_template(template, :flow, name),
+    with {:ok, instruction} <- resolve_target(call, :flow, name),
          :ok <- reject_recursive_flow(instruction.target, module_stack),
          {:ok, children} <- validate_child_flow(instruction.target, module_stack, children) do
       {:ok, children}
@@ -179,20 +179,23 @@ defmodule Jido.Exec.Compiler do
   defp validate_component_target(name, component, _module_stack, children) do
     component
     |> Definition.calls()
-    |> Enum.reduce_while({:ok, children}, fn {role, template, _params}, {:ok, children} ->
+    |> Enum.reduce_while({:ok, children}, fn {role, call, _params}, {:ok, children} ->
       field = validation_field(component, role)
 
-      case bind_template(template, :action, name) do
+      case resolve_target(call, :action, name) do
         {:ok, _instruction} -> {:cont, {:ok, children}}
         {:error, error} -> {:halt, {:error, target_error(error, name, field)}}
       end
     end)
   end
 
-  defp bind_template(template, expected, component) do
-    case Instruction.bind(template, %{}, %{}) do
+  defp resolve_target(call, expected, component) do
+    case Instruction.new(kind: call.kind, target: call.target) do
       {:ok, %Instruction{kind: ^expected} = instruction} ->
-        {:ok, instruction}
+        case Instruction.validate_resolved(instruction) do
+          :ok -> {:ok, instruction}
+          {:error, error} -> {:error, error}
+        end
 
       {:error, %{details: %{actual: actual}}}
       when actual in [:action, :flow] ->
@@ -396,10 +399,14 @@ defmodule Jido.Exec.Compiler do
     end)
   end
 
+  defp runtime_instruction!(%{kind: kind, target: target}) do
+    Instruction.new!(kind: kind, target: target)
+  end
+
   defp runtime_component(
          name,
          graph_name,
-         %{kind: :call, call: {%Instruction{kind: :action} = template, params}},
+         %{kind: :call, call: %{kind: :action, params: params} = call},
          digest,
          source_map,
          namespace,
@@ -415,7 +422,7 @@ defmodule Jido.Exec.Compiler do
       }
     }
 
-    with {:ok, instruction} <- Instruction.bind(template, %{}, %{}) do
+    with {:ok, instruction} <- Instruction.new(kind: call.kind, target: call.target) do
       {:ok,
        Action.new(instruction,
          flow: metadata.jido_flow,
@@ -430,8 +437,8 @@ defmodule Jido.Exec.Compiler do
          graph_name,
          %{
            kind: :dispatch,
-           decision: {%Instruction{kind: :action} = decision, params},
-           expander: {%Instruction{kind: :action} = expander, _expander_params}
+           decision: %{kind: :action, params: params} = decision,
+           expander: %{kind: :action} = expander
          },
          digest,
          source_map,
@@ -443,9 +450,9 @@ defmodule Jido.Exec.Compiler do
        id: {:flow, digest, namespace, name},
        name: graph_name,
        component: name,
-       decision: decision,
+       decision: runtime_instruction!(decision),
        decision_params: params,
-       expander: expander,
+       expander: runtime_instruction!(expander),
        location: Map.get(source_map, [:components, name]),
        node_path: node_path_prefix ++ [name]
      )}
@@ -458,7 +465,7 @@ defmodule Jido.Exec.Compiler do
            kind: :reduce,
            collection: collection,
            initial: initial,
-           call: {%Instruction{kind: :action} = instruction, params}
+           call: %{kind: :action, params: params} = instruction
          },
          digest,
          source_map,
@@ -473,7 +480,7 @@ defmodule Jido.Exec.Compiler do
        component: name,
        collection: collection,
        initial: initial,
-       instruction: instruction,
+       instruction: runtime_instruction!(instruction),
        params: params,
        location: Map.get(source_map, [:components, name]),
        node_path: node_path_prefix ++ [name]
@@ -485,7 +492,7 @@ defmodule Jido.Exec.Compiler do
          graph_name,
          %{
            kind: :iterate,
-           call: {%Instruction{kind: :action} = instruction, params},
+           call: %{kind: :action, params: params} = instruction,
            state: state,
            completion: completion,
            max_iterations: max_iterations
@@ -501,7 +508,7 @@ defmodule Jido.Exec.Compiler do
        name: graph_name,
        kind: :iterate,
        component: name,
-       instruction: instruction,
+       instruction: runtime_instruction!(instruction),
        params: params,
        state: state,
        completion: completion,
@@ -517,7 +524,7 @@ defmodule Jido.Exec.Compiler do
          %{
            kind: :map,
            collection: collection,
-           call: {%Instruction{kind: :action} = instruction, params},
+           call: %{kind: :action, params: params} = instruction,
            on_error: on_error
          },
          digest,
@@ -531,7 +538,7 @@ defmodule Jido.Exec.Compiler do
        name: graph_name,
        component: name,
        collection: collection,
-       instruction: instruction,
+       instruction: runtime_instruction!(instruction),
        params: params,
        on_error: on_error,
        location: Map.get(source_map, [:components, name]),
@@ -553,8 +560,11 @@ defmodule Jido.Exec.Compiler do
        id: {:flow, digest, namespace, name},
        name: graph_name,
        component: name,
-       options: options,
-       fallback: fallback,
+       options:
+         Enum.map(options, fn option ->
+           %{option | call: {runtime_instruction!(option.call), option.call.params}}
+         end),
+       fallback: {runtime_instruction!(fallback), fallback.params},
        location: Map.get(source_map, [:components, name]),
        node_path: node_path_prefix ++ [name]
      )}
@@ -563,13 +573,13 @@ defmodule Jido.Exec.Compiler do
   defp runtime_component(
          name,
          _graph_name,
-         %{kind: :call, call: {%Instruction{kind: :flow} = instruction, params}},
+         %{kind: :call, call: %{kind: :flow, params: params} = instruction},
          digest,
          source_map,
          namespace,
          node_path_prefix
        ) do
-    with {:ok, flow} <- instruction_flow(instruction),
+    with {:ok, flow} <- instruction_flow(runtime_instruction!(instruction)),
          {:ok, flow} <- validate(flow) do
       child_namespace = nested_namespace(namespace, digest, name)
       child_source_map = module_source_map(instruction.target)

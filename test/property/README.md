@@ -84,7 +84,7 @@ paired short cases with the same assertions and shared saved inputs.
 | `codec_mutations` | 300 | Selected invalid fields and depth/width/total-node boundaries |
 | `iterate_state` | 200 | 12 iterations; all four execution modes |
 | `nested_execution_failures` | 250 | 10 items per child, up to 3 children, limits 1–3 |
-| `codec_portability` | 300 | Portable trees, all component kinds, both stored versions |
+| `codec_portability` | 300 | Portable trees, all component kinds, version 1 with expressions |
 | `expression_trees` | 1,000 | Numeric depth 5, Boolean depth 2, explicit invalid limits |
 | `action_boundaries` | 250 | 30 output items; all callback failure and envelope forms |
 | `instruction_targets` | 500 | Optional key sets, nested overrides, all three target forms |

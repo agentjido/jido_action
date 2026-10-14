@@ -1,21 +1,13 @@
 defmodule Jido.Flow.DSL.MacroSupport do
   @moduledoc false
 
+  alias Jido.Authoring.Options
+
   @doc false
   @spec validate_options!(term(), Macro.Env.t(), String.t(), String.t()) :: :ok | no_return()
-  def validate_options!(options, caller, options_message, duplicate_label) do
-    if Keyword.keyword?(options) do
-      case first_duplicate(Keyword.keys(options)) do
-        {:ok, field} ->
-          compile_error!(caller, "duplicate #{duplicate_label}: #{inspect(field)}")
-
-        :none ->
-          :ok
-      end
-    else
-      compile_error!(caller, options_message)
-    end
-  end
+  defdelegate validate_options!(options, caller, options_message, duplicate_label),
+    to: Options,
+    as: :validate!
 
   @doc false
   @spec entity(
@@ -67,22 +59,7 @@ defmodule Jido.Flow.DSL.MacroSupport do
 
   @doc false
   @spec compile_error!(Macro.Env.t(), String.t()) :: no_return()
-  def compile_error!(caller, description) do
-    raise CompileError, file: caller.file, line: caller.line, description: description
-  end
-
-  defp first_duplicate(values) do
-    values
-    |> Enum.reduce_while(MapSet.new(), fn value, seen ->
-      if MapSet.member?(seen, value),
-        do: {:halt, {:ok, value}},
-        else: {:cont, MapSet.put(seen, value)}
-    end)
-    |> then(fn
-      %MapSet{} -> :none
-      duplicate -> duplicate
-    end)
-  end
+  defdelegate compile_error!(caller, description), to: Options, as: :error!
 end
 
 defmodule Jido.Flow.DSL.Macros do

@@ -7,7 +7,7 @@ defmodule Jido.Flow.DSL.Lowerer do
   alias Jido.Flow.Error
   alias Jido.Flow.Ref
 
-  @maximum_iterations 10_000
+  @maximum_iterations Jido.Flow.Component.maximum_iterations()
 
   alias Jido.Flow.DSL.{
     Choice,
@@ -38,26 +38,20 @@ defmodule Jido.Flow.DSL.Lowerer do
         output: output
       }
 
-      case Definition.diagnose(attrs) do
-        {:ok, attrs} -> {:ok, struct!(Flow, attrs)}
-        {:error, [issue | _rest]} -> {:error, attach_validation_location(issue, entities)}
+      case Definition.diagnose_lowered(attrs) do
+        {:ok, attrs} ->
+          {:ok, struct!(Flow, attrs)}
+
+        {:error, [issue | _rest]} ->
+          {:error, Jido.Flow.DSL.SourceMap.attach_issue(issue, entities)}
       end
     end
   end
 
   @doc false
   @spec source_map(module(), String.t() | nil) :: map()
-  def source_map(module, default_file \\ nil) do
-    module
-    |> Spark.Dsl.Extension.get_entities([:flow])
-    |> Enum.reduce(%{}, &put_source/2)
-    |> Map.new(fn {path, location} ->
-      location =
-        if is_binary(default_file), do: Map.put_new(location, :file, default_file), else: location
-
-      {path, location}
-    end)
-  end
+  def source_map(module, default_file \\ nil),
+    do: Jido.Flow.DSL.SourceMap.from_module(module, default_file)
 
   defp lower_entities(entities) do
     entities
@@ -65,7 +59,7 @@ defmodule Jido.Flow.DSL.Lowerer do
       case lower_entity(entity) do
         {:ok, {:component, component}} -> {:cont, {:ok, [component | specs], output}}
         {:ok, {:output, expression}} -> {:cont, {:ok, specs, {:present, expression}}}
-        {:error, error} -> {:halt, {:error, attach_entity_location(error, entity)}}
+        {:error, error} -> {:halt, {:error, Jido.Flow.DSL.SourceMap.attach_entity(error, entity)}}
       end
     end)
     |> reverse_lowered_entities()
@@ -103,8 +97,7 @@ defmodule Jido.Flow.DSL.Lowerer do
           kind: :map,
           name: map.name,
           collection: collection,
-          action: map.action,
-          params: params,
+          call: %{kind: :action, target: map.action, params: params},
           on_error: map.on_error,
           needs: map.needs,
           meta: map.meta
@@ -123,8 +116,7 @@ defmodule Jido.Flow.DSL.Lowerer do
           name: reduce.name,
           collection: collection,
           initial: initial,
-          action: reduce.action,
-          params: params,
+          call: %{kind: :action, target: reduce.action, params: params},
           needs: reduce.needs,
           meta: reduce.meta
         }}}
@@ -143,8 +135,7 @@ defmodule Jido.Flow.DSL.Lowerer do
         %{
           kind: :iterate,
           name: iterate.name,
-          action: iterate.action,
-          params: params,
+          call: %{kind: :action, target: iterate.action, params: params},
           state: Map.put(state, :update, update),
           completion: completion,
           max_iterations: max_iterations,
@@ -161,9 +152,8 @@ defmodule Jido.Flow.DSL.Lowerer do
         %{
           kind: :dispatch,
           name: dispatch.name,
-          decision: dispatch.decision,
-          expander: dispatch.expander,
-          params: params,
+          decision: %{kind: :action, target: dispatch.decision, params: params},
+          expander: %{kind: :action, target: dispatch.expander},
           needs: dispatch.needs,
           meta: dispatch.meta
         }}}
@@ -178,30 +168,15 @@ defmodule Jido.Flow.DSL.Lowerer do
 
   defp step_component(step, params) do
     with {:module, _module} <- Code.ensure_compiled(step.action),
-         {:ok, instruction} <- Jido.Instruction.resolve(step.action) do
-      case instruction.kind do
-        :action ->
-          {:ok,
-           %{
-             kind: :step,
-             name: step.name,
-             action: step.action,
-             params: params,
-             needs: step.needs,
-             meta: step.meta
-           }}
-
-        :flow ->
-          {:ok,
-           %{
-             kind: :subflow,
-             name: step.name,
-             flow: step.action,
-             params: params,
-             needs: step.needs,
-             meta: step.meta
-           }}
-      end
+         {:ok, kind} <- Jido.Instruction.target_kind(step.action) do
+      {:ok,
+       %{
+         kind: :call,
+         name: step.name,
+         call: %{kind: kind, target: step.action, params: params},
+         needs: step.needs,
+         meta: step.meta
+       }}
     else
       {:error, error} when is_exception(error) ->
         details = error |> Map.get(:details, %{}) |> Map.put(:cause, error.__struct__)
@@ -228,13 +203,12 @@ defmodule Jido.Flow.DSL.Lowerer do
         value = %{
           name: option.name,
           condition: condition,
-          action: option.action,
-          params: input
+          call: %{kind: :action, target: option.action, params: input}
         }
 
         {:cont, {:ok, [value | lowered]}}
       else
-        {:error, error} -> {:halt, {:error, attach_entity_location(error, option)}}
+        {:error, error} -> {:halt, {:error, Jido.Flow.DSL.SourceMap.attach_entity(error, option)}}
       end
     end)
     |> reverse_ok()
@@ -242,9 +216,9 @@ defmodule Jido.Flow.DSL.Lowerer do
 
   defp lower_fallback(%Otherwise{} = fallback) do
     with {:ok, input} <- ValueParser.parse(fallback.params) do
-      {:ok, %{action: fallback.action, params: input}}
+      {:ok, %{kind: :action, target: fallback.action, params: input}}
     else
-      {:error, error} -> {:error, attach_entity_location(error, fallback)}
+      {:error, error} -> {:error, Jido.Flow.DSL.SourceMap.attach_entity(error, fallback)}
     end
   end
 
@@ -258,7 +232,7 @@ defmodule Jido.Flow.DSL.Lowerer do
     with {:ok, initial} <- ValueParser.parse(state.initial) do
       {:ok, %{schema: state.schema, initial: initial}}
     else
-      {:error, error} -> {:error, attach_entity_location(error, state)}
+      {:error, error} -> {:error, Jido.Flow.DSL.SourceMap.attach_entity(error, state)}
     end
   end
 
@@ -302,117 +276,8 @@ defmodule Jido.Flow.DSL.Lowerer do
 
       index ->
         error = Error.validation_error("output must be the final Flow declaration")
-        {:error, attach_entity_location(error, Enum.at(entities, index))}
+        {:error, Jido.Flow.DSL.SourceMap.attach_entity(error, Enum.at(entities, index))}
     end
-  end
-
-  defp attach_validation_location(%{error: error, location: location}, entities) do
-    entity =
-      case location do
-        [:output | _rest] ->
-          Enum.find(entities, &match?(%Output{}, &1))
-
-        [:components, index, :options, option_index | _rest]
-        when is_integer(index) and is_integer(option_index) ->
-          entities
-          |> Enum.reject(&match?(%Output{}, &1))
-          |> Enum.at(index)
-          |> Map.get(:options, [])
-          |> Enum.at(option_index)
-
-        [:components, index, :fallback | _rest] when is_integer(index) ->
-          entities
-          |> Enum.reject(&match?(%Output{}, &1))
-          |> Enum.at(index)
-          |> Map.get(:fallback)
-
-        [:components, index, :state, :update | _rest] when is_integer(index) ->
-          entities |> Enum.reject(&match?(%Output{}, &1)) |> Enum.at(index)
-
-        [:components, index, :state | _rest] when is_integer(index) ->
-          entities
-          |> Enum.reject(&match?(%Output{}, &1))
-          |> Enum.at(index)
-          |> Map.get(:state)
-
-        [:components, index | _rest] when is_integer(index) ->
-          entities |> Enum.reject(&match?(%Output{}, &1)) |> Enum.at(index)
-
-        [:components] ->
-          Enum.find(entities, &(Map.get(&1, :name) in error.details.components))
-
-        _other ->
-          nil
-      end
-
-    if entity, do: attach_entity_location(error, entity), else: error
-  end
-
-  defp attach_entity_location(%{details: details} = error, entity) when is_map(details) do
-    %{error | details: Map.merge(entity_source(entity), details)}
-  end
-
-  defp attach_entity_location(error, _entity), do: error
-
-  defp annotation_map(nil), do: %{}
-
-  defp annotation_map(anno) do
-    %{}
-    |> maybe_put(:line, :erl_anno.line(anno))
-    |> maybe_put(:column, :erl_anno.column(anno))
-  end
-
-  defp maybe_put(map, _key, :undefined), do: map
-  defp maybe_put(map, _key, 0), do: map
-  defp maybe_put(map, key, value), do: Map.put(map, key, value)
-
-  defp put_source(%Output{} = output, source_map) do
-    Map.put(source_map, [:output], entity_source(output))
-  end
-
-  defp put_source(%Choice{} = choice, source_map) do
-    source_map
-    |> Map.put([:components, choice.name], entity_source(choice))
-    |> put_choice_sources(choice)
-  end
-
-  defp put_source(%Iterate{} = iterate, source_map) do
-    source_map
-    |> Map.put([:components, iterate.name], entity_source(iterate))
-    |> maybe_put_source([:components, iterate.name, :state], iterate.state)
-  end
-
-  defp put_source(entity, source_map) do
-    Map.put(source_map, [:components, Map.fetch!(entity, :name)], entity_source(entity))
-  end
-
-  defp put_choice_sources(source_map, choice) do
-    source_map =
-      Enum.reduce(choice.options, source_map, fn option, current ->
-        Map.put(
-          current,
-          [:components, choice.name, :options, option.name],
-          entity_source(option)
-        )
-      end)
-
-    maybe_put_source(
-      source_map,
-      [:components, choice.name, :fallback],
-      choice.fallback
-    )
-  end
-
-  defp maybe_put_source(source_map, _path, nil), do: source_map
-
-  defp maybe_put_source(source_map, path, entity),
-    do: Map.put(source_map, path, entity_source(entity))
-
-  defp entity_source(entity) do
-    entity
-    |> Spark.Dsl.Entity.anno()
-    |> annotation_map()
-    |> Map.merge(Map.get(entity, :__source__, %{}))
   end
 
   defp reverse_ok({:ok, values}), do: {:ok, Enum.reverse(values)}

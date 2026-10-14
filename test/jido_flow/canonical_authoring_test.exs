@@ -104,7 +104,6 @@ defmodule Jido.Flow.CanonicalAuthoringTest do
   alias Jido.Flow
   alias Jido.Flow.Codec
   alias Jido.Flow.Ref
-  alias Jido.Instruction
   alias JidoActionTest.Fixtures.CodecRegistry
   alias JidoActionTest.Fixtures.FlowAuthoring
   alias JidoActionTest.Fixtures.InlineAuthoring
@@ -121,7 +120,7 @@ defmodule Jido.Flow.CanonicalAuthoringTest do
     registry = InlineAuthoring.registry()
     assert {:ok, document} = Codec.encode(built, registry)
 
-    assert Enum.map(document["components"], & &1["action"]) == [
+    assert Enum.map(document["components"], & &1["call"]["target"]) == [
              "actions/demo/empty/v1",
              "actions/demo/named/v1",
              "actions/demo/multiple/v1",
@@ -178,9 +177,11 @@ defmodule Jido.Flow.CanonicalAuthoringTest do
              })
 
     assert %{
-             call:
-               {%Instruction{kind: :action, target: ^action},
-                %{name: %Ref{source: :input}, prefix: %Ref{source: :input}} = params},
+             call: %{
+               kind: :action,
+               target: ^action,
+               params: %{name: %Ref{source: :input}, prefix: %Ref{source: :input}} = params
+             },
              needs: ["gate"],
              meta: %{owner: "data"}
            } = flow.components["message"]
@@ -214,7 +215,7 @@ defmodule Jido.Flow.CanonicalAuthoringTest do
 
     assert %{
              kind: :map,
-             call: {%Instruction{kind: :action, target: ^action}, %{name: %Ref{source: :item}}}
+             call: %{kind: :action, target: ^action, params: %{name: %Ref{source: :item}}}
            } = flow.components["names"]
 
     assert Jido.Exec.run(flow, %{people: [" Ada ", " Grace "]}) ==
@@ -291,10 +292,8 @@ defmodule Jido.Flow.CanonicalAuthoringTest do
     assert built == direct
     assert Jido.Flow.CanonicalAuthoringTest.SparkSubflow.flow() == direct
 
-    assert %{
-             kind: :call,
-             call: {%Instruction{kind: :flow, target: NestedFlow}, _params}
-           } = built.components["child"]
+    assert %{kind: :call, call: %{kind: :flow, target: NestedFlow, params: _params}} =
+             built.components["child"]
   end
 
   test "direct, Spark, and JSON Dispatch forms produce the same canonical data" do
@@ -349,9 +348,9 @@ defmodule Jido.Flow.CanonicalAuthoringTest do
     assert decoded == direct
 
     assert direct.components["load"].kind == :call
-    assert elem(direct.components["load"].call, 0).kind == :action
+    assert direct.components["load"].call.kind == :action
     assert direct.components["child"].kind == :call
-    assert elem(direct.components["child"].call, 0).kind == :flow
+    assert direct.components["child"].call.kind == :flow
 
     assert Enum.map(["route", "mapped", "reduced", "loop"], fn name ->
              direct.components[name].kind
@@ -387,7 +386,7 @@ defmodule Jido.Flow.CanonicalAuthoringTest do
                name: "bad_data"
              })
 
-    assert Exception.message(error) == "unknown step key: :deps"
+    assert Exception.message(error) == "unknown Flow field: :deps"
   end
 
   test "map authoring accepts needs for every component kind" do
@@ -533,7 +532,7 @@ defmodule Jido.Flow.CanonicalAuthoringTest do
       assert {:error, error} = JidoActionTest.FlowBuilder.new(Map.put(data, :output, %{}))
       assert error.message =~ "unknown"
       assert error.message =~ ":after"
-      assert error.details.path == [:components, 0]
+      assert error.details.path == [:components, 0, :after]
     end
   end
 

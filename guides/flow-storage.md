@@ -73,11 +73,12 @@ Use `Jido.Flow.Codec.encode/1` when stable application identifiers are not
 required:
 
 ```elixir
-{:ok, document, registry} = Jido.Flow.Codec.encode(flow)
-{:ok, json} = Jason.encode(document)
+flow = MyApp.Flows.Greeting.flow()
+{:ok, temporary_document, temporary_registry} = Jido.Flow.Codec.encode(flow)
+{:ok, json} = Jason.encode(temporary_document)
 
 {:ok, decoded_document} = Jason.decode(json)
-{:ok, decoded_flow} = Jido.Flow.Codec.decode(decoded_document, registry)
+{:ok, decoded_flow} = Jido.Flow.Codec.decode(decoded_document, temporary_registry)
 ```
 
 `encode/1` validates the canonical Flow, as `encode/2` does. It does not
@@ -113,31 +114,6 @@ because the document contains only JSON-compatible data.
 `encode/2` returns an error when the Registry has no identifier for a value
 the Flow uses.
 
-## Generate A Temporary Registry
-
-When you do not need stable identifiers, `Jido.Flow.Codec.encode/1` builds a
-Registry for you:
-
-```elixir
-{:ok, temporary_document, temporary_registry} = Jido.Flow.Codec.encode(flow)
-
-{:ok, ^flow} =
-  temporary_document
-  |> JSON.encode!()
-  |> JSON.decode!()
-  |> Jido.Flow.Codec.decode(temporary_registry)
-```
-
-`encode/1` validates the Flow and its Action and child Flow contracts. It
-collects the modules, schemas, and atoms, assigns identifiers such as
-`"actions/generated-1"`, and returns the Registry separately.
-`Jido.Flow.Registry.from_flow/1` builds the same Registry without encoding.
-
-Generated identifiers depend on the exact Flow value. They can change when the
-Flow, a module, or a schema changes. Use them only for tests, temporary
-storage, or transport within one application version. Use an
-application-owned Registry for durable storage.
-
 ## Document Format
 
 The document root has these fields:
@@ -167,9 +143,22 @@ Strings, numbers, Booleans, `null`, and lists are written as plain JSON.
 Because maps use their own tag, a literal map with a `$expr` key is never read
 as an operation.
 
-The writer uses version 2 when the document contains a `$expr` operation, and
-version 1 otherwise. The reader accepts both versions; version 1 rejects
-`$expr`. Document versions and semantic identity versions are separate.
+The writer and reader use document version 1 for all current features,
+including `$expr` operations. Other versions are rejected. Document versions
+and semantic identity versions are separate.
+
+Component fields match the [data form](flow-data.md#component-kinds), with
+string keys and fixed string kinds. A call record contains `"kind"`,
+`"target"`, and `"params"`. Its target is a Registry identifier. A Dispatch
+expander contains only `"kind"` and `"target"`.
+
+```elixir
+[greet] = document["components"]
+"call" = greet["kind"]
+"action" = greet["call"]["kind"]
+"actions/create-greeting" = greet["call"]["target"]
+["call", "kind", "meta", "name", "needs"] = Enum.sort(Map.keys(greet))
+```
 
 Do not hand-edit a `Jido.Flow.to_map/1` result into a stored document. Only
 Codec output is a valid document.
@@ -222,8 +211,8 @@ The stored Steps contain only identifiers and data:
 
 ```elixir
 [normalize, greet] = inline_document["components"]
-"actions/greeting/greet/v1" = greet["action"]
-["action", "kind", "meta", "name", "needs", "params"] = Enum.sort(Map.keys(greet))
+"actions/greeting/greet/v1" = greet["call"]["target"]
+["call", "kind", "meta", "name", "needs"] = Enum.sort(Map.keys(greet))
 
 %{
   "$type" => "map",
@@ -239,7 +228,7 @@ The stored Steps contain only identifiers and data:
       }
     }
   ]
-} = normalize["params"]
+} = normalize["call"]["params"]
 ```
 
 Deploy the owning Flow module and its generated Actions together. Keep
@@ -296,7 +285,7 @@ Flow with `Jido.Exec`.
 in the current validation phase, so an editor can show them together:
 
 ```elixir
-draft = put_in(document, ["components", Access.at(0), "action"], "actions/missing")
+draft = put_in(document, ["components", Access.at(0), "call", "target"], "actions/missing")
 
 {:error, errors} = Jido.Flow.Codec.diagnose(draft, registry)
 
@@ -308,20 +297,20 @@ The error is one `%Jido.Flow.Error.Invalid{}` group. Each leaf error has a
 JSON `path` when one applies. The error map lists the leaves under
 `details.errors`.
 
-Diagnosis runs in phases:
+Diagnosis uses the same field rules and error order as data authoring:
 
-Document size, collection size, nesting, root type, unknown root field, and
-document version errors are terminal. Diagnostics do not traverse a document
-after one of these failures. Diagnosis then uses these phases:
+1. Document type, version, size, collection size, and nesting checks. A failure
+   is terminal.
+2. Unknown fields, root configuration, components in list order, and output.
+   Each component checks its common fields, then its kind-specific fields.
+   Registry and tagged-value errors keep their position in that field order.
+3. Required output and graph checks, after valid field data. Graph checks
+   report duplicate names, unknown references, cycles, and Dispatch rules.
+   Unknown-reference errors hide the derived cycle error.
 
-1. Document size, collection size, nesting, root type, unknown root fields,
-   and version. These
-   errors are terminal; diagnosis stops after them.
-2. Fields, Registry identifiers, components, Choice records, expressions,
-   conditions, lists, and maps.
-3. Graph checks, such as references to unknown components and cycles. These
-   run only after phase 2 has no errors. An unknown-reference error hides the
-   derived cycle error.
+JSON paths are recorded during reading. Semantic validation uses those paths
+without a second search of the document. A missing output is also reported
+when other field errors are present.
 
 Fix the reported errors and diagnose again to see the next phase. Diagnosis
 never returns a partial Flow. It does not check whether resolved modules are

@@ -207,7 +207,7 @@ end
 
     assert %{
              kind: :map,
-             call: {%Jido.Instruction{target: EchoParamsAction}, _params},
+             call: %{target: EchoParamsAction, params: _params},
              on_error: :collect_errors
            } = flow.components["mapped"]
 

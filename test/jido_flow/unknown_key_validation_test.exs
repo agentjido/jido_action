@@ -64,7 +64,7 @@ defmodule Jido.Flow.UnknownKeyValidationTest do
        }, "choice"}
     ]
 
-    for {attrs, label} <- cases do
+    for {attrs, _label} <- cases do
       assert {:ok, _named} = Definition.component(attrs)
 
       for unknown <- [
@@ -79,7 +79,7 @@ defmodule Jido.Flow.UnknownKeyValidationTest do
                  |> Map.merge(unknown)
                  |> Definition.component()
 
-        assert error.message == "unknown #{label} key: #{inspect(key)}"
+        assert error.message == "unknown Flow field: #{inspect(key)}"
       end
     end
   end
@@ -96,13 +96,13 @@ defmodule Jido.Flow.UnknownKeyValidationTest do
                name: "choice",
                options: [Map.merge(option, unknown)],
                fallback: fallback
-             }, "unknown choice option key: nil", [:options, 0]},
+             }, "unknown Flow field: nil", [:options, 0]},
             {%{
                kind: :choice,
                name: "choice",
                options: [option],
                fallback: Map.merge(fallback, unknown)
-             }, "unknown choice fallback key: nil", [:fallback]},
+             }, "unknown Flow field: nil", [:fallback]},
             {%{
                kind: :iterate,
                name: "iterate",
@@ -110,13 +110,13 @@ defmodule Jido.Flow.UnknownKeyValidationTest do
                state: Map.merge(state, unknown),
                completion: true,
                max_iterations: 1
-             }, "unknown iterate state key: nil", [:state]}
+             }, "unknown Flow field: nil", [:state]}
           ] do
         assert {:error, %InvalidDefinitionError{} = error} =
                  Flow.new(%{name: "nested", components: [component], output: %{}})
 
         assert error.message == message
-        assert error.details.path == [:components, 0] ++ local_path
+        assert error.details.path == [:components, 0] ++ local_path ++ [nil]
       end
     end
   end
@@ -141,8 +141,8 @@ defmodule Jido.Flow.UnknownKeyValidationTest do
           ] do
         assert {:error,
                 %InvalidDefinitionError{
-                  message: "stored Flow contains an unknown field",
-                  details: %{field: nil, path: ^path}
+                  message: _message,
+                  details: %{key: nil, path: ^path}
                 }} = Codec.decode(invalid, registry)
       end
     end

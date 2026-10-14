@@ -49,7 +49,8 @@ defmodule Jido.Action do
   the caller sets `max_attempts` and the error is retryable.
   """
 
-  alias Jido.Action.{Error, Output, Validation}
+  alias Jido.Action.{Error, Output}
+  alias Jido.Exec.Validation
 
   @typedoc "A static Action input or output schema."
   @type schema :: Zoi.schema() | []
@@ -72,22 +73,22 @@ defmodule Jido.Action do
   @spec validate_params_for(term(), module()) ::
           {:ok, map()} | {:error, term()}
   def validate_params_for(params, module) do
-    with {:ok, params} <- prepare_params(params, module),
-         {:ok, validated} <- validate_data(module.schema(), params, "Action", module) do
-      validate_action_map(validated, "Action", module)
+    with {:ok, params} <- prepare_params(params, module) do
+      Validation.schema(module.schema(), params, %{context: "Action", module: module})
     end
   end
 
   @doc false
   @spec validate_output_for(map() | Output.t(), module()) ::
           {:ok, map() | Output.t()} | {:error, Error.InvalidInputError.t()}
-  def validate_output_for(%Output{} = output, _module), do: Output.validate(output)
+  def validate_output_for(%Output{} = output, _module),
+    do: Validation.output_schema([], output, %{})
 
   def validate_output_for(output, module) do
-    with {:ok, validated} <-
-           validate_data(module.output_schema(), output, "Action output", module) do
-      validate_action_map(validated, "Action output", module)
-    end
+    Validation.output_schema(module.output_schema(), output, %{
+      context: "Action output",
+      module: module
+    })
   end
 
   @doc """
@@ -207,23 +208,5 @@ defmodule Jido.Action do
     else
       {:ok, params}
     end
-  end
-
-  defp validate_data(schema, data, context, module) do
-    Validation.open_validate(schema, data, %{
-      context: context,
-      module: module
-    })
-  end
-
-  defp validate_action_map(value, _context, _module) when is_map(value), do: {:ok, value}
-
-  defp validate_action_map(value, context, module) do
-    {:error,
-     Error.validation_error("#{context} validation must return a map", %{
-       context: context,
-       module: module,
-       value: value
-     })}
   end
 end
