@@ -23,6 +23,11 @@ defmodule Jido.Flow do
   A Flow contains named canonical components and one required output
   expression. Execution is delegated through `Jido.Exec`.
 
+  Generated Flow modules share the `Jido.Action` module contract for metadata,
+  schemas, validation, and JSON-safe module descriptions. They retain a Flow
+  target kind. `Jido.Exec` compiles them to native Runic graphs. The generated
+  `run/2` function is a convenience call to Exec.
+
   Flow has three supported authoring inputs:
 
   * the compile-time Flow module DSL;

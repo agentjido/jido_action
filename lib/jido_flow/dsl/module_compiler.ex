@@ -10,53 +10,14 @@ defmodule Jido.Flow.DSL.ModuleCompiler do
     {flow_opts_ast, extensions} = split_options!(opts_ast, __CALLER__)
 
     quote location: :keep do
-      @behaviour Jido.Flow
       use Jido.Flow.DSL, extensions: unquote(Macro.escape(extensions))
       @before_compile Jido.Flow.DSL.ModuleCompiler
       Jido.Action.Inline.setup!(__ENV__)
       unquote(module_compiler).reserve_function!(__ENV__, {:step_action, 1})
 
-      {validated_opts, stored_schema, stored_output_schema} =
-        unquote(module_compiler).prepare_config!(unquote(flow_opts_ast), __ENV__)
-
-      Module.put_attribute(__MODULE__, :__jido_flow_schema__, stored_schema)
-      Module.put_attribute(__MODULE__, :__jido_flow_output_schema__, stored_output_schema)
-      Module.put_attribute(__MODULE__, :__jido_schema__, stored_schema)
-      Module.put_attribute(__MODULE__, :__jido_output_schema__, stored_output_schema)
-
-      @__jido_flow_opts__ Map.drop(validated_opts, [:schema, :output_schema])
-
-      @doc "Returns the Flow name."
-      @spec name() :: String.t()
-      def name, do: @__jido_flow_opts__[:name]
-
-      @doc "Returns the Flow description."
-      @spec description() :: String.t() | nil
-      def description, do: @__jido_flow_opts__[:description]
-
-      @doc "Returns the Flow input schema."
-      @spec schema() :: Jido.Action.schema()
-      def schema, do: @__jido_schema__
-
-      @doc "Returns the Flow output schema."
-      @spec output_schema() :: Jido.Action.schema()
-      def output_schema, do: @__jido_output_schema__
-
-      @doc "Validates Flow input parameters."
-      @impl Jido.Flow
-      @spec validate_params(term()) ::
-              {:ok, map()} | {:error, Jido.Action.Error.InvalidInputError.t()}
-      def validate_params(params), do: Jido.Action.validate_params_for(params, __MODULE__)
-
-      @doc "Validates a Flow output value."
-      @impl Jido.Flow
-      @spec validate_output(map() | Jido.Action.Output.t()) ::
-              {:ok, map() | Jido.Action.Output.t()}
-              | {:error, Jido.Action.Error.InvalidInputError.t()}
-      def validate_output(output), do: Jido.Action.validate_output_for(output, __MODULE__)
+      use Jido.Authoring.Compiler, kind: :flow, config: unquote(flow_opts_ast)
 
       @doc "Returns the canonical Flow data for this module."
-      @impl Jido.Flow
       @spec flow() :: Jido.Flow.t()
       def flow()
 
@@ -91,6 +52,7 @@ defmodule Jido.Flow.DSL.ModuleCompiler do
       def compiled()
 
       @doc "Runs this Flow through Jido.Exec with default execution options."
+      @impl Jido.Action
       @spec run(map(), map()) :: Jido.Exec.exec_result()
       def run(params, context)
     end
@@ -185,44 +147,14 @@ defmodule Jido.Flow.DSL.ModuleCompiler do
   end
 
   @doc false
-  @spec prepare_config!(term(), Macro.Env.t()) ::
-          {map(), Jido.Action.schema(), Jido.Action.schema()} | no_return()
-  def prepare_config!(raw_opts, env) do
-    case Jido.Flow.__validate_config__(normalize_options(raw_opts)) do
-      {:ok, validated_opts} ->
-        stored_schema =
-          Jido.Action.ensure_static_schema!(
-            Map.get(validated_opts, :schema, []),
-            :schema,
-            env
-          )
-
-        stored_output_schema =
-          Jido.Action.ensure_static_schema!(
-            Map.get(validated_opts, :output_schema, []),
-            :output_schema,
-            env
-          )
-
-        {validated_opts, stored_schema, stored_output_schema}
-
-      {:error, error} ->
-        raise CompileError,
-          description: "Flow configuration validation failed: #{Exception.message(error)}",
-          file: env.file,
-          line: env.line
-    end
-  end
-
-  @doc false
   defmacro __before_compile__(env), do: before_compile(env)
 
   @doc false
   @spec before_compile(Macro.Env.t()) :: Macro.t()
   def before_compile(env) do
-    opts = Module.get_attribute(env.module, :__jido_flow_opts__)
-    schema = Module.get_attribute(env.module, :__jido_flow_schema__)
-    output_schema = Module.get_attribute(env.module, :__jido_flow_output_schema__)
+    opts = Module.get_attribute(env.module, :__jido_authoring_opts__)
+    schema = Module.get_attribute(env.module, :__jido_schema__)
+    output_schema = Module.get_attribute(env.module, :__jido_output_schema__)
 
     {flow, source_map} = compile_flow!(env, opts, schema, output_schema)
     escaped_flow = Macro.escape(flow)
@@ -328,10 +260,4 @@ defmodule Jido.Flow.DSL.ModuleCompiler do
   defp source_paths(%{path: [:output | _rest]}), do: [[:output]]
   defp source_paths(%{component: component}), do: [[:components, component]]
   defp source_paths(_details), do: []
-
-  defp normalize_options(raw_opts) when is_list(raw_opts) do
-    if Keyword.keyword?(raw_opts), do: Map.new(raw_opts), else: raw_opts
-  end
-
-  defp normalize_options(raw_opts), do: raw_opts
 end

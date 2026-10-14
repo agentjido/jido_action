@@ -43,9 +43,11 @@ defmodule JidoActionTest.Instruction.TargetTest do
     assert {:validate_output, 1} in Jido.Flow.behaviour_info(:callbacks)
   end
 
-  test "generated modules declare one target behaviour" do
+  test "generated modules share the Action behaviour and retain their target kind" do
     assert behaviours(Add) == [Jido.Action]
-    assert behaviours(MathFlow) == [Jido.Flow]
+    assert behaviours(MathFlow) == [Jido.Action]
+    assert Add.__jido_authoring_kind__() == :action
+    assert MathFlow.__jido_authoring_kind__() == :flow
   end
 
   test "resolution keeps the exact target and current kind" do

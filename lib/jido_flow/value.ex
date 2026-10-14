@@ -9,7 +9,7 @@ defmodule Jido.Flow.Value do
   Each expression also uses the smaller standard limits from `Jido.Expr`.
   """
 
-  alias Jido.Action
+  alias Jido.Authoring.Config
   alias Jido.Expr
   alias Jido.Flow.Error
   alias Jido.Flow.Ref
@@ -348,7 +348,7 @@ defmodule Jido.Flow.Value do
   end
 
   defp normalize_name(name) when is_binary(name) do
-    case Action.validate_name(name) do
+    case Config.validate_name(name) do
       :ok -> {:ok, name}
       {:error, message} -> {:error, Error.validation_error(message)}
     end

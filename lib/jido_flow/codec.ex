@@ -26,7 +26,7 @@ defmodule Jido.Flow.Codec do
       end
   """
 
-  alias Jido.Action
+  alias Jido.Authoring.Config
   alias Jido.Expr
   alias Jido.Flow
   alias Jido.Flow.Definition
@@ -228,7 +228,7 @@ defmodule Jido.Flow.Codec do
 
   defp diagnose_flow_name(document) do
     with {:ok, name} <- string_field(document, "name", []),
-         :ok <- Action.validate_name(name) do
+         :ok <- Config.validate_name(name) do
       {:ok, name}
     else
       {:error, message} when is_binary(message) ->
@@ -260,8 +260,8 @@ defmodule Jido.Flow.Codec do
 
   defp diagnose_schema_field(document, field, registry) do
     with {:ok, schema} <- resolve_field(document, field, :schema, registry, []),
-         :ok <- Action.validate_static_data(schema),
-         :ok <- Action.validate_map_schema(schema) do
+         :ok <- Config.validate_static_data(schema),
+         :ok <- Config.validate_map_schema(schema) do
       {:ok, schema}
     else
       {:error, message} when is_binary(message) ->
@@ -703,8 +703,8 @@ defmodule Jido.Flow.Codec do
 
   defp diagnose_nested_schema_field(record, registry, path) do
     with {:ok, schema} <- resolve_field(record, "schema", :schema, registry, path),
-         :ok <- Action.validate_static_data(schema),
-         :ok <- Action.validate_map_schema(schema) do
+         :ok <- Config.validate_static_data(schema),
+         :ok <- Config.validate_map_schema(schema) do
       {:ok, schema}
     else
       {:error, message} when is_binary(message) ->

@@ -1,7 +1,7 @@
 defmodule Jido.Flow.Definition do
   @moduledoc false
 
-  alias Jido.Action
+  alias Jido.Authoring.Config
   alias Jido.Flow.Error
   alias Jido.Flow.Graph
   alias Jido.Flow.Ref
@@ -108,18 +108,7 @@ defmodule Jido.Flow.Definition do
 
   @doc false
   @spec validate_config(term()) :: {:ok, map()} | {:error, Exception.t()}
-  def validate_config(%{} = attrs) when not is_struct(attrs) do
-    with :ok <- known_keys(attrs, @module_config_keys, "Flow configuration"),
-         {:ok, name} <- flow_name(Map.get(attrs, :name)),
-         {:ok, description} <- description(Map.get(attrs, :description)),
-         {:ok, schema} <- schema(Map.get(attrs, :schema, []), "schema"),
-         {:ok, output_schema} <- schema(Map.get(attrs, :output_schema, []), "output_schema") do
-      {:ok, %{name: name, description: description, schema: schema, output_schema: output_schema}}
-    end
-  end
-
-  def validate_config(_attrs),
-    do: {:error, Error.validation_error("flow configuration must be a map")}
+  defdelegate validate_config(attrs), to: Config, as: :validate_flow
 
   @doc false
   @spec component(term()) :: {:ok, named_component()} | {:error, Exception.t()}
@@ -678,10 +667,11 @@ defmodule Jido.Flow.Definition do
 
   defp normalize_attrs(%{} = attrs) when not is_struct(attrs) do
     with :ok <- known_keys(attrs, @artifact_config_keys, "Flow configuration"),
-         {:ok, name} <- flow_name(Map.get(attrs, :name)),
-         {:ok, description} <- description(Map.get(attrs, :description)),
-         {:ok, schema} <- schema(Map.get(attrs, :schema, []), "schema"),
-         {:ok, output_schema} <- schema(Map.get(attrs, :output_schema, []), "output_schema"),
+         {:ok, name} <- Config.flow_name(Map.get(attrs, :name)),
+         {:ok, description} <- Config.description(Map.get(attrs, :description)),
+         {:ok, schema} <- Config.schema(Map.get(attrs, :schema, []), "schema"),
+         {:ok, output_schema} <-
+           Config.schema(Map.get(attrs, :output_schema, []), "output_schema"),
          {:ok, components} <- components(Map.get(attrs, :components, [])),
          {:ok, output} <- output(Map.get(attrs, :output)) do
       {:ok,
@@ -908,7 +898,10 @@ defmodule Jido.Flow.Definition do
   def iterate_state(%{} = attrs) when not is_struct(attrs) do
     with :ok <- known_keys(attrs, [:schema, :initial, :update], "iterate state"),
          {:ok, schema} <-
-           nested_field(schema(Map.get(attrs, :schema, []), "iterate state schema"), :schema),
+           nested_field(
+             Config.schema(Map.get(attrs, :schema, []), "iterate state schema"),
+             :schema
+           ),
          {:ok, initial} <- required_value(attrs, :initial, :iterate_initial, "iterate state"),
          {:ok, update} <- required_value(attrs, :update, :iterate_update, "iterate state") do
       {:ok, %{schema: schema, initial: initial, update: update}}
@@ -1001,7 +994,7 @@ defmodule Jido.Flow.Definition do
     do: value |> Atom.to_string() |> name("component")
 
   defp name(value, owner) when is_binary(value) do
-    case Action.validate_name(value) do
+    case Config.validate_name(value) do
       :ok -> {:ok, value}
       {:error, message} -> {:error, Error.validation_error(message, %{owner: owner})}
     end
@@ -1009,15 +1002,6 @@ defmodule Jido.Flow.Definition do
 
   defp name(_value, owner),
     do: {:error, Error.validation_error("#{owner} name must be a non-empty string")}
-
-  defp flow_name(value) when is_binary(value) do
-    case Action.validate_name(value) do
-      :ok -> {:ok, value}
-      {:error, message} -> {:error, Error.validation_error(message)}
-    end
-  end
-
-  defp flow_name(_value), do: {:error, Error.validation_error("flow name must be a string")}
 
   defp needs_names(nil), do: {:ok, []}
 
@@ -1074,36 +1058,6 @@ defmodule Jido.Flow.Definition do
 
   defp module_atom(_value, label),
     do: {:error, Error.validation_error("#{label} must be a module atom")}
-
-  defp description(nil), do: {:ok, nil}
-
-  defp description(value) when is_binary(value) do
-    if String.valid?(value),
-      do: {:ok, value},
-      else: {:error, Error.validation_error("flow description must be valid UTF-8")}
-  end
-
-  defp description(_value),
-    do: {:error, Error.validation_error("flow description must be a string")}
-
-  defp schema(nil, _field), do: {:ok, []}
-
-  defp schema(value, field) do
-    with :ok <- static_schema(value),
-         :ok <- Action.validate_map_schema(value) do
-      {:ok, value}
-    else
-      {:error, message} ->
-        {:error, Error.validation_error("#{field} #{message}", %{field: field})}
-    end
-  end
-
-  defp static_schema(value) do
-    case Action.validate_static_data(value) do
-      :ok -> :ok
-      {:error, message} -> {:error, "must be static module data; #{message}"}
-    end
-  end
 
   defp output(nil), do: {:ok, nil}
   defp output(value), do: Value.prepare(value)

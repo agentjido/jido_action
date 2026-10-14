@@ -1,7 +1,7 @@
 defmodule Jido.Flow.Ref do
   @moduledoc "A portable reference in a canonical Flow expression."
 
-  alias Jido.Action
+  alias Jido.Authoring.Config
   alias Jido.Flow.Error
 
   @type source ::
@@ -143,7 +143,7 @@ defmodule Jido.Flow.Ref do
   defp normalize_component(component) when is_binary(component), do: component
 
   defp validate_shape(:result, component, _path) when is_binary(component) do
-    case Action.validate_name(component) do
+    case Config.validate_name(component) do
       :ok -> :ok
       {:error, _message} -> {:error, :shape, %{source: :result}}
     end

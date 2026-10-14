@@ -36,7 +36,7 @@ defmodule Jido.Action.Inline.Compiler do
     Owner.setup!(caller)
     path = Owner.validate_path!(path, caller)
     Owner.check_identity!(path, caller)
-    {config, _schema, _output_schema} = Jido.Action.__prepare_config__!(config, caller)
+    {config, _schema, _output_schema} = Jido.Authoring.Config.prepare!(:action, config, caller)
 
     {target, function} = identity(caller.module, path)
 

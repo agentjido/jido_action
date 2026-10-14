@@ -14,7 +14,9 @@ defmodule Jido.Instruction do
       }
 
   An Action target is a module that implements `Jido.Action`. A Flow target is
-  a module that implements `Jido.Flow`, or a runtime `Jido.Flow` value.
+  a module authored with `Jido.Flow`, a module that implements its behaviour,
+  or a runtime `Jido.Flow` value. Generated Action and Flow modules share the
+  Action behaviour and retain an explicit target kind.
   Resolution checks the currently loaded module on every execution. A stored
   `kind` value does not remain authoritative after code reload.
 
@@ -363,10 +365,19 @@ defmodule Jido.Instruction do
       |> List.flatten()
 
     case {Jido.Action in behaviours, Jido.Flow in behaviours} do
-      {true, false} -> {:ok, :action}
+      {true, false} -> {:ok, authored_kind(module)}
       {false, true} -> {:ok, :flow}
       {true, true} -> ambiguous_target(module)
       {false, false} -> unknown_target(module, :missing_behaviour)
+    end
+  end
+
+  defp authored_kind(module) do
+    if function_exported?(module, :__jido_authoring_kind__, 0) and
+         module.__jido_authoring_kind__() == :flow do
+      :flow
+    else
+      :action
     end
   end
 

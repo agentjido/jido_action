@@ -50,6 +50,22 @@ An inline body becomes an ordinary Action owned by the Flow module, so it can
 call the module's private functions. See [Steps And Output](flow-steps.livemd)
 for the binding syntax.
 
+## Module Metadata And Validation
+
+Flow modules provide `name/0`, `description/0`, `schema/0`, `output_schema/0`,
+`validate_params/1`, and `validate_output/1`, as Action modules do. Both use
+one module generation contract. A Flow retains its Flow target kind, and Exec
+compiles it to a native Runic graph.
+
+`MyFlow.to_json/0` returns a JSON-safe module description with `"kind" => "flow"`,
+its name, description, input schema, and output schema. It raises
+`ArgumentError` if a schema has no JSON Schema representation. Use
+`Jido.Flow.Codec` to store the complete Flow definition.
+
+A Flow can implement `on_before_validate_params/1` with `@impl Jido.Action`
+to prepare input before its schema runs. The callback follows the same rules
+as [Action input preparation](actions.md#prepare-raw-input).
+
 ## Add Authoring Macros
 
 Use a Flow extension when several Flow modules need the same shorthand. An

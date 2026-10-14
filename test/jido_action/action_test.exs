@@ -2,6 +2,7 @@ defmodule JidoActionTest.ActionTest do
   use JidoActionTest.Case, async: true
 
   alias Jido.Action
+  alias Jido.Authoring.Config
   alias Jido.Action.Output
   alias JidoActionTest.Fixtures.Actions.FullAction
   alias JidoActionTest.Fixtures.Actions.NoOutputSchemaAction
@@ -326,53 +327,53 @@ defmodule JidoActionTest.ActionTest do
 
   describe "configuration schema validation" do
     test "validates non-blank string action names" do
-      assert :ok = Action.validate_name("valid_name")
-      assert :ok = Action.validate_name("ValidName")
-      assert :ok = Action.validate_name("a")
-      assert :ok = Action.validate_name("A")
+      assert :ok = Config.validate_name("valid_name")
+      assert :ok = Config.validate_name("ValidName")
+      assert :ok = Config.validate_name("a")
+      assert :ok = Config.validate_name("A")
     end
 
     test "validates action names with external or display-oriented punctuation" do
-      assert :ok = Action.validate_name("valid_name_123")
-      assert :ok = Action.validate_name("TestAction42")
-      assert :ok = Action.validate_name("billing.charge-card")
-      assert :ok = Action.validate_name("Send Email")
-      assert :ok = Action.validate_name("checkout/v2")
+      assert :ok = Config.validate_name("valid_name_123")
+      assert :ok = Config.validate_name("TestAction42")
+      assert :ok = Config.validate_name("billing.charge-card")
+      assert :ok = Config.validate_name("Send Email")
+      assert :ok = Config.validate_name("checkout/v2")
     end
 
     test "rejects invalid action names" do
-      assert {:error, "Action name cannot be blank."} = Action.validate_name("")
-      assert {:error, "Action name cannot be blank."} = Action.validate_name(" \t\n")
-      assert {:error, "Action name must be valid UTF-8."} = Action.validate_name(<<255>>)
+      assert {:error, "Action name cannot be blank."} = Config.validate_name("")
+      assert {:error, "Action name cannot be blank."} = Config.validate_name(" \t\n")
+      assert {:error, "Action name must be valid UTF-8."} = Config.validate_name(<<255>>)
 
       assert {:error, "Action name cannot exceed 256 bytes."} =
-               Action.validate_name(String.duplicate("a", 257))
+               Config.validate_name(String.duplicate("a", 257))
 
-      assert {:error, "Action name must be a string."} = Action.validate_name(nil)
-      assert {:error, "Action name must be a string."} = Action.validate_name(123)
-      assert {:error, "Action name must be a string."} = Action.validate_name(:atom)
-      assert {:error, "Action name must be a string."} = Action.validate_name(%{})
-      assert {:error, "Action name must be a string."} = Action.validate_name([])
+      assert {:error, "Action name must be a string."} = Config.validate_name(nil)
+      assert {:error, "Action name must be a string."} = Config.validate_name(123)
+      assert {:error, "Action name must be a string."} = Config.validate_name(:atom)
+      assert {:error, "Action name must be a string."} = Config.validate_name(%{})
+      assert {:error, "Action name must be a string."} = Config.validate_name([])
     end
 
     test "accepts empty schema sentinel and Zoi schemas" do
-      assert :ok = Action.validate_config_schema([])
-      assert :ok = Action.validate_config_schema(Zoi.object(%{value: Zoi.integer()}))
+      assert :ok = Config.validate_config_schema([])
+      assert :ok = Config.validate_config_schema(Zoi.object(%{value: Zoi.integer()}))
     end
 
     test "rejects non-Zoi schemas" do
-      assert {:error, "must be a Zoi schema"} = Action.validate_config_schema(%{})
+      assert {:error, "must be a Zoi schema"} = Config.validate_config_schema(%{})
     end
 
     test "rejects schemas that cannot accept map-shaped data" do
       assert {:error, "must accept map-shaped data"} =
-               Action.validate_map_schema(Zoi.integer())
+               Config.validate_map_schema(Zoi.integer())
 
       assert {:error, "must accept map-shaped data"} =
-               Action.validate_map_schema(Zoi.lazy(fn -> Zoi.integer() end))
+               Config.validate_map_schema(Zoi.lazy(fn -> Zoi.integer() end))
 
       assert :ok =
-               Action.validate_map_schema(Zoi.lazy(fn -> Zoi.object(%{value: Zoi.integer()}) end))
+               Config.validate_map_schema(Zoi.lazy(fn -> Zoi.object(%{value: Zoi.integer()}) end))
 
       module = unique_module("ScalarOutputSchemaAction")
 
@@ -423,10 +424,10 @@ defmodule JidoActionTest.ActionTest do
   describe "static data validation" do
     test "rejects improper list tails at their paths" do
       assert {:error, "improper list tails are not supported at [1]"} =
-               Action.validate_static_data([:schema | :tail])
+               Config.validate_static_data([:schema | :tail])
 
       assert {:error, "improper list tails are not supported at [:schema, :steps, 1]"} =
-               Action.validate_static_data(%{schema: %{steps: [:step | :tail]}})
+               Config.validate_static_data(%{schema: %{steps: [:step | :tail]}})
     end
   end
 
