@@ -72,12 +72,10 @@ defmodule Jido.Exec.Fact do
   defp wrap(value, depth) when depth >= @max_local_depth, do: local_value(value)
 
   defp wrap(%Runic.Workflow.Batch.Input{} = input, _depth) do
-    # Batch FanOut drops source metadata, so each item must retain local identity.
     %{input | items: Enum.map(input.items, &local_value/1), parent: local_value(input.parent)}
   end
 
   defp wrap(%Runic.Workflow.ChildInvocation{} = request, _depth) do
-    # Call must see the request; only the child input uses local identity.
     %{request | input: local_value(request.input)}
   end
 

@@ -348,7 +348,6 @@ defmodule Jido.Instruction do
   defp classify(%Flow{}), do: {:ok, :flow}
 
   defp classify(module) when is_atom(module) and not is_nil(module) do
-    # During compilation this waits for a target module that is still compiling.
     case Code.ensure_compiled(module) do
       {:module, ^module} -> classify_loaded_module(module)
       {:error, reason} -> unknown_target(module, reason)

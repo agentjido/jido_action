@@ -12,7 +12,7 @@ defmodule Jido.Flow.GraphIdentityTest do
     direct = InlineAuthoring.direct_flow!()
     assert {:ok, built} = JidoActionTest.FlowBuilder.new(InlineAuthoring.data())
     assert {:ok, identity} = Flow.semantic_identity(dsl)
-    assert %{version: 4, algorithm: :sha256, digest: digest, uuid: uuid} = identity
+    assert %{version: 1, algorithm: :sha256, digest: digest, uuid: uuid} = identity
     assert is_binary(digest)
     assert is_binary(uuid)
     assert Flow.Identity.semantic_digest(dsl) == digest
@@ -211,6 +211,6 @@ defmodule Jido.Flow.GraphIdentityTest do
       })
 
     assert Jido.Flow.Identity.semantic_digest(flow) ==
-             "6cd9f4be66282986c63db0c031c0ba56c05a61d9eb0b7a9fed41efa3ed21b852"
+             "bdbc6216fccac5a3cf1c691987df0d63d4a0425acbd219679453eb3c61c1335b"
   end
 end

@@ -80,7 +80,6 @@ defmodule Jido.Exec.Node.Dispatch do
     |> Workflow.add_step(decision, expander)
     |> Workflow.add_step(expander, node)
     |> Workflow.add_step(node, finished_condition(node))
-    # Durable replay resolves this Condition by name when it reconnects a Finish.
     |> Workflow.register_component(finished_condition(node))
     |> Workflow.draw_connection(node, node, :component_of, properties: %{kind: :dispatch})
     |> Workflow.register_component(node)
@@ -290,7 +289,6 @@ defimpl Runic.Workflow.Invokable, for: Jido.Exec.Node.Dispatch do
         complete(runnable, node, fact, value, context, [])
 
       {:continue, {:jido_dispatch_continue, frame, component, input, target, effects}} ->
-        # Build the target before apply so its errors fail this Runnable.
         frame = Frame.put_result(frame, component, nil, effects)
         {value, apply_fn} = Dispatch.expansion(node, target, input, frame)
         complete(runnable, node, fact, value, context, [apply_fn])

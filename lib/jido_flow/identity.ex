@@ -7,7 +7,7 @@ defmodule Jido.Flow.Identity do
   alias Jido.Flow.Definition
   alias Jido.Flow.Graph
 
-  @identity_version 4
+  @identity_version 1
 
   @doc false
   @spec semantic_digest(Flow.t()) :: String.t()
@@ -59,7 +59,7 @@ defmodule Jido.Flow.Identity do
 
   @doc false
   @spec identity(map()) :: %{
-          version: 4,
+          version: 1,
           algorithm: :sha256,
           digest: String.t(),
           uuid: String.t()
@@ -104,7 +104,6 @@ defmodule Jido.Flow.Identity do
     <<first::binary-size(8), second::binary-size(4), third::binary-size(4),
       fourth::binary-size(4), fifth::binary-size(12)>> = encoded
 
-    # Keep the 36-byte ID on the heap instead of retaining the append buffer.
     <<first::binary, "-", second::binary, "-", third::binary, "-", fourth::binary, "-",
       fifth::binary>>
     |> :binary.copy()

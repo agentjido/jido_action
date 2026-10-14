@@ -120,7 +120,6 @@ defmodule Jido.Flow.DSL.Macros do
     name = Macro.unique_var(:step_name, __MODULE__)
     path = quote do: [host: Jido.Flow, step: unquote(name), role: :action]
 
-    # Keep the loaded Action unchanged if Spark rejects this Step's fields.
     compiled =
       Inline.Compiler.compile!(path, action, caller,
         default_name: name,

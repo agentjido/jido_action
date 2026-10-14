@@ -19,55 +19,52 @@ defmodule Jido.Flow.Graph do
           remaining: [String.t()]
         }
   def analyze(components) when is_map(components) do
-    {indegrees, adjacency} =
-      Enum.reduce(components, {%{}, %{}}, fn {name, node}, {indegrees, adjacency} ->
-        dependencies = node |> Definition.effective_dependencies() |> MapSet.new()
+    graph = dependency_graph(components)
+    blocked = blocked_vertices(graph, components)
 
-        adjacency =
-          Enum.reduce(dependencies, adjacency, fn dependency, current ->
-            Map.update(current, dependency, [name], &[name | &1])
-          end)
+    levels =
+      graph
+      |> Multigraph.delete_vertices(blocked)
+      |> Multigraph.topsort()
+      |> Enum.reduce(%{}, fn name, levels ->
+        level = Map.get(levels, name, 0)
+        levels = Map.put(levels, name, level)
 
-        {Map.put(indegrees, name, MapSet.size(dependencies)), adjacency}
+        graph
+        |> Multigraph.out_neighbors(name)
+        |> Enum.reduce(levels, fn dependent, levels ->
+          Map.update(levels, dependent, level + 1, &max(&1, level + 1))
+        end)
       end)
 
-    ready =
-      indegrees
-      |> Enum.flat_map(fn {name, degree} -> if degree == 0, do: [name], else: [] end)
-      |> Enum.sort()
-
-    levels = Map.new(ready, &{&1, 0})
-
-    ready
-    |> :queue.from_list()
-    |> do_analyze(indegrees, adjacency, levels)
+    remaining = blocked |> Enum.filter(&Map.has_key?(components, &1)) |> Enum.sort()
+    %{levels: levels, remaining: remaining}
   end
 
-  defp do_analyze(ready, indegrees, adjacency, levels) do
-    case :queue.out(ready) do
-      {:empty, _ready} ->
-        %{levels: levels, remaining: indegrees |> Map.keys() |> Enum.sort()}
+  defp dependency_graph(components) do
+    graph =
+      Multigraph.new(vertex_identifier: &Function.identity/1)
+      |> Multigraph.add_vertices(Map.keys(components))
 
-      {{:value, name}, ready} ->
-        level = Map.fetch!(levels, name)
-        indegrees = Map.delete(indegrees, name)
+    Enum.reduce(components, graph, fn {name, node}, graph ->
+      node
+      |> Definition.effective_dependencies()
+      |> Enum.reduce(graph, fn dependency, graph ->
+        Multigraph.add_edge(graph, dependency, name)
+      end)
+    end)
+  end
 
-        {ready, indegrees, levels} =
-          adjacency
-          |> Map.get(name, [])
-          |> Enum.sort()
-          |> Enum.reduce({ready, indegrees, levels}, fn dependent, {queue, degrees, levels} ->
-            next_indegree = Map.fetch!(degrees, dependent) - 1
-            dependent_level = max(Map.get(levels, dependent, 0), level + 1)
-            levels = Map.put(levels, dependent, dependent_level)
-            degrees = Map.put(degrees, dependent, next_indegree)
+  defp blocked_vertices(graph, components) do
+    cycles =
+      graph
+      |> Multigraph.strong_components()
+      |> Enum.flat_map(fn
+        [name] -> if name in Multigraph.out_neighbors(graph, name), do: [name], else: []
+        names -> names
+      end)
 
-            queue = if next_indegree == 0, do: :queue.in(dependent, queue), else: queue
-
-            {queue, degrees, levels}
-          end)
-
-        do_analyze(ready, indegrees, adjacency, levels)
-    end
+    missing = graph |> Multigraph.vertices() |> Enum.reject(&Map.has_key?(components, &1))
+    Multigraph.reachable(graph, cycles ++ missing)
   end
 end

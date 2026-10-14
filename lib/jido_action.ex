@@ -197,7 +197,6 @@ defmodule Jido.Action do
         do: Map.new(raw_opts),
         else: raw_opts
 
-    # Reject dynamic kinds before configuration validation can resolve them.
     if is_map(opts_map) do
       ensure_static_schema!(Map.get(opts_map, :schema, []), :schema, env)
       ensure_static_schema!(Map.get(opts_map, :output_schema, []), :output_schema, env)

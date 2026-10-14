@@ -608,7 +608,6 @@ defmodule Jido.Exec.Compiler do
 
   defp add_component(workflow, component, [parent]) do
     case Workflow.get_component(workflow, parent) do
-      # Only a finished Dispatch reaches the Flow output.
       %Dispatch{} = source ->
         Workflow.add(workflow, component, to: Dispatch.finished_condition(source))
 

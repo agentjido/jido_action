@@ -132,7 +132,6 @@ defmodule Jido.Action.Inline.Owner do
     index = Map.put(index, path, target)
     Module.put_attribute(caller.module, :__jido_inline_index__, index)
 
-    # A host's later before_compile hook can emit more declarations.
     if Module.defines?(caller.module, {:__jido_inline_actions__, 0}) do
       Module.delete_definition(caller.module, {:__jido_inline_actions__, 0})
       Code.eval_quoted(index_definition(index), [], caller)

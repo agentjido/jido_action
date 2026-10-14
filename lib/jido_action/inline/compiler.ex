@@ -36,7 +36,6 @@ defmodule Jido.Action.Inline.Compiler do
     Owner.setup!(caller)
     path = Owner.validate_path!(path, caller)
     Owner.check_identity!(path, caller)
-    # Validate before either immediate or deferred emission can replace a target.
     {config, _schema, _output_schema} = Jido.Action.__prepare_config__!(config, caller)
 
     {target, function} = identity(caller.module, path)
@@ -56,8 +55,6 @@ defmodule Jido.Action.Inline.Compiler do
 
     args = [target, function, path, config, caller]
 
-    # Internal hosts may defer emission until their enclosing fields validate.
-    # The shared compiler still owns the wrapper and its original compiler env.
     case Keyword.get(options, :emit) do
       nil -> apply(__MODULE__, :create_action!, args)
       {module, callback} -> apply(module, callback, [args])
@@ -73,8 +70,6 @@ defmodule Jido.Action.Inline.Compiler do
 
     target = Module.concat(Jido.Action.Generated.Inline, "A" <> digest)
 
-    # The generated Action requires one module atom. Reuse it as the private
-    # owner callback name instead of interning a second digest-derived atom.
     {target, target}
   end
 

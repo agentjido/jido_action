@@ -256,8 +256,6 @@ defmodule Jido.Flow.DSL.ModuleCompiler do
       def compiled,
         do: Jido.Exec.compile!(flow(), source_map: __jido_flow_source_map__())
 
-      # This is a convenience entry point. Exec selects native Flow execution
-      # from the resolved Instruction and does not call this through the Action runner.
       def run(params, context), do: Jido.Exec.run(__MODULE__, params, context)
     end
   end

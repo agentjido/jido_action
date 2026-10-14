@@ -71,7 +71,6 @@ defmodule Jido.Exec do
 
     with {:ok, task_supervisor, execution_opts} <- run_options(opts),
          {:ok, instruction} <- resolve(target, params, context) do
-      # The Flow span runs in the caller so it stops even if the task is killed.
       span(instruction, fn ->
         run_supervised(task_supervisor, group_leader, fn ->
           do_run_instruction(instruction, execution_opts)
@@ -116,7 +115,6 @@ defmodule Jido.Exec do
     with {:ok, instruction} <- Instruction.resolve(target, params, context),
          {:ok, instruction} <- validate_flow_input(instruction),
          :ok <- validate_durable_instruction(instruction),
-         # Runic persists the compiled workflow, so context stays runtime-only.
          {:ok, workflow} <- compile(%{instruction | context: %{}}),
          {:ok, policy, worker_opts} <- managed_options(runner, execution_id, opts),
          {:ok, pid} <-
@@ -294,7 +292,6 @@ defmodule Jido.Exec do
         map_item_index(fact)
 
       %ExecutionUncertain{members: members} ->
-        # A task can die before its dispatch event is accepted.
         Enum.find_value(members || [], fn
           %{order_key: {_depth, ^activation}, input_fact_id: id} ->
             map_item_index(Map.get(workflow.graph.vertices, id))
@@ -498,7 +495,6 @@ defmodule Jido.Exec do
                  elem(task_supervisor, 0) == :via) do
     case GenServer.whereis(task_supervisor) do
       pid when is_pid(pid) and node(pid) == node() ->
-        # A PID reference resolves to itself even after the process exits.
         if Process.alive?(pid), do: :ok, else: not_running(task_supervisor)
 
       _other ->
@@ -725,7 +721,6 @@ defmodule Jido.Exec do
            base_delay_ms: base_delay_ms,
            max_delay_ms: max_delay_ms,
            on_failure: :halt,
-           # Retry only errors that declare another attempt safe.
            retry_if: {Jido.Action.Error, :retryable?, []}
          }}
     end

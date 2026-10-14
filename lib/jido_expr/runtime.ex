@@ -100,7 +100,6 @@ defmodule Jido.Expr.Runtime do
   defp normalize_value(%Expr{} = value, _state, _path, _depth, _mode), do: {:ok, value}
 
   defp normalize_value(%_{} = value, %{normalize_leaf: callback} = state, path, depth, :normalize) do
-    # Admit the host callback first; visit/5 charges the replacement node once.
     with {:ok, _state} <- Limits.enter(state, value, path, depth) do
       case Limits.callback(callback, value, path) do
         {:ok, value} -> {:ok, value}
@@ -322,7 +321,6 @@ defmodule Jido.Expr.Runtime do
 
   defp operation(operator, [left, right], state, path, depth)
        when operator in [:<, :<=, :>, :>=, :min, :max] do
-    # Charge comparison work even when operands came from host references.
     with {:ok, _left, state} <- visit(left, state, path, depth, :data),
          {:ok, _right, state} <- visit(right, state, path, depth, :data) do
       {:ok, compare(operator, left, right), state}

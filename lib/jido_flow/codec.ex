@@ -82,7 +82,6 @@ defmodule Jido.Flow.Codec do
   @spec encode(Flow.t()) ::
           {:ok, document(), Registry.t()} | {:error, Exception.t()}
   def encode(flow) do
-    # The same structural validation as encode/2. Jido.Exec.compile/2 checks targets.
     with {:ok, flow} <- Flow.validate(flow),
          {:ok, registry} <- flow |> Registry.entries() |> Registry.new(),
          {:ok, document} <- encode_validated(flow, registry) do
@@ -307,8 +306,6 @@ defmodule Jido.Flow.Codec do
   end
 
   defp canonical_errors(issues) do
-    # Stored documents report graph errors before a nil output's required-field
-    # error. Canonical construction keeps the opposite priority.
     issues =
       case issues do
         [%{kind: :output_required} = output | [_graph_issue | _] = rest] -> rest ++ [output]

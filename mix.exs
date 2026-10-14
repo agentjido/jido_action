@@ -281,6 +281,7 @@ defmodule JidoAction.MixProject do
       {:telemetry, "~> 1.3"},
       {:zoi, "~> 0.18.11"},
       {:jason, "~> 1.4"},
+      {:multigraph, "~> 0.16.1-mg.5"},
       {:runic, path: "../runic", override: true},
       {:splode, "~> 0.3.0"},
       {:spark, "~> 2.7.3"},
