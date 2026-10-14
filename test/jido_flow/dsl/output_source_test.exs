@@ -83,4 +83,26 @@ defmodule Jido.Flow.DSL.OutputSourceTest do
     assert {:ok, document, registry} = Jido.Flow.Codec.encode(module.flow())
     assert {:ok, ^expected} = Jido.Flow.Codec.decode(document, registry)
   end
+
+  test "a Flow with only output reports the shared component validation error" do
+    module = Module.concat(__MODULE__, "Empty#{System.unique_integer([:positive])}")
+
+    error =
+      assert_raise CompileError, fn ->
+        Code.compile_string(
+          """
+          defmodule #{inspect(module)} do
+            use Jido.Flow, name: "empty_source"
+            flow do
+              output %{}
+            end
+          end
+          """,
+          "empty_source.ex"
+        )
+      end
+
+    assert error.description == "Flow must declare at least one component"
+    assert error.file == "empty_source.ex"
+  end
 end

@@ -1,22 +1,21 @@
 defmodule Jido.Flow.DSL.SourceMap do
   @moduledoc false
 
-  @doc false
-  @spec from_module(module(), String.t() | nil) :: Jido.Flow.source_map()
-  def from_module(module, default_file \\ nil) do
-    module |> Spark.Dsl.Extension.get_entities([:flow]) |> from_entities(default_file)
-  end
+  alias Jido.Flow.DSL.{Choice, Iterate, Output}
 
   @doc false
-  @spec from_entities(list(), String.t() | nil) :: Jido.Flow.source_map()
-  def from_entities(entities, default_file \\ nil) do
-    entities
-    |> Enum.reduce(%{}, &put_source/2)
-    |> Map.new(fn {path, location} ->
-      location =
-        if is_binary(default_file), do: Map.put_new(location, :file, default_file), else: location
+  @spec put_entity(Jido.Flow.source_map(), struct(), non_neg_integer() | :output, String.t()) ::
+          Jido.Flow.source_map()
+  def put_entity(source_map, %Output{} = output, :output, file),
+    do: put_source(source_map, [:output], output, file)
 
-      {path, location}
+  def put_entity(source_map, entity, index, file) do
+    Enum.reduce([index, entity.name], source_map, fn key, sources ->
+      path = [:components, key]
+
+      sources
+      |> put_source(path, entity, file)
+      |> put_nested_sources(path, entity, file)
     end)
   end
 
@@ -46,59 +45,74 @@ defmodule Jido.Flow.DSL.SourceMap do
     end)
   end
 
-  alias Jido.Flow.DSL.{Choice, Iterate, Output}
-
   @doc false
-  @spec attach_issue(Jido.Flow.Definition.issue(), list()) :: Exception.t()
-  def attach_issue(%{error: error, location: location}, entities) do
-    entity =
-      case location do
-        [:output | _rest] ->
-          Enum.find(entities, &match?(%Output{}, &1))
-
-        [:components, index, :options, option_index | _rest]
-        when is_integer(index) and is_integer(option_index) ->
-          entities
-          |> Enum.reject(&match?(%Output{}, &1))
-          |> Enum.at(index)
-          |> Map.get(:options, [])
-          |> Enum.at(option_index)
-
-        [:components, index, :fallback | _rest] when is_integer(index) ->
-          entities
-          |> Enum.reject(&match?(%Output{}, &1))
-          |> Enum.at(index)
-          |> Map.get(:fallback)
-
-        [:components, index, :state, :update | _rest] when is_integer(index) ->
-          entities |> Enum.reject(&match?(%Output{}, &1)) |> Enum.at(index)
-
-        [:components, index, :state | _rest] when is_integer(index) ->
-          entities
-          |> Enum.reject(&match?(%Output{}, &1))
-          |> Enum.at(index)
-          |> Map.get(:state)
-
-        [:components, index | _rest] when is_integer(index) ->
-          entities |> Enum.reject(&match?(%Output{}, &1)) |> Enum.at(index)
-
-        [:components] ->
-          Enum.find(entities, &(Map.get(&1, :name) in error.details.components))
-
-        _other ->
-          nil
+  @spec attach_issue(Jido.Flow.Definition.issue(), Jido.Flow.source_map(), [map()]) ::
+          Exception.t()
+  def attach_issue(%{error: error, location: location}, source_map, components) do
+    location =
+      if location == [:components] do
+        names = Map.get(error.details, :components, [])
+        index = Enum.find_index(components, &(&1.name in names))
+        if is_nil(index), do: location, else: [:components, index]
+      else
+        location
       end
 
-    if entity, do: attach_entity(error, entity), else: error
+    attach_error(error, source_map, location)
   end
 
   @doc false
-  @spec attach_entity(Exception.t(), term()) :: Exception.t()
-  def attach_entity(%{details: details} = error, entity) when is_map(details) do
-    %{error | details: Map.merge(entity_source(entity), details)}
+  @spec attach_error(Exception.t(), Jido.Flow.source_map(), [term()] | nil) :: Exception.t()
+  def attach_error(error, source_map, path \\ nil)
+
+  def attach_error(%{details: details} = error, source_map, path) when is_map(details) do
+    hints = if path, do: Map.put(details, :path, path), else: details
+    attach_location(error, lookup(source_map, hints) || %{})
   end
 
-  def attach_entity(error, _entity), do: error
+  def attach_error(error, _source_map, _path), do: error
+
+  @doc false
+  @spec attach_entity(Exception.t(), struct()) :: Exception.t()
+  def attach_entity(error, entity), do: attach_location(error, entity_source(entity))
+
+  defp attach_location(%{details: details} = error, location) when is_map(details),
+    do: %{error | details: Map.merge(location, details)}
+
+  defp attach_location(error, _location), do: error
+
+  defp put_nested_sources(source_map, path, %Choice{} = choice, file) do
+    sources =
+      choice.options
+      |> Enum.with_index()
+      |> Enum.reduce(source_map, fn {option, index}, sources ->
+        Enum.reduce([index, option.name], sources, fn key, sources ->
+          put_source(sources, path ++ [:options, key], option, file)
+        end)
+      end)
+
+    put_source(sources, path ++ [:fallback], choice.fallback, file)
+  end
+
+  defp put_nested_sources(source_map, path, %Iterate{} = iterate, file) do
+    source_map
+    |> put_source(path ++ [:state], iterate.state, file)
+    |> put_source(path ++ [:state, :update], iterate, file)
+  end
+
+  defp put_nested_sources(source_map, _path, _entity, _file), do: source_map
+
+  defp put_source(source_map, _path, nil, _file), do: source_map
+
+  defp put_source(source_map, path, entity, file),
+    do: Map.put(source_map, path, Map.put_new(entity_source(entity), :file, file))
+
+  defp entity_source(entity) do
+    entity
+    |> Spark.Dsl.Entity.anno()
+    |> annotation_map()
+    |> Map.merge(Map.get(entity, :__source__, %{}))
+  end
 
   defp annotation_map(nil), do: %{}
 
@@ -111,53 +125,4 @@ defmodule Jido.Flow.DSL.SourceMap do
   defp maybe_put(map, _key, :undefined), do: map
   defp maybe_put(map, _key, 0), do: map
   defp maybe_put(map, key, value), do: Map.put(map, key, value)
-
-  defp put_source(%Output{} = output, source_map) do
-    Map.put(source_map, [:output], entity_source(output))
-  end
-
-  defp put_source(%Choice{} = choice, source_map) do
-    source_map
-    |> Map.put([:components, choice.name], entity_source(choice))
-    |> put_choice_sources(choice)
-  end
-
-  defp put_source(%Iterate{} = iterate, source_map) do
-    source_map
-    |> Map.put([:components, iterate.name], entity_source(iterate))
-    |> maybe_put_source([:components, iterate.name, :state], iterate.state)
-  end
-
-  defp put_source(entity, source_map) do
-    Map.put(source_map, [:components, Map.fetch!(entity, :name)], entity_source(entity))
-  end
-
-  defp put_choice_sources(source_map, choice) do
-    source_map =
-      Enum.reduce(choice.options, source_map, fn option, current ->
-        Map.put(
-          current,
-          [:components, choice.name, :options, option.name],
-          entity_source(option)
-        )
-      end)
-
-    maybe_put_source(
-      source_map,
-      [:components, choice.name, :fallback],
-      choice.fallback
-    )
-  end
-
-  defp maybe_put_source(source_map, _path, nil), do: source_map
-
-  defp maybe_put_source(source_map, path, entity),
-    do: Map.put(source_map, path, entity_source(entity))
-
-  defp entity_source(entity) do
-    entity
-    |> Spark.Dsl.Entity.anno()
-    |> annotation_map()
-    |> Map.merge(Map.get(entity, :__source__, %{}))
-  end
 end

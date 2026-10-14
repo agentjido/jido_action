@@ -194,50 +194,42 @@ defmodule Jido.Flow.DSL.ModuleCompiler do
   end
 
   defp compile_flow!(env, opts, schema, output_schema) do
-    source_map = Lowerer.source_map(env.module, env.file)
-
     config = Map.merge(opts, %{schema: schema, output_schema: output_schema})
 
-    case Lowerer.lower(env.module, config) do
-      {:ok, flow} ->
+    case Lowerer.lower(env.module, config, env.file) do
+      {:ok, flow, source_map} ->
         case Jido.Exec.Compiler.validate_targets(flow) do
           {:ok, flow} ->
             {flow, source_map}
 
           {:error, error} ->
-            raise_compile_error!(env, Exception.message(error), error, source_map)
+            raise_compile_error!(env, error, source_map)
         end
 
       {:error, error} ->
-        raise_compile_error!(env, Exception.message(error), error, source_map)
+        raise_compile_error!(env, error, %{})
     end
   end
 
   @spec raise_compile_error!(
           Macro.Env.t(),
-          String.t(),
           Exception.t(),
           Jido.Flow.source_map()
         ) ::
           no_return()
-  defp raise_compile_error!(env, description, error, source_map) do
+  defp raise_compile_error!(env, error, source_map) do
+    error = Jido.Flow.DSL.SourceMap.attach_error(error, source_map)
     details = Map.get(error, :details, %{})
 
     raise CompileError,
-      description: description,
+      description: Exception.message(error),
       file: source_file(details, env),
-      line: source_line(details, source_map, env)
+      line: source_line(details, env)
   end
 
   defp source_file(%{file: file}, _env) when is_binary(file), do: file
   defp source_file(_details, env), do: env.file
 
-  defp source_line(%{line: line}, _flow, _env) when is_integer(line) and line > 0, do: line
-
-  defp source_line(details, source_map, env) when is_map(source_map) do
-    case Jido.Flow.DSL.SourceMap.lookup(source_map, details) do
-      %{line: line} when is_integer(line) and line > 0 -> line
-      _location -> env.line
-    end
-  end
+  defp source_line(%{line: line}, _env) when is_integer(line) and line > 0, do: line
+  defp source_line(_details, env), do: env.line
 end

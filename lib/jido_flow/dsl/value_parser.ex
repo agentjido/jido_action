@@ -4,6 +4,24 @@ defmodule Jido.Flow.DSL.ValueParser do
   alias Jido.Expr
   alias Jido.Flow.Error
   alias Jido.Flow.Ref
+  alias Jido.Flow.DSL.SourceMap
+
+  @doc "Parses quoted fields in declaration order and keeps the first error location."
+  @spec parse_fields(struct(), keyword(:value | :condition | {:value | :condition, term()})) ::
+          {:ok, map()} | {:error, Exception.t()}
+  def parse_fields(entity, fields) do
+    Enum.reduce_while(fields, {:ok, %{}}, fn {field, kind}, {:ok, values} ->
+      case parse_field(Map.fetch!(entity, field), kind) do
+        {:ok, value} -> {:cont, {:ok, Map.put(values, field, value)}}
+        {:error, error} -> {:halt, {:error, SourceMap.attach_entity(error, entity)}}
+      end
+    end)
+  end
+
+  defp parse_field(nil, {_kind, default}), do: {:ok, default}
+  defp parse_field(value, {kind, _default}), do: parse_field(value, kind)
+  defp parse_field(value, :value), do: parse(value)
+  defp parse_field(value, :condition), do: parse_condition(value)
 
   @doc "Parses one DSL value into canonical Flow data."
   @spec parse(term()) :: {:ok, term()} | {:error, Exception.t()}

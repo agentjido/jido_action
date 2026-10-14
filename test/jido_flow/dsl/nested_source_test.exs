@@ -146,6 +146,74 @@ defmodule Jido.Flow.DSL.NestedSourceTest do
     assert error.line == 6
   end
 
+  test "quoted fields retain their parse order and the first failing field location" do
+    for {declarations, marker, message} <- [
+          {"""
+           map "items" do
+             action Echo
+             params System.system_time()
+             collection Date.utc_today()
+           end
+           output %{}
+           """, "collection Date", "unsupported Flow expression: Date.utc_today()"},
+          {"""
+           reduce "items" do
+             action Echo
+             params System.system_time()
+             initial Date.utc_today()
+             collection []
+           end
+           output %{}
+           """, "initial Date", "unsupported Flow expression: Date.utc_today()"},
+          {"""
+           choice "route" do
+             option "selected", params: Date.utc_today(), condition: 1, action: Echo
+             otherwise action: Echo, params: %{}
+           end
+           output %{}
+           """, "option", "unsupported Flow condition: 1"},
+          {"""
+           iterate "loop" do
+             state [], initial: %{}
+             action Echo
+             while 1
+             update System.system_time()
+             params Date.utc_today()
+             max_iterations 1
+           end
+           output %{}
+           """, "params Date", "unsupported Flow expression: Date.utc_today()"},
+          {"""
+           iterate "loop" do
+             state [], initial: %{}
+             action Echo
+             while 1
+             update Date.utc_today()
+             params %{}
+             max_iterations 1
+           end
+           output %{}
+           """, "update Date", "unsupported Flow expression: Date.utc_today()"}
+        ] do
+      {error, source} = compile_error(declarations)
+      assert String.starts_with?(error.description, message)
+      assert Enum.at(String.split(source, "\n"), error.line - 1) =~ marker
+    end
+  end
+
+  test "cycle errors select the first affected declaration in source order" do
+    {error, source} =
+      compile_error("""
+      step "unrelated", action: Echo, params: %{}
+      step "z", action: Echo, params: %{}, needs: "a"
+      step "a", action: Echo, params: %{}, needs: "z"
+      output %{}
+      """)
+
+    assert error.description == "flow dependency graph contains a cycle"
+    assert Enum.at(String.split(source, "\n"), error.line - 1) =~ "step \"z\""
+  end
+
   defp declarations(kind, form) do
     option = if form == :extension, do: "branch", else: "option"
     fallback = if form == :extension, do: "fallback", else: "otherwise"
