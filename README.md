@@ -1,6 +1,6 @@
 # Jido Action
 
-[![Hex.pm](https://img.shields.io/badge/hex-3.0.0--beta.12-714a96.svg)](https://hex.pm/packages/jido_action)
+[![Hex.pm](https://img.shields.io/badge/hex-3.0.0--beta.20-714a96.svg)](https://hex.pm/packages/jido_action)
 [![Hex Docs](https://img.shields.io/badge/hex-docs-lightgreen.svg)](https://hexdocs.pm/jido_action/)
 [![CI](https://github.com/agentjido/jido_action/actions/workflows/ci.yml/badge.svg)](https://github.com/agentjido/jido_action/actions/workflows/ci.yml)
 [![License](https://img.shields.io/hexpm/l/jido_action.svg)](https://github.com/agentjido/jido_action/blob/main/LICENSE)
@@ -36,7 +36,7 @@ Add `jido_action` to your dependencies:
 ```elixir
 def deps do
   [
-    {:jido_action, "~> 3.0.0-beta.12"}
+    {:jido_action, "~> 3.0.0-beta.20"}
   ]
 end
 ```
@@ -81,8 +81,9 @@ end
 
 ### Run It
 
-`Jido.Exec.run/4` validates the input, calls `run/2`, validates the output,
-and turns every failure into a structured error:
+`Jido.Exec.run/4` runs the Action or Flow in a supervised task. It validates
+the input, calls the Action callback, validates the output, and returns
+structured errors for failures:
 
 ```elixir
 {:ok, %{greeting: "Hello, Ada!"}} =
@@ -219,7 +220,9 @@ order and returns them with the result. It never performs them; your
 application does.
 
 For work that must survive restarts, `Jido.Exec.start/6` runs the same target
-under a supervised `Runic.Runner` with checkpoints and resume.
+under a supervised `Runic.Runner` with checkpoints and resume. Recovery after
+a Store or VM restart requires a persistent Store; the default ETS Store is
+in memory. See [Managed Execution](guides/managed-execution.md).
 
 ## Documentation
 

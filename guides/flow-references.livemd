@@ -15,7 +15,7 @@ Run the cells from top to bottom.
 ## Install The Package
 
 ```elixir
-Mix.install([{:jido_action, "~> 3.0.0-beta.12"}])
+Mix.install([{:jido_action, "~> 3.0.0-beta.20"}])
 ```
 
 ## Define An Action And Flow
@@ -74,13 +74,6 @@ You can use these references in any Flow field:
 | `result(name, path)` | `Ref.result(name, path)` | The named component's result. |
 | `select(ref, path)` | `Ref.select(ref, path)` | A deeper path on another reference. |
 
-A path can be one atom, string, non-negative integer, or a list of these
-segments. String segments must contain valid UTF-8. A path list must be proper
-and must not contain `nil`. Data definitions, the DSL, and Codec reject
-invalid paths before execution. `Jido.Flow.Ref` helpers do not validate paths
-on their own. An empty path selects the complete source
-value. The `nil` path argument is also an empty path; it is different from
-`[nil]`, which is invalid.
 The path is optional in the DSL helpers. For example, `input()` reads the
 complete input.
 

@@ -11,6 +11,108 @@ entries return to the normal automated changelog process.
 
 <!-- changelog -->
 
+## [v3.0.0-beta.20](https://github.com/agentjido/jido_action/compare/v3.0.0-beta.12...v3.0.0-beta.20) (2026-10-15)
+
+Beta 20 marks a major beta milestone for the version 3 API.
+
+### Documentation And QA:
+
+- Correct execution, Dispatch, schema, storage, and migration guidance.
+- Run complete README, guide, and Livebook examples in the optional authoring suite.
+- Update the detailed public API reference and release documentation.
+
+### Breaking Changes:
+
+* align Expr with Elixir syntax by mikehostetler
+
+* merge Instruction execution value by mikehostetler
+
+* make Instruction the execution value by mikehostetler
+
+### Features:
+
+* exec: complete stepwise execution hardening by mikehostetler
+
+* exec: implement Runic-backed Exec V2 by mikehostetler
+
+* expose JSON action descriptions by mikehostetler
+
+### Bug Fixes:
+
+* exec: harden Choice routing and refine public contracts by mikehostetler
+
+* validation: harden callbacks and add contract coverage by mikehostetler
+
+* exec: adopt Runic observations and clean test output by mikehostetler
+
+* inline: avoid duplicate generated callback atoms (#290) by mikehostetler
+
+* exec: preserve local immediate values by mikehostetler
+
+* exec: rebuild managed result ports by mikehostetler
+
+* exec: canonicalize collected map errors by mikehostetler
+
+* exec: use Runner-injected task supervisor by mikehostetler
+
+* exec: stop immediate execution when the caller exits by mikehostetler
+
+* preserve flow diagnostics and enforce expression limits by mikehostetler
+
+* resolve review findings in Flow and Exec by mikehostetler
+
+* flow: accept negative numbers in explicit literals (#289) by mikehostetler
+
+* preserve nested flow identity and simplify runtime state by mikehostetler
+
+* preserve schema transforms and simplify execution internals by mikehostetler
+
+* validation: compile with Zoi 0.18.11 defaults (#288) by mikehostetler
+
+### Refactoring:
+
+* exec: simplify authoring and harden Runic coverage by mikehostetler
+
+* flow: share DSL field parsing and source lookup by mikehostetler
+
+* authoring: share configuration field rules by mikehostetler
+
+* flow: unify model and authoring validation by mikehostetler
+
+* authoring: share Action and Flow module setup by mikehostetler
+
+* flow: use Multigraph and reset identity version by mikehostetler
+
+* exec: use Runic Call for Dispatch Action targets by mikehostetler
+
+* exec: adopt Runic native Batch for Map by mikehostetler
+
+* exec: connect Flow components through Runic ports by mikehostetler
+
+* exec: adopt Runic SingleOutput for Actions by mikehostetler
+
+* exec: adopt Runic native task ownership by mikehostetler
+
+* exec: observe managed Runic execution results by mikehostetler
+
+* simplify flow authoring and execution boundaries by mikehostetler
+
+* flow: centralize component dispatch by mikehostetler
+
+* flow: use Instruction for action targets by mikehostetler
+
+* action: remove custom JSON schema rewriting by mikehostetler
+
+* expr: clarify runtime dispatch by mikehostetler
+
+* exec: simplify supervised Task execution and Flow validation by mikehostetler
+
+### Dependencies:
+
+- Use Runic `~> 0.1.0-alpha.12` from Hex. No local checkout or fork is required.
+- Require Zoi `~> 0.18.11`.
+
+
 ## [v3.0.0-beta.12](https://github.com/agentjido/jido_action/compare/v3.0.0-beta.11...v3.0.0-beta.12) (2026-09-29)
 ### Breaking Changes:
 
@@ -71,36 +173,6 @@ entries return to the normal automated changelog process.
 * remove redundant wrappers and internal work (#282) by mikehostetler
 
 * validation: share expression preparation and error helpers (#277) by mikehostetler
-
-## Unreleased
-
-### Added
-
-- Add an optional `Jido.Exec.Invocation` host protocol to `run/4` and
-  `run_async/4`. A host can allow Action work, supply a confirmed normalized
-  receipt, or accept a fresh receipt. The protocol supplies occurrence identity
-  and execution evidence. It does not supply storage, retry, recovery policy,
-  Execution snapshots, or a durable workflow engine.
-
-### Fixed
-
-- Include each nested Flow's full component path in compilation identity, so
-  exchanged child definitions cannot produce the same compilation digest.
-- Preserve fields produced by root Struct schema transforms in Action and
-  Flow input and output validation.
-
-### Changed
-
-- Move native Flow compilation and runtime helpers under `Jido.Exec.Flow`.
-  Derived compilation data is now `Jido.Exec.Flow.Compiled`; the canonical
-  `%Jido.Flow{}` value remains the Flow definition contract.
-- Remove `Jido.Flow.Builder`. Define runtime Flows with `Jido.Flow.new/1`
-  and tagged component maps. Use the module DSL or stored JSON Codec for the
-  other supported authoring forms. Data definitions declare child Flows
-  explicitly with `kind: :subflow` and `flow:`.
-- Move reference path selection to `Jido.Flow.Ref.select/2`. Use `Jido.Expr`
-  for conditions and operations. Map validation errors include the component
-  index and nested error path. See [Flow Data Definitions](guides/flow-data.md).
 
 
 ## [v3.0.0-beta.11](https://github.com/agentjido/jido_action/compare/v3.0.0-beta.10...v3.0.0-beta.11) (2026-09-13)
@@ -249,7 +321,6 @@ entries return to the normal automated changelog process.
 
 * flow: preserve DSL formatting without parentheses (#213) by mikehostetler
 
-## Unreleased
 
 ## [v3.0.0-beta.2](https://github.com/agentjido/jido_action/compare/v3.0.0-beta.1...v3.0.0-beta.2) (2026-08-27)
 

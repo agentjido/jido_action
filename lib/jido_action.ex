@@ -12,22 +12,24 @@ defmodule Jido.Action do
           schema: Zoi.object(%{input: Zoi.string()}),
           output_schema: Zoi.object(%{result: Zoi.string()})
 
-      @impl true
-      def run(params, _context) do
-        # Your action logic here
-        {:ok, %{result: String.upcase(params.input)}}
+        @impl true
+        def run(params, _context) do
+          {:ok, %{result: String.upcase(params.input)}}
+        end
       end
-    end
 
   ## Validation and execution
 
   The generated `validate_params/1` and `validate_output/1` functions apply the
   declared schemas. An Action can implement `c:on_before_validate_params/1` to
-  prepare raw input before its schema runs. Object schemas are open: declared
-  fields are validated and unknown fields stay in the returned map.
+  prepare raw input before its schema runs. Direct object and struct root
+  schemas preserve unknown keys when their policy is `:strip`. Explicit strict
+  and typed policies stay in effect. Nested and wrapped schemas keep their
+  declared policy. See [Schemas And Validation](schemas-validation.md).
 
-  A direct callback call does not add validation. Validate both boundaries
-  explicitly when you call `run/2` yourself:
+  A direct `run/2` call runs in the calling process. It does not start a task
+  or add validation. Validate both boundaries explicitly when you call
+  `run/2` yourself:
 
       {:ok, params} = MyAction.validate_params(%{input: "hello"})
       {:ok, result} = MyAction.run(params, %{})

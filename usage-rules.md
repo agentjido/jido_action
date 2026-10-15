@@ -64,11 +64,13 @@ API to use. See the guides on HexDocs for explanations and examples.
   default to `0`, which means no delay.
 - Set `max_concurrency` above `1` to run independent Flow components and
   collection items in parallel. Do not add a `parallel` block; there is none.
-- `run/4` blocks the caller. The work runs in a task under
-  `Jido.Exec.TaskSupervisor` and stops if the caller exits.
+- `Jido.Exec.run/4` runs the Action or Flow in a supervised task. It blocks
+  the caller and stops work if the caller exits. The default supervisor is
+  `Jido.Exec.TaskSupervisor`.
 - Use `Jido.Exec.compile/2` to check targets and get the `%Runic.Workflow{}`
-  without running work. Do not feed that workflow to Runic yourself; use
-  `run/4` or `start/6`.
+  without running work. Use `run/4` or `start/6` for the complete Jido
+  boundary. Direct Runic integration is an advanced API; it requires the
+  caller to supply root input validation, context, and process ownership.
 
 ## Managed Execution
 
@@ -89,7 +91,8 @@ API to use. See the guides on HexDocs for explanations and examples.
 - Keep managed params, context, Action outputs, and effects portable: no
   PIDs, ports, references, or functions. Managed execution rejects them.
 - Managed `max_concurrency` defaults to `System.schedulers_online()`, not `1`.
-  `task_supervisor` is not a managed option.
+  `task_supervisor` is not a managed option. Runic's default executor uses
+  supervised tasks; custom executors define how their work runs.
 - Use `Runic.Runner.checkpoint/2` and `stop/3` for lifecycle control. Resume
   with `Jido.Exec.resume/4` and the same context and options.
 - For manual stepping, start with `dispatch_mode: :manual` and call
@@ -114,12 +117,12 @@ API to use. See the guides on HexDocs for explanations and examples.
 - Validate outputs with `validate_output/1`.
 - Use `on_before_validate_params/1` only for deterministic raw input
   preparation that must happen before Zoi validation.
-- Direct object and struct schemas use open validation at the Action root:
+- Direct object and struct schemas use open validation at the Flow root:
   Jido treats Zoi `:strip` as `:preserve`, so declared keys are validated and
   unknown root keys are preserved.
 - Nested and wrapped schemas use their declared Zoi `unrecognized_keys` policy.
   Jido keeps Zoi `:error` and typed preservation policies unchanged.
-- Prefer precise schemas with defaults for optional action inputs.
+- Prefer precise schemas with defaults for optional Flow inputs.
 - Use `Jido.Flow.validate/1` for canonical Flow structure and graph rules.
 - Use `Jido.Exec.compile/2` to also check all Flow target contracts.
 - Use `Jido.Flow.Codec.encode/2` and `Jido.Flow.Codec.decode/2` with a trusted

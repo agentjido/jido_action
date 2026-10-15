@@ -113,7 +113,7 @@ occurs after Jido evaluates the explicit output expression.
 
 Action and Flow module schemas must be safe to store in compiled module data.
 Anonymous functions, lazy schemas, PIDs, ports, and references are not
-accepted. Use a named MFA for effects in a refinement or transform.
+accepted. Use a named MFA for each refinement or transform.
 
 ```elixir
 Zoi.string()

@@ -19,15 +19,10 @@ No email or audit service is needed.
 
 ## Set Up
 
-This Livebook installs `jido_action` from a local checkout. Before you start
-Livebook, set `JIDO_ACTION_PATH` to the absolute path of your `jido_action`
-folder. The path must be available to the Livebook runtime. Run the cells in
-order.
+Run the cells from top to bottom. No local checkout is required.
 
 ```elixir
-package_path = System.fetch_env!("JIDO_ACTION_PATH")
-
-Mix.install([{:jido_action, path: package_path}], lockfile: Path.join(package_path, "mix.lock"))
+Mix.install([{:jido_action, "~> 3.0.0-beta.20"}])
 ```
 
 ## Return A Map With An Optional Request

@@ -120,8 +120,8 @@ structured errors. See [Errors](errors.md).
 
 ## Validation
 
-A direct `run/2` call does not validate data. Validate both boundaries when you
-call the callback directly.
+A direct `run/2` call runs in the calling process. It does not start a task
+or validate data. Validate both boundaries when you call the callback directly.
 
 ```elixir
 with {:ok, params} <- MyApp.Actions.CreateGreeting.validate_params(%{name: "Ada"}),
@@ -147,7 +147,7 @@ normalization through a Runic Runnable. Exceptions and invalid return shapes
 become structured errors. Runic owns timeout and retry policy. Exec retries an
 Action error only when it sets `details.retry: true`. The fourth argument sets
 timeout, retry, and concurrency options. See
-[Execution](execution.md#options).
+[Execution](execution.md#immediate-runtime-options).
 
 ### Prepare Raw Input
 

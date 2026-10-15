@@ -1,7 +1,7 @@
 defmodule JidoAction.MixProject do
   use Mix.Project
 
-  @version "3.0.0-beta.12"
+  @version "3.0.0-beta.20"
   @source_url "https://github.com/agentjido/jido_action"
   @description "Validated actions, call frames, and data-first Flow composition for Elixir"
 
@@ -285,7 +285,7 @@ defmodule JidoAction.MixProject do
       {:zoi, "~> 0.18.11"},
       {:jason, "~> 1.4"},
       {:multigraph, "~> 0.16.1-mg.5"},
-      {:runic, path: "../runic", override: true},
+      {:runic, "~> 0.1.0-alpha.12"},
       {:splode, "~> 0.3.0"},
       {:spark, "~> 2.7.3"},
 

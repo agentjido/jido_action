@@ -38,6 +38,8 @@ end
 defmodule MyApp.Actions.AddTest do
   use ExUnit.Case, async: true
 
+  @moduletag capture_log: true
+
   alias MyApp.Actions.Add
 
   test "run/2 adds validated params" do
@@ -69,8 +71,8 @@ end
 ## Test Actions
 
 Call `validate_params/1`, `run/2`, and `validate_output/1` directly for the
-business rule. These calls are fast and need no processes. A direct `run/2`
-call skips validation, so validate params first when the callback relies on
+business rule. These calls run in the calling process. A direct `run/2` call
+skips validation, so validate params first when the callback relies on
 schema defaults.
 
 Then add a `Jido.Exec.run/4` test for the contract: invalid input is
@@ -147,16 +149,6 @@ test "a managed Flow completes", %{runner: runner} do
 end
 ```
 
-## Test Flow Results
-
-```elixir
-assert {:ok, expected} = Jido.Exec.run(MyApp.Flows.BuildReport, input, context)
-```
-
-For Choice, Map, Reduce, Iterate, nested Flow, and Dispatch, assert the public
-result, effect order, and relevant error details. Use messages or counters to
-prove that failed or recovered work does not run twice.
-
 ## Test Durable Resume
 
 Run durable tests through a real `Runic.Runner` and Store:
@@ -170,12 +162,6 @@ Run durable tests through a real `Runic.Runner` and Store:
 
 Use a stable execution ID. Keep process-local values out of durable params,
 context, and outputs.
-
-## Keep Concurrent Tests Deterministic
-
-Use unique Runner names and execution IDs. Coordinate Actions with messages or
-barriers instead of sleeps. When you test parallel work, compare ordered public
-results and record the actual execution set separately.
 
 ## Additional Test Suites
 
@@ -204,6 +190,10 @@ carry Covenant obligation tags still run in their usual suites. Covenant
 reports and mutation checks are optional and are not part of CI or release
 preflight. See [the contract check instructions](https://github.com/agentjido/jido_action/blob/release/v3/test/contracts/README.md)
 for static and mutation commands.
+
+The authoring suite also runs complete README and guide examples against the
+package source. It skips install cells and fragments that need a surrounding
+module or application.
 
 Benchmarks are optional. See [benchmarks](benchmarks.md) for their commands.
 

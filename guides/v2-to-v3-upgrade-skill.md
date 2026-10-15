@@ -16,7 +16,7 @@ checklist. This page adds preparation steps, a prompt, and review checks.
 ## Agent Prompt
 
 ```text
-Upgrade this application from jido_action 2.x to 3.0.0-beta.12.
+Upgrade this application from jido_action 2.x to 3.0.0-beta.20.
 
 Follow guides/v2-to-v3-migration.md in the jido_action package. Work through
 its checklist one item at a time. Compile and run the tests after each item.
@@ -33,7 +33,8 @@ Rules:
   graph is needed. Give every Flow an explicit output.
 - Use Choice, Iterate, or Dispatch for control flow. Only a Dispatch expander
   may return {:continue, input, target}.
-- Use Runic.Runner for checkpoint, stop, resume, and results.
+- Use Runic.Runner for checkpoint and stop. Resume with Jido.Exec.resume/4,
+  supply the same context and policy, and read Jido.Exec.result/2.
 - Store Flow definitions with Jido.Flow.Codec and an application-owned
   Jido.Flow.Registry. Store runtime progress through the Runic Store.
 - Do not add compatibility wrappers for removed version 2 APIs.

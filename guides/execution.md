@@ -5,6 +5,9 @@ covers immediate execution with `run/4`, compilation with `compile/2`,
 options, process behavior, and telemetry. For work that runs under a
 supervised Runner, see [Managed Execution](managed-execution.md).
 
+The greeting examples use `MyApp.Actions.GreetUser` and
+`MyApp.Flows.Welcome` from the [README](../README.md#quick-tour).
+
 ## How Exec Runs A Target
 
 Every target takes the same path:
@@ -24,7 +27,7 @@ Runic performs scheduling, timeouts, and retries.
 
 ## Run To Completion
 
-```elixir
+```text
 Jido.Exec.run(target, params \\ %{}, context \\ %{}, opts \\ [])
 ```
 
@@ -39,8 +42,8 @@ Instruction's own maps.
 {:ok, %{greeting: "Hello, Ada."}} =
   Jido.Exec.run(MyApp.Actions.GreetUser, %{name: "Ada"})
 
-{:ok, result, effects} =
-  Jido.Exec.run(MyApp.Flows.Notify, %{name: "Ada"}, %{request_id: "r-1"})
+{:ok, %{message: "Hello, Ada.", status: "queued"}} =
+  Jido.Exec.run(MyApp.Flows.Welcome, %{name: "Ada"}, %{request_id: "r-1"})
 ```
 
 `run/4` uses Runic's immediate execution loop inside an unlinked temporary task
@@ -52,8 +55,8 @@ does not create a Jido worker, execution struct, cursor, or checkpoint.
 Use `compile/2` when you need the native executable graph:
 
 ```elixir
-{:ok, %Runic.Workflow{} = workflow} = Jido.Exec.compile(MyApp.Flows.Notify)
-workflow = Jido.Exec.compile!(MyApp.Actions.Greet)
+{:ok, %Runic.Workflow{} = workflow} = Jido.Exec.compile(MyApp.Flows.Welcome)
+workflow = Jido.Exec.compile!(MyApp.Actions.GreetUser)
 ```
 
 The compile options are:
@@ -137,7 +140,8 @@ exits are not retried. Invalid option values return a
 `Jido.Action.Error.ConfigurationError`.
 
 The default failure action is `:halt`. A halting failure stops new dispatch;
-work that already started can finish. Immediate execution selects failures by causal depth and authored node name,
+work that already started can finish. Immediate execution selects failures
+by causal depth and authored node name,
 so completion timing does not select the returned error. An executor that ends
 without an accepted result returns an uncertain-work error with the original
 exit reason and `details.retry: false`. Work with an uncertain outcome can
@@ -147,7 +151,7 @@ have caused external effects.
 
 Use `start/6` with a supervised `Runic.Runner`:
 
-```elixir
+```text
 Jido.Exec.start(
   runner,
   execution_id,
@@ -171,8 +175,8 @@ children = [
   Jido.Exec.start(
     MyApp.Runner,
     "order-42",
-    MyApp.Flows.ProcessOrder,
-    %{order_id: 42},
+    MyApp.Flows.Welcome,
+    %{name: "Ada"},
     %{request_id: "r-42"},
     checkpoint_strategy: :every_cycle
   )
@@ -184,7 +188,7 @@ stored in the Runic Store. Its default adapter runs Action Tasks under the
 Runner's Task supervisor, including a partitioned supervisor.
 
 Use the Runic API to checkpoint and stop. Use `Jido.Exec.resume/4` to resume,
-and `Jido.Exec.result/1` to read the result:
+and `Jido.Exec.result/2` to read the live result:
 
 ```elixir
 :ok = Runic.Runner.checkpoint(MyApp.Runner, "order-42")
@@ -195,12 +199,13 @@ and `Jido.Exec.result/1` to read the result:
     checkpoint_strategy: :every_cycle
   )
 
-{:ok, workflow} = Runic.Runner.get_workflow(MyApp.Runner, "order-42")
-{:ok, value} = Jido.Exec.result(workflow)
+# Read after the resumed work completes.
+{:ok, %{message: "Hello, Ada.", status: "queued"}} =
+  Jido.Exec.result(MyApp.Runner, "order-42")
 ```
 
 Runic does not persist runtime context or runtime policy. Pass `resume/4` the
-same context and managed options that you gave `start/6`. `result/1` returns
+same context and managed options that you gave `start/6`. `result/2` returns
 the same `{:ok, value}`, `{:ok, value, effects}`, or `{:error, exception}`
 values as `run/4`.
 
@@ -210,7 +215,10 @@ does not encode runtime progress into Instructions or Flow JSON.
 
 Managed execution accepts Runic worker options such as `checkpoint_strategy`,
 `on_complete`, `executor`, `scheduler`, and their option lists. It also accepts
-the policy options listed above, except `max_concurrency` is a worker option.
+the policy options listed above, except `task_supervisor`. Managed
+`max_concurrency` is a worker option and defaults to
+`System.schedulers_online()`. See [Managed Execution](managed-execution.md#options)
+for the complete option list.
 
 ## Stepwise Execution
 
@@ -221,21 +229,21 @@ must inspect a managed Flow between Runic scheduler units:
 {:ok, _worker} =
   Jido.Exec.start(
     MyApp.Runner,
-    "order-42",
-    MyApp.Flows.ProcessOrder,
-    %{order_id: 42},
+    "welcome-manual",
+    MyApp.Flows.Welcome,
+    %{name: "Ada"},
     %{},
     dispatch_mode: :manual,
     checkpoint_strategy: :every_cycle
   )
 
-case Jido.Exec.step(MyApp.Runner, "order-42") do
+case Jido.Exec.step(MyApp.Runner, "welcome-manual") do
   {:ok, %Runic.Workflow{} = workflow} ->
     # One scheduler unit was dispatched. Inspect the current Runic state.
     workflow
 
   {:complete, %Runic.Workflow{} = workflow} ->
-    # No work is ready, or admission stopped. Read Jido.Exec.result(workflow).
+    # Read Jido.Exec.result(MyApp.Runner, "welcome-manual") for the result.
     workflow
 
   {:error, :busy} ->
@@ -251,8 +259,9 @@ also executable Runic units.
 
 `step/2` returns the current `%Runic.Workflow{}` after dispatch. The dispatched
 unit can still be active. Call it again after the unit finishes. A terminal
-failure also returns `{:complete, workflow}` because no ready work remains;
-inspect `workflow.runnable_events` for `Runic.Workflow.RunnableFailed`.
+failure also returns `{:complete, workflow}` when admission stops, even if
+ready work remains. Read `Jido.Exec.result(runner, execution_id)` to
+distinguish success, failure, and uncertain work.
 
 Use `Runic.Runner.continue/2` to change the same worker back to automatic
 dispatch. Use `dispatch_mode: :manual` with `Jido.Exec.resume/4` to keep

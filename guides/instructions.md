@@ -8,12 +8,34 @@ Use an Instruction when a call is built in one place and run in another: for
 example, after it is logged, queued in memory, or enriched with more context.
 When you run a target immediately, pass it straight to `Jido.Exec.run/4`.
 
+## Define The Example Targets
+
+The examples prepare delivery data. They do not send email:
+
+```elixir
+defmodule MyApp.Actions.PrepareEmail do
+  use Jido.Action, name: "prepare_email", schema: Zoi.object(%{to: Zoi.string()})
+
+  @impl true
+  def run(%{to: address}, _context), do: {:ok, %{to: address, status: :prepared}}
+end
+
+defmodule MyApp.Flows.PrepareDelivery do
+  use Jido.Flow, name: "prepare_delivery"
+
+  flow do
+    step "prepare", action: MyApp.Actions.PrepareEmail, params: %{to: input(:to)}
+    output result("prepare")
+  end
+end
+```
+
 ## Construct An Instruction
 
 ```elixir
 instruction =
   Jido.Instruction.new!(
-    target: MyApp.Actions.SendEmail,
+    target: MyApp.Actions.PrepareEmail,
     params: %{to: "user@example.com"},
     context: %{tenant_id: "tenant-1"},
     metadata: %{request_id: "req-1"}
@@ -33,7 +55,7 @@ The fields have these roles:
 Use `new/1` when construction can fail.
 
 ```elixir
-case Jido.Instruction.new(target: MyApp.Actions.SendEmail) do
+case Jido.Instruction.new(target: MyApp.Actions.PrepareEmail) do
   {:ok, instruction} -> {:ok, instruction}
   {:error, error} -> {:error, Exception.message(error)}
 end
@@ -42,7 +64,8 @@ end
 Use `target:` for Action modules, Flow modules, and runtime Flow values:
 
 ```elixir
-flow_instruction = Jido.Instruction.new!(target: MyApp.Flows.DeliverOrder)
+flow_instruction =
+  Jido.Instruction.new!(target: MyApp.Flows.PrepareDelivery, params: %{to: "user@example.com"})
 ```
 
 The constructor accepts maps with atom keys or keyword lists. Params, context,
@@ -57,7 +80,7 @@ execution, so a retained kind does not select the adapter after a code reload.
 ## Execute An Instruction
 
 ```elixir
-Jido.Exec.run(instruction)
+{:ok, %{to: "user@example.com", status: :prepared}} = Jido.Exec.run(instruction)
 ```
 
 Call-site parameter and context maps override equal keys in the Instruction.
@@ -74,10 +97,11 @@ Jido.Exec.run(
 
 An Instruction holds no execution options. Pass `timeout:`,
 `max_attempts:`, and other options to `Jido.Exec.run/4`. See
-[Execution](execution.md#options).
+[Execution](execution.md#immediate-runtime-options).
 
 An Instruction is also a valid target for
-[managed execution](managed-execution.md):
+[managed execution](managed-execution.md). The next fragment assumes
+`MyApp.Runner` is already supervised:
 
 ```elixir
 {:ok, _worker} =
@@ -116,7 +140,7 @@ target before binding runtime data.
 binding runtime data:
 
 ```elixir
-template = Jido.Instruction.template(:action, MyApp.Actions.SendEmail)
+template = Jido.Instruction.template(:action, MyApp.Actions.PrepareEmail)
 ```
 
 `bind/4` checks the loaded target and creates a resolved Instruction with

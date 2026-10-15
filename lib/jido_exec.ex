@@ -4,7 +4,16 @@ defmodule Jido.Exec do
 
   One Action is compiled as a one-node Runic Workflow. A Flow is compiled as
   a larger Runic Workflow. Runic owns runnable preparation, execution policy,
-  graph updates, and durable runtime state.
+  graph updates, and checkpoints.
+
+  Use `run/4` for immediate execution. It returns `{:ok, output}`,
+  `{:ok, output, effects}`, or `{:error, error}`. Effects are returned to the
+  caller without dispatch. See [Execution](execution.md).
+
+  Use `start/6` with a supervised `Runic.Runner` for managed execution,
+  `step/2` for manual dispatch, and `result/2` to read the Jido result.
+  Recovery after a Store or VM restart requires a persistent Runic Store.
+  See [Managed Execution](managed-execution.md).
   """
 
   alias Jido.Exec.{Compiler, Frame, Portable, Telemetry, Validation}
@@ -61,6 +70,7 @@ defmodule Jido.Exec do
   @doc """
   Runs an Action or Flow to completion with the in-memory Runic runtime.
 
+  `Jido.Exec.run/4` runs the Action or Flow in a supervised task.
   The complete execution runs in an unlinked temporary task under
   `Jido.Exec.TaskSupervisor`. The task keeps the caller's group leader. Pass
   `task_supervisor: reference` to use another local Task Supervisor.

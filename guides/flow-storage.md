@@ -147,8 +147,9 @@ The writer and reader use document version 1 for all current features,
 including `$expr` operations. Other versions are rejected. Document versions
 and semantic identity versions are separate.
 
-Component fields match the [data form](flow-data.md#component-kinds), with
-string keys and fixed string kinds. A call record contains `"kind"`,
+Stored components use canonical call records instead of the `step` and
+`subflow` records in the [data authoring form](flow-data.md#component-kinds).
+Documents use string keys and fixed string kinds. A call record contains `"kind"`,
 `"target"`, and `"params"`. Its target is a Registry identifier. A Dispatch
 expander contains only `"kind"` and `"target"`.
 

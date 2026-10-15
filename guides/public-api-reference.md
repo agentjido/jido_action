@@ -1,10 +1,8 @@
 # Public API Reference
 
-This reference records the supported `jido_action` source on 2026-10-14:
-`release/v3`, base commit `0374d195`, with the existing local changes.
-The current package version is `3.0.0-beta.12`. Local execution uses the
-sibling Runic source at `de170d8`. This is a source review, not a declaration
-that every listed promise has complete Covenant evidence.
+This reference documents `jido_action` `3.0.0-beta.20`. Execution uses Runic
+`~> 0.1.0-alpha.12` from Hex. The contract register and Covenant obligations
+record the evidence for the public promises.
 
 For a first example, use [Getting Started](getting-started.livemd) or
 [Build Your First Flow](build-your-first-flow.livemd). This document gives the
@@ -42,11 +40,11 @@ Contents:
 - [Inline Action host API](#inline-action-host-api)
 - [Action and Flow errors](#action-and-flow-errors)
 - [Flow definitions and generated modules](#flow-definitions-and-generated-modules)
-- [Expressions](#expressions-jidoexpr)
-- [Stored Flow documents](#stored-flow-documents-jidoflowcodec)
-- [Trusted stored identifiers](#trusted-stored-identifiers-jidoflowregistry)
-- [Execution](#execution-jidoexec)
-- [Telemetry](#telemetry-jidoexectelemetry)
+- [Expressions](#expressions-jido-expr)
+- [Stored Flow documents](#stored-flow-documents-jido-flow-codec)
+- [Trusted stored identifiers](#trusted-stored-identifiers-jido-flow-registry)
+- [Execution](#execution-jido-exec)
+- [Telemetry](#telemetry-jido-exec-telemetry)
 - [Runic integration and internal execution exports](#supported-runic-integration-and-internal-execution-exports)
 
 ## Actions and generated module APIs
@@ -157,14 +155,14 @@ A continuation does not resume the expander. Error and output-validation
 failure return no executable effect batch. Exec carries requests; it never
 dispatches them. An Action body can still perform I/O itself.
 
-Source: [Action](https://github.com/agentjido/jido_action/blob/0374d195915c91e4097803c404f02b00d76573cb/lib/jido_action.ex),
-[authoring configuration](https://github.com/agentjido/jido_action/blob/0374d195915c91e4097803c404f02b00d76573cb/lib/jido_authoring/config.ex),
-[generated API](https://github.com/agentjido/jido_action/blob/0374d195915c91e4097803c404f02b00d76573cb/lib/jido_authoring/compiler.ex),
-[Action execution boundary](https://github.com/agentjido/jido_action/blob/0374d195915c91e4097803c404f02b00d76573cb/lib/jido_exec/node/action.ex).
-Evidence: [Action tests](https://github.com/agentjido/jido_action/blob/0374d195915c91e4097803c404f02b00d76573cb/test/jido_action/action_test.exs),
-[boundary validation tests](https://github.com/agentjido/jido_action/blob/0374d195915c91e4097803c404f02b00d76573cb/test/jido_exec/validation_contract_test.exs),
-[Action node tests](https://github.com/agentjido/jido_action/blob/0374d195915c91e4097803c404f02b00d76573cb/test/jido_exec/node/action_test.exs),
-[Action boundary properties](https://github.com/agentjido/jido_action/blob/0374d195915c91e4097803c404f02b00d76573cb/test/property/action/boundary_contract_test.exs).
+Source: [Action](https://github.com/agentjido/jido_action/blob/v3.0.0-beta.20/lib/jido_action.ex),
+[authoring configuration](https://github.com/agentjido/jido_action/blob/v3.0.0-beta.20/lib/jido_authoring/config.ex),
+[generated API](https://github.com/agentjido/jido_action/blob/v3.0.0-beta.20/lib/jido_authoring/compiler.ex),
+[Action execution boundary](https://github.com/agentjido/jido_action/blob/v3.0.0-beta.20/lib/jido_exec/node/action.ex).
+Evidence: [Action tests](https://github.com/agentjido/jido_action/blob/v3.0.0-beta.20/test/jido_action/action_test.exs),
+[boundary validation tests](https://github.com/agentjido/jido_action/blob/v3.0.0-beta.20/test/jido_exec/validation_contract_test.exs),
+[Action node tests](https://github.com/agentjido/jido_action/blob/v3.0.0-beta.20/test/jido_exec/node/action_test.exs),
+[Action boundary properties](https://github.com/agentjido/jido_action/blob/v3.0.0-beta.20/test/property/action/boundary_contract_test.exs).
 The test named “rejects Action metadata that is not valid JSON” checks a
 `to_json/0` failure, not a compile-time rejection.
 
@@ -221,14 +219,14 @@ non-Action data shape. This helper is not a second public Action validation
 API. Its direct scalar and lazy-schema tests do not establish public support
 for scalar Action results or lazy Action configuration.
 
-Source: [shared validation](https://github.com/agentjido/jido_action/blob/0374d195915c91e4097803c404f02b00d76573cb/lib/jido_action/validation.ex),
-[Exec validation](https://github.com/agentjido/jido_action/blob/0374d195915c91e4097803c404f02b00d76573cb/lib/jido_exec/validation.ex).
-Evidence: [schema tests](https://github.com/agentjido/jido_action/blob/0374d195915c91e4097803c404f02b00d76573cb/test/jido_action/validation_test.exs),
-[open validation tests](https://github.com/agentjido/jido_action/blob/0374d195915c91e4097803c404f02b00d76573cb/test/jido_action/open_validation_contract_test.exs),
-[execution boundary tests](https://github.com/agentjido/jido_action/blob/0374d195915c91e4097803c404f02b00d76573cb/test/jido_exec/validation_contract_test.exs),
-[composed schema test](https://github.com/agentjido/jido_action/blob/0374d195915c91e4097803c404f02b00d76573cb/test/authoring/schema_pipeline_test.exs).
-The broad sentence in the Action module that “Object schemas are open” must
-be read with these root, strict-policy, and nested-schema limits.
+Source: [shared validation](https://github.com/agentjido/jido_action/blob/v3.0.0-beta.20/lib/jido_action/validation.ex),
+[Exec validation](https://github.com/agentjido/jido_action/blob/v3.0.0-beta.20/lib/jido_exec/validation.ex).
+Evidence: [schema tests](https://github.com/agentjido/jido_action/blob/v3.0.0-beta.20/test/jido_action/validation_test.exs),
+[open validation tests](https://github.com/agentjido/jido_action/blob/v3.0.0-beta.20/test/jido_action/open_validation_contract_test.exs),
+[execution boundary tests](https://github.com/agentjido/jido_action/blob/v3.0.0-beta.20/test/jido_exec/validation_contract_test.exs),
+[composed schema test](https://github.com/agentjido/jido_action/blob/v3.0.0-beta.20/test/authoring/schema_pipeline_test.exs).
+See [Schemas And Validation](schemas-validation.md) for examples of root,
+strict-policy, and nested-schema behavior.
 
 ## Explicit Output values
 
@@ -260,9 +258,9 @@ structs, returns `{:ok, envelope}`, or gives `{:error, InvalidInputError}` with
 the original value at `details.value`. Application callers should use the
 constructors or the target's `validate_output/1`.
 
-Source: [Output](https://github.com/agentjido/jido_action/blob/0374d195915c91e4097803c404f02b00d76573cb/lib/jido_action/output.ex).
-Evidence: [Output tests](https://github.com/agentjido/jido_action/blob/0374d195915c91e4097803c404f02b00d76573cb/test/jido_action/output_test.exs),
-[envelope boundary tests](https://github.com/agentjido/jido_action/blob/0374d195915c91e4097803c404f02b00d76573cb/test/jido_exec/validation_contract_test.exs).
+Source: [Output](https://github.com/agentjido/jido_action/blob/v3.0.0-beta.20/lib/jido_action/output.ex).
+Evidence: [Output tests](https://github.com/agentjido/jido_action/blob/v3.0.0-beta.20/test/jido_action/output_test.exs),
+[envelope boundary tests](https://github.com/agentjido/jido_action/blob/v3.0.0-beta.20/test/jido_exec/validation_contract_test.exs).
 
 ## Instruction calls and templates
 
@@ -347,11 +345,11 @@ atoms and can carry runtime context. A Flow data definition rejects bound
 Instructions; Exec accepts them as direct targets and Dispatch continuation
 targets. No Instruction function dispatches work.
 
-Source: [Instruction](https://github.com/agentjido/jido_action/blob/0374d195915c91e4097803c404f02b00d76573cb/lib/jido_instruction.ex).
-Evidence: [Instruction tests](https://github.com/agentjido/jido_action/blob/0374d195915c91e4097803c404f02b00d76573cb/test/jido_instruction/instruction_test.exs),
-[target and reload tests](https://github.com/agentjido/jido_action/blob/0374d195915c91e4097803c404f02b00d76573cb/test/jido_instruction/target_test.exs),
-[call properties](https://github.com/agentjido/jido_action/blob/0374d195915c91e4097803c404f02b00d76573cb/test/property/instruction/call_contract_test.exs),
-[target properties](https://github.com/agentjido/jido_action/blob/0374d195915c91e4097803c404f02b00d76573cb/test/property/instruction/target_contract_test.exs).
+Source: [Instruction](https://github.com/agentjido/jido_action/blob/v3.0.0-beta.20/lib/jido_instruction.ex).
+Evidence: [Instruction tests](https://github.com/agentjido/jido_action/blob/v3.0.0-beta.20/test/jido_instruction/instruction_test.exs),
+[target and reload tests](https://github.com/agentjido/jido_action/blob/v3.0.0-beta.20/test/jido_instruction/target_test.exs),
+[call properties](https://github.com/agentjido/jido_action/blob/v3.0.0-beta.20/test/property/instruction/call_contract_test.exs),
+[target properties](https://github.com/agentjido/jido_action/blob/v3.0.0-beta.20/test/property/instruction/target_contract_test.exs).
 
 ## Inline Action host API
 
@@ -429,14 +427,14 @@ of an existing wrapper. Owner setup and early/late host hooks retain the
 registered targets. Lookup with an unknown path, non-module owner, missing
 owner index, or still-compiling owner raises `ArgumentError`.
 
-Source: [Inline facade](https://github.com/agentjido/jido_action/blob/0374d195915c91e4097803c404f02b00d76573cb/lib/jido_action/inline.ex),
-[parser](https://github.com/agentjido/jido_action/blob/0374d195915c91e4097803c404f02b00d76573cb/lib/jido_action/inline/parser.ex),
-[compiler](https://github.com/agentjido/jido_action/blob/0374d195915c91e4097803c404f02b00d76573cb/lib/jido_action/inline/compiler.ex),
-[owner hooks](https://github.com/agentjido/jido_action/blob/0374d195915c91e4097803c404f02b00d76573cb/lib/jido_action/inline/owner.ex).
-Evidence: [Inline API tests](https://github.com/agentjido/jido_action/blob/0374d195915c91e4097803c404f02b00d76573cb/test/jido_action/inline_test.exs),
-[public host tests](https://github.com/agentjido/jido_action/blob/0374d195915c91e4097803c404f02b00d76573cb/test/jido_action/inline_host_test.exs),
-[build and release tests](https://github.com/agentjido/jido_action/blob/0374d195915c91e4097803c404f02b00d76573cb/test/jido_action/inline_host_build_test.exs),
-[Flow host tests](https://github.com/agentjido/jido_action/blob/0374d195915c91e4097803c404f02b00d76573cb/test/jido_flow/dsl/inline_action_test.exs).
+Source: [Inline facade](https://github.com/agentjido/jido_action/blob/v3.0.0-beta.20/lib/jido_action/inline.ex),
+[parser](https://github.com/agentjido/jido_action/blob/v3.0.0-beta.20/lib/jido_action/inline/parser.ex),
+[compiler](https://github.com/agentjido/jido_action/blob/v3.0.0-beta.20/lib/jido_action/inline/compiler.ex),
+[owner hooks](https://github.com/agentjido/jido_action/blob/v3.0.0-beta.20/lib/jido_action/inline/owner.ex).
+Evidence: [Inline API tests](https://github.com/agentjido/jido_action/blob/v3.0.0-beta.20/test/jido_action/inline_test.exs),
+[public host tests](https://github.com/agentjido/jido_action/blob/v3.0.0-beta.20/test/jido_action/inline_host_test.exs),
+[build and release tests](https://github.com/agentjido/jido_action/blob/v3.0.0-beta.20/test/jido_action/inline_host_build_test.exs),
+[Flow host tests](https://github.com/agentjido/jido_action/blob/v3.0.0-beta.20/test/jido_flow/dsl/inline_action_test.exs).
 The Inline module's beta-version note is history, not an API rule.
 
 ## Action and Flow errors
@@ -543,12 +541,12 @@ package tests establish class membership, invalid-class priority, leaf
 preservation, and Jido map/retry rules. They do not establish every Splode
 option, constructor field, transport input, or aggregate ordering rule.
 
-Source: [Action errors](https://github.com/agentjido/jido_action/blob/0374d195915c91e4097803c404f02b00d76573cb/lib/jido_action/error.ex),
-[Flow errors](https://github.com/agentjido/jido_action/blob/0374d195915c91e4097803c404f02b00d76573cb/lib/jido_flow/error.ex).
-Evidence: [Action error tests](https://github.com/agentjido/jido_action/blob/0374d195915c91e4097803c404f02b00d76573cb/test/jido_action/error_test.exs),
-[Flow error tests](https://github.com/agentjido/jido_action/blob/0374d195915c91e4097803c404f02b00d76573cb/test/jido_flow/error_test.exs),
-[error properties](https://github.com/agentjido/jido_action/blob/0374d195915c91e4097803c404f02b00d76573cb/test/property/action/error_contract_test.exs),
-[validator errors](https://github.com/agentjido/jido_action/blob/0374d195915c91e4097803c404f02b00d76573cb/test/jido_exec/validation_contract_test.exs).
+Source: [Action errors](https://github.com/agentjido/jido_action/blob/v3.0.0-beta.20/lib/jido_action/error.ex),
+[Flow errors](https://github.com/agentjido/jido_action/blob/v3.0.0-beta.20/lib/jido_flow/error.ex).
+Evidence: [Action error tests](https://github.com/agentjido/jido_action/blob/v3.0.0-beta.20/test/jido_action/error_test.exs),
+[Flow error tests](https://github.com/agentjido/jido_action/blob/v3.0.0-beta.20/test/jido_flow/error_test.exs),
+[error properties](https://github.com/agentjido/jido_action/blob/v3.0.0-beta.20/test/property/action/error_contract_test.exs),
+[validator errors](https://github.com/agentjido/jido_action/blob/v3.0.0-beta.20/test/jido_exec/validation_contract_test.exs).
 
 ### Error contract limits
 
@@ -587,11 +585,11 @@ make each export a separate public promise.
 | Jido.Action.Application | OTP `start/2`; starts `Jido.Exec.TaskSupervisor` with unlimited children under a one-for-one supervisor. |
 | Both error families | Splode `__stacktrace_filters__/0` is an internal inherited export. |
 
-Sources: [authoring compiler](https://github.com/agentjido/jido_action/blob/0374d195915c91e4097803c404f02b00d76573cb/lib/jido_authoring/compiler.ex),
-[configuration](https://github.com/agentjido/jido_action/blob/0374d195915c91e4097803c404f02b00d76573cb/lib/jido_authoring/config.ex),
-[options](https://github.com/agentjido/jido_action/blob/0374d195915c91e4097803c404f02b00d76573cb/lib/jido_authoring/options.ex),
-[FieldError](https://github.com/agentjido/jido_action/blob/0374d195915c91e4097803c404f02b00d76573cb/lib/jido_flow/field_error.ex),
-[application](https://github.com/agentjido/jido_action/blob/0374d195915c91e4097803c404f02b00d76573cb/lib/jido_action/application.ex).
+Sources: [authoring compiler](https://github.com/agentjido/jido_action/blob/v3.0.0-beta.20/lib/jido_authoring/compiler.ex),
+[configuration](https://github.com/agentjido/jido_action/blob/v3.0.0-beta.20/lib/jido_authoring/config.ex),
+[options](https://github.com/agentjido/jido_action/blob/v3.0.0-beta.20/lib/jido_authoring/options.ex),
+[FieldError](https://github.com/agentjido/jido_action/blob/v3.0.0-beta.20/lib/jido_flow/field_error.ex),
+[application](https://github.com/agentjido/jido_action/blob/v3.0.0-beta.20/lib/jido_action/application.ex).
 
 
 ## Flow definitions and generated modules
@@ -640,11 +638,11 @@ artifact`. They do not accept a module directly. Call `Module.flow()` first.
 `Jido.Exec.compile/2` adds executable target checks and returns a derived Runic
 workflow. Inspection and compilation do not call Action `run/2`.
 
-Source: [Flow facade](https://github.com/agentjido/jido_action/blob/0374d195915c91e4097803c404f02b00d76573cb/lib/jido_flow.ex),
-[definition validation](https://github.com/agentjido/jido_action/blob/0374d195915c91e4097803c404f02b00d76573cb/lib/jido_flow/definition.ex). Evidence:
-[canonical public subjects](https://github.com/agentjido/jido_action/blob/0374d195915c91e4097803c404f02b00d76573cb/test/jido_flow/canonical_authoring_test.exs),
-[canonical structure](https://github.com/agentjido/jido_action/blob/0374d195915c91e4097803c404f02b00d76573cb/test/jido_flow/canonical_data_test.exs),
-[inert inline inspection](https://github.com/agentjido/jido_action/blob/0374d195915c91e4097803c404f02b00d76573cb/test/jido_flow/dsl/inline_step_test.exs).
+Source: [Flow facade](https://github.com/agentjido/jido_action/blob/v3.0.0-beta.20/lib/jido_flow.ex),
+[definition validation](https://github.com/agentjido/jido_action/blob/v3.0.0-beta.20/lib/jido_flow/definition.ex). Evidence:
+[canonical public subjects](https://github.com/agentjido/jido_action/blob/v3.0.0-beta.20/test/jido_flow/canonical_authoring_test.exs),
+[canonical structure](https://github.com/agentjido/jido_action/blob/v3.0.0-beta.20/test/jido_flow/canonical_data_test.exs),
+[inert inline inspection](https://github.com/agentjido/jido_action/blob/v3.0.0-beta.20/test/jido_flow/dsl/inline_step_test.exs).
 
 ### Configuration and generated API
 
@@ -680,12 +678,12 @@ Deploy the owner module and generated Action modules together. The generated
 `__jido_authoring_kind__/0` and `__jido_flow_source_map__/0` functions are internal
 integration hooks.
 
-Source: [module compiler](https://github.com/agentjido/jido_action/blob/0374d195915c91e4097803c404f02b00d76573cb/lib/jido_flow/dsl/module_compiler.ex),
-[shared compiler](https://github.com/agentjido/jido_action/blob/0374d195915c91e4097803c404f02b00d76573cb/lib/jido_authoring/compiler.ex),
-[shared configuration](https://github.com/agentjido/jido_action/blob/0374d195915c91e4097803c404f02b00d76573cb/lib/jido_authoring/config.ex). Evidence:
-[generated functions](https://github.com/agentjido/jido_action/blob/0374d195915c91e4097803c404f02b00d76573cb/test/jido_flow/dsl/flow_test.exs),
-[inline scope and lookup](https://github.com/agentjido/jido_action/blob/0374d195915c91e4097803c404f02b00d76573cb/test/jido_flow/dsl/inline_step_test.exs),
-[extension validation](https://github.com/agentjido/jido_action/blob/0374d195915c91e4097803c404f02b00d76573cb/test/jido_flow/dsl/extension_test.exs).
+Source: [module compiler](https://github.com/agentjido/jido_action/blob/v3.0.0-beta.20/lib/jido_flow/dsl/module_compiler.ex),
+[shared compiler](https://github.com/agentjido/jido_action/blob/v3.0.0-beta.20/lib/jido_authoring/compiler.ex),
+[shared configuration](https://github.com/agentjido/jido_action/blob/v3.0.0-beta.20/lib/jido_authoring/config.ex). Evidence:
+[generated functions](https://github.com/agentjido/jido_action/blob/v3.0.0-beta.20/test/jido_flow/dsl/flow_test.exs),
+[inline scope and lookup](https://github.com/agentjido/jido_action/blob/v3.0.0-beta.20/test/jido_flow/dsl/inline_step_test.exs),
+[extension validation](https://github.com/agentjido/jido_action/blob/v3.0.0-beta.20/test/jido_flow/dsl/extension_test.exs).
 
 ### Module DSL forms
 
@@ -748,17 +746,17 @@ These value-field forms are parsed syntax, not general runtime imports.
 Ordinary maps and lists stay data; they do not become operations because
 certain field names are present.
 
-Source: [DSL schemas](https://github.com/agentjido/jido_action/blob/0374d195915c91e4097803c404f02b00d76573cb/lib/jido_flow/dsl/schema.ex),
-[macros](https://github.com/agentjido/jido_action/blob/0374d195915c91e4097803c404f02b00d76573cb/lib/jido_flow/dsl/macros.ex),
-[entity fields](https://github.com/agentjido/jido_action/blob/0374d195915c91e4097803c404f02b00d76573cb/lib/jido_flow/dsl/entity.ex),
-[lowering](https://github.com/agentjido/jido_action/blob/0374d195915c91e4097803c404f02b00d76573cb/lib/jido_flow/dsl/lowerer.ex),
-[value parser](https://github.com/agentjido/jido_action/blob/0374d195915c91e4097803c404f02b00d76573cb/lib/jido_flow/dsl/value_parser.ex),
-[inline Step parser](https://github.com/agentjido/jido_action/blob/0374d195915c91e4097803c404f02b00d76573cb/lib/jido_flow/dsl/inline_step.ex). Evidence:
-[DSL forms](https://github.com/agentjido/jido_action/blob/0374d195915c91e4097803c404f02b00d76573cb/test/jido_flow/dsl/flow_test.exs),
-[needs forms and failures](https://github.com/agentjido/jido_action/blob/0374d195915c91e4097803c404f02b00d76573cb/test/jido_flow/dsl/needs_test.exs),
-[inline forms](https://github.com/agentjido/jido_action/blob/0374d195915c91e4097803c404f02b00d76573cb/test/jido_flow/dsl/inline_step_test.exs),
-[field block forms](https://github.com/agentjido/jido_action/blob/0374d195915c91e4097803c404f02b00d76573cb/test/jido_flow/dsl/wrapper_test.exs),
-[guide-backed syntax](https://github.com/agentjido/jido_action/blob/0374d195915c91e4097803c404f02b00d76573cb/test/jido_flow/dsl/spark_surface_test.exs).
+Source: [DSL schemas](https://github.com/agentjido/jido_action/blob/v3.0.0-beta.20/lib/jido_flow/dsl/schema.ex),
+[macros](https://github.com/agentjido/jido_action/blob/v3.0.0-beta.20/lib/jido_flow/dsl/macros.ex),
+[entity fields](https://github.com/agentjido/jido_action/blob/v3.0.0-beta.20/lib/jido_flow/dsl/entity.ex),
+[lowering](https://github.com/agentjido/jido_action/blob/v3.0.0-beta.20/lib/jido_flow/dsl/lowerer.ex),
+[value parser](https://github.com/agentjido/jido_action/blob/v3.0.0-beta.20/lib/jido_flow/dsl/value_parser.ex),
+[inline Step parser](https://github.com/agentjido/jido_action/blob/v3.0.0-beta.20/lib/jido_flow/dsl/inline_step.ex). Evidence:
+[DSL forms](https://github.com/agentjido/jido_action/blob/v3.0.0-beta.20/test/jido_flow/dsl/flow_test.exs),
+[needs forms and failures](https://github.com/agentjido/jido_action/blob/v3.0.0-beta.20/test/jido_flow/dsl/needs_test.exs),
+[inline forms](https://github.com/agentjido/jido_action/blob/v3.0.0-beta.20/test/jido_flow/dsl/inline_step_test.exs),
+[field block forms](https://github.com/agentjido/jido_action/blob/v3.0.0-beta.20/test/jido_flow/dsl/wrapper_test.exs),
+[guide-backed syntax](https://github.com/agentjido/jido_action/blob/v3.0.0-beta.20/test/jido_flow/dsl/spark_surface_test.exs).
 
 ### Data definitions and canonical fields
 
@@ -818,13 +816,13 @@ Do not pass a canonical component list to `Jido.Flow.new/1`. Its public input us
 `:step`, `:subflow`, and the compact fields above. `to_map/1` is an inspection
 form, not a documented `new/1` round-trip or storage format.
 
-Source: [definition rules](https://github.com/agentjido/jido_action/blob/0374d195915c91e4097803c404f02b00d76573cb/lib/jido_flow/definition.ex),
-[component rules](https://github.com/agentjido/jido_action/blob/0374d195915c91e4097803c404f02b00d76573cb/lib/jido_flow/component.ex). Evidence:
-[data authoring shape](https://github.com/agentjido/jido_action/blob/0374d195915c91e4097803c404f02b00d76573cb/test/jido_flow/data_authoring_shape_test.exs),
-[boundary validation](https://github.com/agentjido/jido_action/blob/0374d195915c91e4097803c404f02b00d76573cb/test/jido_flow/boundary_validation_test.exs),
-[unknown keys](https://github.com/agentjido/jido_action/blob/0374d195915c91e4097803c404f02b00d76573cb/test/jido_flow/unknown_key_validation_test.exs),
-[canonical fields](https://github.com/agentjido/jido_action/blob/0374d195915c91e4097803c404f02b00d76573cb/test/jido_flow/canonical_data_test.exs),
-[target kinds](https://github.com/agentjido/jido_action/blob/0374d195915c91e4097803c404f02b00d76573cb/test/jido_flow/executable_kind_test.exs).
+Source: [definition rules](https://github.com/agentjido/jido_action/blob/v3.0.0-beta.20/lib/jido_flow/definition.ex),
+[component rules](https://github.com/agentjido/jido_action/blob/v3.0.0-beta.20/lib/jido_flow/component.ex). Evidence:
+[data authoring shape](https://github.com/agentjido/jido_action/blob/v3.0.0-beta.20/test/jido_flow/data_authoring_shape_test.exs),
+[boundary validation](https://github.com/agentjido/jido_action/blob/v3.0.0-beta.20/test/jido_flow/boundary_validation_test.exs),
+[unknown keys](https://github.com/agentjido/jido_action/blob/v3.0.0-beta.20/test/jido_flow/unknown_key_validation_test.exs),
+[canonical fields](https://github.com/agentjido/jido_action/blob/v3.0.0-beta.20/test/jido_flow/canonical_data_test.exs),
+[target kinds](https://github.com/agentjido/jido_action/blob/v3.0.0-beta.20/test/jido_flow/executable_kind_test.exs).
 
 ### References and portable values
 
@@ -885,12 +883,12 @@ The complete Flow value tree has limits of 256 levels, 100,000 nodes,
 also obey the smaller `Jido.Expr` limits. These limits apply to definition
 values; do not infer the same limits for immediate runtime input or output.
 
-Source: [Ref](https://github.com/agentjido/jido_action/blob/0374d195915c91e4097803c404f02b00d76573cb/lib/jido_flow/ref.ex), [Value](https://github.com/agentjido/jido_action/blob/0374d195915c91e4097803c404f02b00d76573cb/lib/jido_flow/value.ex),
-[runtime resolution](https://github.com/agentjido/jido_action/blob/0374d195915c91e4097803c404f02b00d76573cb/lib/jido_exec/value_resolver.ex). Evidence:
-[Ref grammar](https://github.com/agentjido/jido_action/blob/0374d195915c91e4097803c404f02b00d76573cb/test/jido_flow/ref_test.exs),
-[path behavior](https://github.com/agentjido/jido_action/blob/0374d195915c91e4097803c404f02b00d76573cb/test/jido_flow/ref_path_authoring_test.exs),
-[value limits](https://github.com/agentjido/jido_action/blob/0374d195915c91e4097803c404f02b00d76573cb/test/jido_flow/value_test.exs),
-[scope rules](https://github.com/agentjido/jido_action/blob/0374d195915c91e4097803c404f02b00d76573cb/test/jido_flow/component_validation_test.exs).
+Source: [Ref](https://github.com/agentjido/jido_action/blob/v3.0.0-beta.20/lib/jido_flow/ref.ex), [Value](https://github.com/agentjido/jido_action/blob/v3.0.0-beta.20/lib/jido_flow/value.ex),
+[runtime resolution](https://github.com/agentjido/jido_action/blob/v3.0.0-beta.20/lib/jido_exec/value_resolver.ex). Evidence:
+[Ref grammar](https://github.com/agentjido/jido_action/blob/v3.0.0-beta.20/test/jido_flow/ref_test.exs),
+[path behavior](https://github.com/agentjido/jido_action/blob/v3.0.0-beta.20/test/jido_flow/ref_path_authoring_test.exs),
+[value limits](https://github.com/agentjido/jido_action/blob/v3.0.0-beta.20/test/jido_flow/value_test.exs),
+[scope rules](https://github.com/agentjido/jido_action/blob/v3.0.0-beta.20/test/jido_flow/component_validation_test.exs).
 
 ### Dependencies, inspection order, and identity
 
@@ -932,15 +930,15 @@ components, which can include descendants of a cycle. Module compilation
 attaches available source locations and normally raises at the owning
 declaration. Do not treat internal diagnostic record layouts as public APIs.
 
-Source: [graph validation](https://github.com/agentjido/jido_action/blob/0374d195915c91e4097803c404f02b00d76573cb/lib/jido_flow/graph_validation.ex),
-[graph ordering](https://github.com/agentjido/jido_action/blob/0374d195915c91e4097803c404f02b00d76573cb/lib/jido_flow/graph.ex),
-[identity](https://github.com/agentjido/jido_action/blob/0374d195915c91e4097803c404f02b00d76573cb/lib/jido_flow/identity.ex),
-[source mapping](https://github.com/agentjido/jido_action/blob/0374d195915c91e4097803c404f02b00d76573cb/lib/jido_flow/dsl/source_map.ex). Evidence:
-[dependency agreement and precedence](https://github.com/agentjido/jido_action/blob/0374d195915c91e4097803c404f02b00d76573cb/test/jido_flow/graph_validation_test.exs),
-[graph order](https://github.com/agentjido/jido_action/blob/0374d195915c91e4097803c404f02b00d76573cb/test/jido_flow/graph_test.exs),
-[identity and golden digest](https://github.com/agentjido/jido_action/blob/0374d195915c91e4097803c404f02b00d76573cb/test/jido_flow/graph_identity_test.exs),
-[diagnostic paths](https://github.com/agentjido/jido_action/blob/0374d195915c91e4097803c404f02b00d76573cb/test/jido_flow/diagnostic_paths_test.exs),
-[output source locations](https://github.com/agentjido/jido_action/blob/0374d195915c91e4097803c404f02b00d76573cb/test/jido_flow/dsl/output_source_test.exs).
+Source: [graph validation](https://github.com/agentjido/jido_action/blob/v3.0.0-beta.20/lib/jido_flow/graph_validation.ex),
+[graph ordering](https://github.com/agentjido/jido_action/blob/v3.0.0-beta.20/lib/jido_flow/graph.ex),
+[identity](https://github.com/agentjido/jido_action/blob/v3.0.0-beta.20/lib/jido_flow/identity.ex),
+[source mapping](https://github.com/agentjido/jido_action/blob/v3.0.0-beta.20/lib/jido_flow/dsl/source_map.ex). Evidence:
+[dependency agreement and precedence](https://github.com/agentjido/jido_action/blob/v3.0.0-beta.20/test/jido_flow/graph_validation_test.exs),
+[graph order](https://github.com/agentjido/jido_action/blob/v3.0.0-beta.20/test/jido_flow/graph_test.exs),
+[identity and golden digest](https://github.com/agentjido/jido_action/blob/v3.0.0-beta.20/test/jido_flow/graph_identity_test.exs),
+[diagnostic paths](https://github.com/agentjido/jido_action/blob/v3.0.0-beta.20/test/jido_flow/diagnostic_paths_test.exs),
+[output source locations](https://github.com/agentjido/jido_action/blob/v3.0.0-beta.20/test/jido_flow/dsl/output_source_test.exs).
 
 ### Component execution semantics
 
@@ -993,22 +991,22 @@ decision effects before final expander or target effects. A failing execution
 returns no executable effect list. Exec does not dispatch effect requests.
 A `:collect_errors` Map can still be a successful execution with error data.
 
-Source: [Choice selection](https://github.com/agentjido/jido_action/blob/0374d195915c91e4097803c404f02b00d76573cb/lib/jido_exec/node/choice/selector.ex),
-[Map](https://github.com/agentjido/jido_action/blob/0374d195915c91e4097803c404f02b00d76573cb/lib/jido_exec/node/map.ex),
-[Map collection](https://github.com/agentjido/jido_action/blob/0374d195915c91e4097803c404f02b00d76573cb/lib/jido_exec/node/map/collection.ex),
-[Reduce and Iterate](https://github.com/agentjido/jido_action/blob/0374d195915c91e4097803c404f02b00d76573cb/lib/jido_exec/node/loop.ex),
-[Dispatch](https://github.com/agentjido/jido_action/blob/0374d195915c91e4097803c404f02b00d76573cb/lib/jido_exec/node/dispatch.ex),
-[Flow output](https://github.com/agentjido/jido_action/blob/0374d195915c91e4097803c404f02b00d76573cb/lib/jido_exec/node/output.ex),
-[frame effect order](https://github.com/agentjido/jido_action/blob/0374d195915c91e4097803c404f02b00d76573cb/lib/jido_exec/frame.ex). Evidence:
-[Choice](https://github.com/agentjido/jido_action/blob/0374d195915c91e4097803c404f02b00d76573cb/test/jido_exec/node/choice_test.exs),
-[Map order, IDs, retries, and error data](https://github.com/agentjido/jido_action/blob/0374d195915c91e4097803c404f02b00d76573cb/test/jido_exec/node/map_test.exs),
-[Reduce and ordered effects](https://github.com/agentjido/jido_action/blob/0374d195915c91e4097803c404f02b00d76573cb/test/jido_exec/node/loop_test.exs),
-[loop error fields and Output initial values](https://github.com/agentjido/jido_action/blob/0374d195915c91e4097803c404f02b00d76573cb/test/jido_exec/error_paths_test.exs),
-[authoring parity and serial state](https://github.com/agentjido/jido_action/blob/0374d195915c91e4097803c404f02b00d76573cb/test/authoring/components_test.exs),
-[component behavior properties](https://github.com/agentjido/jido_action/blob/0374d195915c91e4097803c404f02b00d76573cb/test/property/flow/component_contract_test.exs),
-[Dispatch paths and effects](https://github.com/agentjido/jido_action/blob/0374d195915c91e4097803c404f02b00d76573cb/test/jido_exec/node/dispatch_test.exs),
-[Flow joins and nested boundaries](https://github.com/agentjido/jido_action/blob/0374d195915c91e4097803c404f02b00d76573cb/test/jido_exec/flow_execution_test.exs),
-[boundary transformations](https://github.com/agentjido/jido_action/blob/0374d195915c91e4097803c404f02b00d76573cb/test/jido_exec/validation_contract_test.exs).
+Source: [Choice selection](https://github.com/agentjido/jido_action/blob/v3.0.0-beta.20/lib/jido_exec/node/choice/selector.ex),
+[Map](https://github.com/agentjido/jido_action/blob/v3.0.0-beta.20/lib/jido_exec/node/map.ex),
+[Map collection](https://github.com/agentjido/jido_action/blob/v3.0.0-beta.20/lib/jido_exec/node/map/collection.ex),
+[Reduce and Iterate](https://github.com/agentjido/jido_action/blob/v3.0.0-beta.20/lib/jido_exec/node/loop.ex),
+[Dispatch](https://github.com/agentjido/jido_action/blob/v3.0.0-beta.20/lib/jido_exec/node/dispatch.ex),
+[Flow output](https://github.com/agentjido/jido_action/blob/v3.0.0-beta.20/lib/jido_exec/node/output.ex),
+[frame effect order](https://github.com/agentjido/jido_action/blob/v3.0.0-beta.20/lib/jido_exec/frame.ex). Evidence:
+[Choice](https://github.com/agentjido/jido_action/blob/v3.0.0-beta.20/test/jido_exec/node/choice_test.exs),
+[Map order, IDs, retries, and error data](https://github.com/agentjido/jido_action/blob/v3.0.0-beta.20/test/jido_exec/node/map_test.exs),
+[Reduce and ordered effects](https://github.com/agentjido/jido_action/blob/v3.0.0-beta.20/test/jido_exec/node/loop_test.exs),
+[loop error fields and Output initial values](https://github.com/agentjido/jido_action/blob/v3.0.0-beta.20/test/jido_exec/error_paths_test.exs),
+[authoring parity and serial state](https://github.com/agentjido/jido_action/blob/v3.0.0-beta.20/test/authoring/components_test.exs),
+[component behavior properties](https://github.com/agentjido/jido_action/blob/v3.0.0-beta.20/test/property/flow/component_contract_test.exs),
+[Dispatch paths and effects](https://github.com/agentjido/jido_action/blob/v3.0.0-beta.20/test/jido_exec/node/dispatch_test.exs),
+[Flow joins and nested boundaries](https://github.com/agentjido/jido_action/blob/v3.0.0-beta.20/test/jido_exec/flow_execution_test.exs),
+[boundary transformations](https://github.com/agentjido/jido_action/blob/v3.0.0-beta.20/test/jido_exec/validation_contract_test.exs).
 
 ### Flow extensions
 
@@ -1020,8 +1018,8 @@ Extensions can add source shorthand, but cannot add a canonical component
 kind or runtime behavior. Data definitions and Codec never load extensions.
 Extension macros execute at module compilation and must already be available.
 
-Source: [extension contract](https://github.com/agentjido/jido_action/blob/0374d195915c91e4097803c404f02b00d76573cb/lib/jido_flow/extension.ex). Evidence:
-[extension equivalence and source scope](https://github.com/agentjido/jido_action/blob/0374d195915c91e4097803c404f02b00d76573cb/test/jido_flow/dsl/extension_test.exs).
+Source: [extension contract](https://github.com/agentjido/jido_action/blob/v3.0.0-beta.20/lib/jido_flow/extension.ex). Evidence:
+[extension equivalence and source scope](https://github.com/agentjido/jido_action/blob/v3.0.0-beta.20/test/jido_flow/dsl/extension_test.exs).
 
 ### Internal Flow exports
 
@@ -1076,13 +1074,13 @@ Runic. Action has a `Runic.Transmutable` implementation with `transmute/1`,
 compiled workflow and public Instruction integration, not these node
 constructors, generated names, internal Fact tuples, or serializer code.
 
-Source: [Action node](https://github.com/agentjido/jido_action/blob/0374d195915c91e4097803c404f02b00d76573cb/lib/jido_exec/node/action.ex),
-[Input node](https://github.com/agentjido/jido_action/blob/0374d195915c91e4097803c404f02b00d76573cb/lib/jido_exec/node/input.ex),
-[Output node](https://github.com/agentjido/jido_action/blob/0374d195915c91e4097803c404f02b00d76573cb/lib/jido_exec/node/output.ex),
-[Choice node](https://github.com/agentjido/jido_action/blob/0374d195915c91e4097803c404f02b00d76573cb/lib/jido_exec/node/choice.ex),
-[Choice branch](https://github.com/agentjido/jido_action/blob/0374d195915c91e4097803c404f02b00d76573cb/lib/jido_exec/node/choice/branch.ex),
-[Loop start](https://github.com/agentjido/jido_action/blob/0374d195915c91e4097803c404f02b00d76573cb/lib/jido_exec/node/loop/start.ex),
-[Dispatch finish](https://github.com/agentjido/jido_action/blob/0374d195915c91e4097803c404f02b00d76573cb/lib/jido_exec/node/dispatch/finish.ex).
+Source: [Action node](https://github.com/agentjido/jido_action/blob/v3.0.0-beta.20/lib/jido_exec/node/action.ex),
+[Input node](https://github.com/agentjido/jido_action/blob/v3.0.0-beta.20/lib/jido_exec/node/input.ex),
+[Output node](https://github.com/agentjido/jido_action/blob/v3.0.0-beta.20/lib/jido_exec/node/output.ex),
+[Choice node](https://github.com/agentjido/jido_action/blob/v3.0.0-beta.20/lib/jido_exec/node/choice.ex),
+[Choice branch](https://github.com/agentjido/jido_action/blob/v3.0.0-beta.20/lib/jido_exec/node/choice/branch.ex),
+[Loop start](https://github.com/agentjido/jido_action/blob/v3.0.0-beta.20/lib/jido_exec/node/loop/start.ex),
+[Dispatch finish](https://github.com/agentjido/jido_action/blob/v3.0.0-beta.20/lib/jido_exec/node/dispatch/finish.ex).
 The remaining node source links appear in the component section.
 
 These helpers need normal tests for parser shape, compiler records, generated
@@ -1118,13 +1116,13 @@ source. A host can supply trusted reference callbacks. It cannot add an
 operator through those callbacks. Expressions do not start processes, emit
 telemetry, dispatch effects, or store state.
 
-Source: [public facade](https://github.com/agentjido/jido_action/blob/0374d195915c91e4097803c404f02b00d76573cb/lib/jido_expr.ex),
-[parser](https://github.com/agentjido/jido_action/blob/0374d195915c91e4097803c404f02b00d76573cb/lib/jido_expr/parser.ex), [runtime](https://github.com/agentjido/jido_action/blob/0374d195915c91e4097803c404f02b00d76573cb/lib/jido_expr/runtime.ex),
-[limits](https://github.com/agentjido/jido_action/blob/0374d195915c91e4097803c404f02b00d76573cb/lib/jido_expr/limits.ex), and [error](https://github.com/agentjido/jido_action/blob/0374d195915c91e4097803c404f02b00d76573cb/lib/jido_expr/error.ex).
-Evidence: [public API tests](https://github.com/agentjido/jido_action/blob/0374d195915c91e4097803c404f02b00d76573cb/test/jido_expr_test.exs),
-[Elixir conformance](https://github.com/agentjido/jido_action/blob/0374d195915c91e4097803c404f02b00d76573cb/test/jido_expr/elixir_conformance_test.exs),
-[boundary tests](https://github.com/agentjido/jido_action/blob/0374d195915c91e4097803c404f02b00d76573cb/test/jido_expr/survivor_contract_test.exs), and
-[generated cases](https://github.com/agentjido/jido_action/blob/0374d195915c91e4097803c404f02b00d76573cb/test/property/expression/expression_contract_test.exs).
+Source: [public facade](https://github.com/agentjido/jido_action/blob/v3.0.0-beta.20/lib/jido_expr.ex),
+[parser](https://github.com/agentjido/jido_action/blob/v3.0.0-beta.20/lib/jido_expr/parser.ex), [runtime](https://github.com/agentjido/jido_action/blob/v3.0.0-beta.20/lib/jido_expr/runtime.ex),
+[limits](https://github.com/agentjido/jido_action/blob/v3.0.0-beta.20/lib/jido_expr/limits.ex), and [error](https://github.com/agentjido/jido_action/blob/v3.0.0-beta.20/lib/jido_expr/error.ex).
+Evidence: [public API tests](https://github.com/agentjido/jido_action/blob/v3.0.0-beta.20/test/jido_expr_test.exs),
+[Elixir conformance](https://github.com/agentjido/jido_action/blob/v3.0.0-beta.20/test/jido_expr/elixir_conformance_test.exs),
+[boundary tests](https://github.com/agentjido/jido_action/blob/v3.0.0-beta.20/test/jido_expr/survivor_contract_test.exs), and
+[generated cases](https://github.com/agentjido/jido_action/blob/v3.0.0-beta.20/test/property/expression/expression_contract_test.exs).
 These files test different parts of the contract. One passing arithmetic
 example does not establish the complete expression contract.
 
@@ -1288,15 +1286,15 @@ contracts, start processes, or emit telemetry. Use a JSON library outside
 Codec. Apply transport-byte and JSON-parser limits before calling it.
 `Jido.Flow.to_map/1` output and an Instruction are not stored documents.
 
-Source: [facade](https://github.com/agentjido/jido_action/blob/0374d195915c91e4097803c404f02b00d76573cb/lib/jido_flow/codec.ex),
-[writer](https://github.com/agentjido/jido_action/blob/0374d195915c91e4097803c404f02b00d76573cb/lib/jido_flow/codec/writer.ex),
-[reader](https://github.com/agentjido/jido_action/blob/0374d195915c91e4097803c404f02b00d76573cb/lib/jido_flow/codec/reader.ex),
-[value encoding](https://github.com/agentjido/jido_action/blob/0374d195915c91e4097803c404f02b00d76573cb/lib/jido_flow/codec/value.ex),
-[limits](https://github.com/agentjido/jido_action/blob/0374d195915c91e4097803c404f02b00d76573cb/lib/jido_flow/codec/limits.ex), and
-[path conversion](https://github.com/agentjido/jido_action/blob/0374d195915c91e4097803c404f02b00d76573cb/lib/jido_flow/codec/paths.ex).
-Evidence: [Codec tests](https://github.com/agentjido/jido_action/blob/0374d195915c91e4097803c404f02b00d76573cb/test/jido_flow/codec_test.exs),
-[Registry tests](https://github.com/agentjido/jido_action/blob/0374d195915c91e4097803c404f02b00d76573cb/test/jido_flow/registry_test.exs), and
-[storage properties](https://github.com/agentjido/jido_action/blob/0374d195915c91e4097803c404f02b00d76573cb/test/property/storage/codec_contract_test.exs).
+Source: [facade](https://github.com/agentjido/jido_action/blob/v3.0.0-beta.20/lib/jido_flow/codec.ex),
+[writer](https://github.com/agentjido/jido_action/blob/v3.0.0-beta.20/lib/jido_flow/codec/writer.ex),
+[reader](https://github.com/agentjido/jido_action/blob/v3.0.0-beta.20/lib/jido_flow/codec/reader.ex),
+[value encoding](https://github.com/agentjido/jido_action/blob/v3.0.0-beta.20/lib/jido_flow/codec/value.ex),
+[limits](https://github.com/agentjido/jido_action/blob/v3.0.0-beta.20/lib/jido_flow/codec/limits.ex), and
+[path conversion](https://github.com/agentjido/jido_action/blob/v3.0.0-beta.20/lib/jido_flow/codec/paths.ex).
+Evidence: [Codec tests](https://github.com/agentjido/jido_action/blob/v3.0.0-beta.20/test/jido_flow/codec_test.exs),
+[Registry tests](https://github.com/agentjido/jido_action/blob/v3.0.0-beta.20/test/jido_flow/registry_test.exs), and
+[storage properties](https://github.com/agentjido/jido_action/blob/v3.0.0-beta.20/test/property/storage/codec_contract_test.exs).
 
 ### Entry points
 
@@ -1450,10 +1448,10 @@ service. It starts no process, loads no modules, and runs no Action work.
 The caller supplies all values. Stored identifiers do not create atoms or
 produce a module name from string text.
 
-Source: [Registry](https://github.com/agentjido/jido_action/blob/0374d195915c91e4097803c404f02b00d76573cb/lib/jido_flow/registry.ex).
-Evidence: [Registry tests](https://github.com/agentjido/jido_action/blob/0374d195915c91e4097803c404f02b00d76573cb/test/jido_flow/registry_test.exs),
-[Codec tests](https://github.com/agentjido/jido_action/blob/0374d195915c91e4097803c404f02b00d76573cb/test/jido_flow/codec_test.exs), and
-[storage properties](https://github.com/agentjido/jido_action/blob/0374d195915c91e4097803c404f02b00d76573cb/test/property/storage/codec_contract_test.exs).
+Source: [Registry](https://github.com/agentjido/jido_action/blob/v3.0.0-beta.20/lib/jido_flow/registry.ex).
+Evidence: [Registry tests](https://github.com/agentjido/jido_action/blob/v3.0.0-beta.20/test/jido_flow/registry_test.exs),
+[Codec tests](https://github.com/agentjido/jido_action/blob/v3.0.0-beta.20/test/jido_flow/codec_test.exs), and
+[storage properties](https://github.com/agentjido/jido_action/blob/v3.0.0-beta.20/test/property/storage/codec_contract_test.exs).
 
 ### Entry points and data
 
@@ -1574,13 +1572,13 @@ the complete Jido boundary. Compilation returns a native `Runic.Workflow`.
 It does not run Action work. It can load modules, call metadata functions,
 and call a Flow module's `flow/0`; those host functions must be inert.
 
-Source: [Exec](https://github.com/agentjido/jido_action/blob/0374d195915c91e4097803c404f02b00d76573cb/lib/jido_exec.ex),
-[compiler](https://github.com/agentjido/jido_action/blob/0374d195915c91e4097803c404f02b00d76573cb/lib/jido_exec/compiler.ex),
-[Action node](https://github.com/agentjido/jido_action/blob/0374d195915c91e4097803c404f02b00d76573cb/lib/jido_exec/node/action.ex), and
-[validation boundary](https://github.com/agentjido/jido_action/blob/0374d195915c91e4097803c404f02b00d76573cb/lib/jido_exec/validation.ex).
-Evidence: [API tests](https://github.com/agentjido/jido_action/blob/0374d195915c91e4097803c404f02b00d76573cb/test/jido_exec/api_test.exs),
-[compiler tests](https://github.com/agentjido/jido_action/blob/0374d195915c91e4097803c404f02b00d76573cb/test/jido_exec/compiler_test.exs), and
-[boundary errors](https://github.com/agentjido/jido_action/blob/0374d195915c91e4097803c404f02b00d76573cb/test/jido_exec/error_paths_test.exs).
+Source: [Exec](https://github.com/agentjido/jido_action/blob/v3.0.0-beta.20/lib/jido_exec.ex),
+[compiler](https://github.com/agentjido/jido_action/blob/v3.0.0-beta.20/lib/jido_exec/compiler.ex),
+[Action node](https://github.com/agentjido/jido_action/blob/v3.0.0-beta.20/lib/jido_exec/node/action.ex), and
+[validation boundary](https://github.com/agentjido/jido_action/blob/v3.0.0-beta.20/lib/jido_exec/validation.ex).
+Evidence: [API tests](https://github.com/agentjido/jido_action/blob/v3.0.0-beta.20/test/jido_exec/api_test.exs),
+[compiler tests](https://github.com/agentjido/jido_action/blob/v3.0.0-beta.20/test/jido_exec/compiler_test.exs), and
+[boundary errors](https://github.com/agentjido/jido_action/blob/v3.0.0-beta.20/test/jido_exec/error_paths_test.exs).
 
 ### Entry points and result types
 
@@ -1664,10 +1662,10 @@ not use completion order. Result and effect ordering is separate from task
 start order. Nested and collection work uses the same scheduler policy;
 Reduce and Iterate body work stays serial.
 
-Evidence: [policy](https://github.com/agentjido/jido_action/blob/0374d195915c91e4097803c404f02b00d76573cb/test/jido_exec/runner/policy_test.exs),
-[managed order and cancellation](https://github.com/agentjido/jido_action/blob/0374d195915c91e4097803c404f02b00d76573cb/test/jido_exec/runner/observation_test.exs),
-[component properties](https://github.com/agentjido/jido_action/blob/0374d195915c91e4097803c404f02b00d76573cb/test/property/flow/component_contract_test.exs), and
-[Runner fuzz cases](https://github.com/agentjido/jido_action/blob/0374d195915c91e4097803c404f02b00d76573cb/test/property/execution/runner_fuzz_test.exs).
+Evidence: [policy](https://github.com/agentjido/jido_action/blob/v3.0.0-beta.20/test/jido_exec/runner/policy_test.exs),
+[managed order and cancellation](https://github.com/agentjido/jido_action/blob/v3.0.0-beta.20/test/jido_exec/runner/observation_test.exs),
+[component properties](https://github.com/agentjido/jido_action/blob/v3.0.0-beta.20/test/property/flow/component_contract_test.exs), and
+[Runner fuzz cases](https://github.com/agentjido/jido_action/blob/v3.0.0-beta.20/test/property/execution/runner_fuzz_test.exs).
 A retry identity test does not establish every scheduler or backoff policy.
 
 ### Process ownership
@@ -1690,8 +1688,8 @@ partitioned form, and the worker's group leader. Successful stop/cancel waits
 for active tasks to die. A failed persistent stop keeps the same worker and
 active tasks alive. Custom executors own their corresponding guarantees.
 
-Evidence: [immediate task ownership](https://github.com/agentjido/jido_action/blob/0374d195915c91e4097803c404f02b00d76573cb/test/jido_exec/runner/immediate_task_test.exs)
-and [managed task ownership](https://github.com/agentjido/jido_action/blob/0374d195915c91e4097803c404f02b00d76573cb/test/jido_exec/runner/task_ownership_test.exs).
+Evidence: [immediate task ownership](https://github.com/agentjido/jido_action/blob/v3.0.0-beta.20/test/jido_exec/runner/immediate_task_test.exs)
+and [managed task ownership](https://github.com/agentjido/jido_action/blob/v3.0.0-beta.20/test/jido_exec/runner/task_ownership_test.exs).
 
 ### Managed options and portability
 
@@ -1706,6 +1704,9 @@ accept these worker options, passed to Runic:
 | `on_complete` | `nil`; Runic supports `fn id, workflow -> ... end` and `{module, function, extra_args}`. Jido does not validate this value. Completion does not prove persistence. |
 | `executor`, `scheduler` | Runic defaults. Jido checks that a supplied atom module loads; it does not verify its whole behaviour contract. |
 | `executor_opts`, `scheduler_opts`, `hooks`, `promise_opts` | Keyword lists. Their contents are owned by Runic. |
+
+The default Runic executor runs work in supervised tasks under the Runner's
+Task Supervisor. A custom executor defines how its work runs.
 
 `task_supervisor` is not accepted here. Unknown options return a configuration
 error. Repeated known managed keys also fail the unknown-option check.
@@ -1727,9 +1728,9 @@ codec. Runic can reject a value that passes this check.
 If input admission fails after worker creation, Jido cancels the newly
 created worker. A duplicate start does not cancel the existing worker. If
 cleanup itself fails, its error is returned. See
-[portable boundary tests](https://github.com/agentjido/jido_action/blob/0374d195915c91e4097803c404f02b00d76573cb/test/jido_exec/portable_test.exs),
-[managed tests](https://github.com/agentjido/jido_action/blob/0374d195915c91e4097803c404f02b00d76573cb/test/jido_exec/runner/managed_test.exs), and
-[portable traversal tests](https://github.com/agentjido/jido_action/blob/0374d195915c91e4097803c404f02b00d76573cb/test/jido_exec/boundary_rules_test.exs).
+[portable boundary tests](https://github.com/agentjido/jido_action/blob/v3.0.0-beta.20/test/jido_exec/portable_test.exs),
+[managed tests](https://github.com/agentjido/jido_action/blob/v3.0.0-beta.20/test/jido_exec/runner/managed_test.exs), and
+[portable traversal tests](https://github.com/agentjido/jido_action/blob/v3.0.0-beta.20/test/jido_exec/boundary_rules_test.exs).
 
 ### Result scope, stepping, and recovery
 
@@ -1782,11 +1783,11 @@ the same as before. There is no exactly-once promise or rollback of Action
 side effects. Effect requests defer delivery to the host; they do not make
 the host's delivery atomic.
 
-Evidence: [input observations](https://github.com/agentjido/jido_action/blob/0374d195915c91e4097803c404f02b00d76573cb/test/jido_exec/observation_test.exs),
-[live and restored observations](https://github.com/agentjido/jido_action/blob/0374d195915c91e4097803c404f02b00d76573cb/test/jido_exec/runner/observation_test.exs),
-[stepwise](https://github.com/agentjido/jido_action/blob/0374d195915c91e4097803c404f02b00d76573cb/test/jido_exec/runner/stepwise_test.exs),
-[recovery](https://github.com/agentjido/jido_action/blob/0374d195915c91e4097803c404f02b00d76573cb/test/jido_exec/runner/durability_test.exs), and
-[managed context](https://github.com/agentjido/jido_action/blob/0374d195915c91e4097803c404f02b00d76573cb/test/jido_exec/runner/managed_test.exs).
+Evidence: [input observations](https://github.com/agentjido/jido_action/blob/v3.0.0-beta.20/test/jido_exec/observation_test.exs),
+[live and restored observations](https://github.com/agentjido/jido_action/blob/v3.0.0-beta.20/test/jido_exec/runner/observation_test.exs),
+[stepwise](https://github.com/agentjido/jido_action/blob/v3.0.0-beta.20/test/jido_exec/runner/stepwise_test.exs),
+[recovery](https://github.com/agentjido/jido_action/blob/v3.0.0-beta.20/test/jido_exec/runner/durability_test.exs), and
+[managed context](https://github.com/agentjido/jido_action/blob/v3.0.0-beta.20/test/jido_exec/runner/managed_test.exs).
 The Store separation test changes observation persistence data directly.
 The failed-stop test uses a failing Store. These are distinct evidence; neither
 alone establishes a full Store failure and recovery matrix.
@@ -1815,9 +1816,9 @@ obtain these from the completed Runic event/result when using this helper.
 Do not promise cross-version identity-byte stability beyond the declared
 format and the Runic identity contract.
 
-Evidence: [effects guide tests](https://github.com/agentjido/jido_action/blob/0374d195915c91e4097803c404f02b00d76573cb/test/examples/action_effects_test.exs),
-[effect ordering](https://github.com/agentjido/jido_action/blob/0374d195915c91e4097803c404f02b00d76573cb/test/property/flow/component_contract_test.exs), and
-[retry/effect identity](https://github.com/agentjido/jido_action/blob/0374d195915c91e4097803c404f02b00d76573cb/test/jido_exec/runner/policy_test.exs).
+Evidence: [effects guide tests](https://github.com/agentjido/jido_action/blob/v3.0.0-beta.20/test/examples/action_effects_test.exs),
+[effect ordering](https://github.com/agentjido/jido_action/blob/v3.0.0-beta.20/test/property/flow/component_contract_test.exs), and
+[retry/effect identity](https://github.com/agentjido/jido_action/blob/v3.0.0-beta.20/test/jido_exec/runner/policy_test.exs).
 
 ## Telemetry: `Jido.Exec.Telemetry`
 
@@ -1851,9 +1852,9 @@ Flow caller can still emit its outer stop when the execution task dies.
 Caller death also prevents a guaranteed outer stop. Use the returned error
 or Runner outcome to determine termination.
 
-Source: [telemetry](https://github.com/agentjido/jido_action/blob/0374d195915c91e4097803c404f02b00d76573cb/lib/jido_exec/telemetry.ex).
-Evidence: [telemetry tests](https://github.com/agentjido/jido_action/blob/0374d195915c91e4097803c404f02b00d76573cb/test/jido_exec/telemetry_test.exs) and
-[Runner telemetry fuzz](https://github.com/agentjido/jido_action/blob/0374d195915c91e4097803c404f02b00d76573cb/test/property/execution/runner_fuzz_test.exs).
+Source: [telemetry](https://github.com/agentjido/jido_action/blob/v3.0.0-beta.20/lib/jido_exec/telemetry.ex).
+Evidence: [telemetry tests](https://github.com/agentjido/jido_action/blob/v3.0.0-beta.20/test/jido_exec/telemetry_test.exs) and
+[Runner telemetry fuzz](https://github.com/agentjido/jido_action/blob/v3.0.0-beta.20/test/property/execution/runner_fuzz_test.exs).
 The ordinary telemetry test proves outer Flow stop on task kill, not Action
 stop on timeout. Start/stop omit params, context, output, effects, and full
 error values; they retain semantic identifiers supplied by trusted code.
@@ -1877,16 +1878,15 @@ during projection use `%{}`. Schema descriptions do not replace Jido validators.
 Use Runic protocol functions on values returned by Jido. Do not construct or
 mutate private node structs. Direct Runic execution bypasses parts of the
 facade, including root Flow input preparation and immediate task ownership.
-The tests use it to check integration, result observations, and build-log
-reconstruction. Normal application guidance remains `Exec.run` or
-`Exec.start`. The usage rule that forbids all direct Runic feeding is broader
-than these tested integration APIs; its intended scope needs clarification.
+The caller must supply those boundaries when using Runic directly. Tests
+use direct Runic calls to check integration, result observations, and build-log
+reconstruction. Use `Exec.run` or `Exec.start` for normal application code.
 
-Source: [Instruction protocol](https://github.com/agentjido/jido_action/blob/0374d195915c91e4097803c404f02b00d76573cb/lib/jido_exec/runic/instruction.ex) and
-[Action protocols](https://github.com/agentjido/jido_action/blob/0374d195915c91e4097803c404f02b00d76573cb/lib/jido_exec/node/action.ex).
-Evidence: [native Action tests](https://github.com/agentjido/jido_action/blob/0374d195915c91e4097803c404f02b00d76573cb/test/jido_exec/node/action_test.exs),
-[rebuild tests](https://github.com/agentjido/jido_action/blob/0374d195915c91e4097803c404f02b00d76573cb/test/jido_exec/rebuild_test.exs), and
-[observation tests](https://github.com/agentjido/jido_action/blob/0374d195915c91e4097803c404f02b00d76573cb/test/jido_exec/observation_test.exs).
+Source: [Instruction protocol](https://github.com/agentjido/jido_action/blob/v3.0.0-beta.20/lib/jido_exec/runic/instruction.ex) and
+[Action protocols](https://github.com/agentjido/jido_action/blob/v3.0.0-beta.20/lib/jido_exec/node/action.ex).
+Evidence: [native Action tests](https://github.com/agentjido/jido_action/blob/v3.0.0-beta.20/test/jido_exec/node/action_test.exs),
+[rebuild tests](https://github.com/agentjido/jido_action/blob/v3.0.0-beta.20/test/jido_exec/rebuild_test.exs), and
+[observation tests](https://github.com/agentjido/jido_action/blob/v3.0.0-beta.20/test/jido_exec/observation_test.exs).
 
 The following exports are implementation entry points, not new application
 APIs. Their source files use `@moduledoc false` or `@doc false`:

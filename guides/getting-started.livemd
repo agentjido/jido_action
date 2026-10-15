@@ -13,7 +13,7 @@ Run the cells from top to bottom.
 ## Install The Package
 
 ```elixir
-Mix.install([{:jido_action, "~> 3.0.0-beta.12"}])
+Mix.install([{:jido_action, "~> 3.0.0-beta.20"}])
 ```
 
 ## Define An Action
@@ -47,10 +47,14 @@ The generated validation functions are useful in focused Action tests.
 {:ok, %{result: 5}} = GettingStarted.Add.run(params, %{})
 ```
 
+A direct `GettingStarted.Add.run/2` call runs in the calling process. It does
+not start a task or add validation.
+
 ## Run Through Jido.Exec
 
-`Jido.Exec.run/4` validates the input, calls `run/2` in a supervised task,
-validates the output, and returns `{:ok, result}` or `{:error, exception}`.
+`Jido.Exec.run/4` runs the Action or Flow in a supervised task. It validates
+the input, calls the Action callback, validates the output, and returns
+`{:ok, result}` or `{:error, exception}`.
 The third argument is a context map for caller data such as request IDs.
 
 ```elixir

@@ -29,7 +29,7 @@ Changes to one form must keep equivalent behavior in the other forms.
 results to the Jido result contract. Runic owns readiness, scheduling, retry
 and timeout policy, events, persistence, and resume. `Jido.Exec.run/4` runs to
 completion in memory. `Jido.Exec.start/6`, `step/2`, `resume/4`, and
-`result/1` use a supervised `Runic.Runner` for managed, stepwise, and durable
+`result/2` use a supervised `Runic.Runner` for managed, stepwise, and durable
 execution. Jido adds no scheduler, cursor, checkpoint format, or async handle.
 Queues, distributed coordination, effect delivery, and exactly-once policy
 belong to a higher-level runtime.
@@ -277,9 +277,8 @@ Some tests read guides directly. Keep them passing:
 
 - Test Erlang/OTP 27, 28, and 29 with the shared compatibility matrix.
 - Support Elixir 1.18 and later. The Mix requirement is `~> 1.18`.
-- The direct production dependencies are `telemetry`, `zoi`, `jason`, `runic`,
-  `splode`, and `spark`. Runic uses the integration fork during v3
-  development; restore a normal Hex requirement before a Hex release.
+- The direct production dependencies are `telemetry`, `zoi`, `jason`,
+  `multigraph`, `runic`, `splode`, and `spark`. Use the published Runic Hex dependency.
 - Do not add a direct production dependency without an explicit request and a
   clear package-boundary reason.
 - Keep development and test dependencies limited to normal build, analysis,

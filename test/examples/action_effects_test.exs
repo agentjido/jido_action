@@ -16,7 +16,11 @@ defmodule JidoActionTest.Examples.ActionEffectsTest do
     assert install =~ "Mix.install"
 
     on_exit(fn ->
-      for module <- [EffectExamples.ApproveOrder, EffectExamples.ExportOrders] do
+      for module <- [
+            EffectExamples.ApproveOrder,
+            EffectExamples.ExportOrders,
+            EffectExamples.Request
+          ] do
         :code.purge(module)
         :code.delete(module)
       end

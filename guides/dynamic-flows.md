@@ -86,14 +86,22 @@ end
 ```
 
 The selected target can be an Action module, a Flow module, or a runtime
-`%Jido.Flow{}` value:
+`%Jido.Flow{}` value. Here is a complete Action target:
 
 ```elixir
-Jido.Exec.run(MyApp.Flows.DynamicRoute, %{
-  mode: :continue,
-  target: MyApp.Actions.Next,
-  value: 3
-})
+defmodule MyApp.Actions.Next do
+  use Jido.Action, name: "next"
+
+  @impl true
+  def run(%{value: value}, _context), do: {:ok, %{value: value + 1}}
+end
+
+{:ok, %{value: 4}} =
+  Jido.Exec.run(MyApp.Flows.DynamicRoute, %{
+    mode: :continue,
+    target: MyApp.Actions.Next,
+    value: 3
+  })
 ```
 
 Target selection is application code. Only select trusted targets. Map a
@@ -149,7 +157,9 @@ Do not start a nested `Jido.Exec` call from the expander. Return the
 continuation instead, so the selected target runs inside the same execution
 with the same options, telemetry, and effect list.
 
-A selected target cannot continue again. A continuation is one hop.
+A selected Action cannot return another continuation. A selected Flow can
+contain its own Dispatch, which can select another Action or Flow. Each
+continuation must come from a Dispatch expander.
 
 ## Define Dispatch With Data
 
@@ -165,11 +175,18 @@ All Flow authoring forms produce the same canonical Dispatch node.
         name: "route",
         decision: MyApp.Actions.ChooseRoute,
         expander: MyApp.Actions.ExpandRoute,
-        params: %{mode: Jido.Flow.Ref.input(:mode), value: Jido.Flow.Ref.input(:value)}
+        params: %{
+          mode: Jido.Flow.Ref.input(:mode),
+          target: Jido.Flow.Ref.input(:target),
+          value: Jido.Flow.Ref.input(:value)
+        }
       }
     ],
     name: "dynamic_route"
   })
+
+{:ok, %{value: 4}} =
+  Jido.Exec.run(flow, %{mode: :continue, target: MyApp.Actions.Next, value: 3})
 ```
 
 Use `Jido.Flow.new/1` for map definitions. Use `Jido.Flow.Codec` and a trusted

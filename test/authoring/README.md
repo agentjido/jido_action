@@ -30,3 +30,6 @@ full unit-test matrix here.
 
 Managed execution, manual steps, and recovery are checked in
 `test/jido_exec/runner` and the [fuzz suite](../property/README.md).
+
+The suite also runs complete README, Markdown guide, and Livebook examples
+against the package source. Install cells and application fragments are skipped.

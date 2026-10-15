@@ -158,8 +158,8 @@ See [Flows](flows.md), [Flow Data Definitions](flow-data.md), and
 Jido.Exec.run(target, params, context, timeout: 5_000, max_concurrency: 4)
 ```
 
-The work runs in a supervised task. If the caller exits, the work stops. This
-is the right choice for most application code and tests.
+`Jido.Exec.run/4` runs the Action or Flow in a supervised task. If the caller
+exits, the work stops. This is the right choice for most application code and tests.
 
 **Managed execution** runs under a supervised `Runic.Runner` with a stable
 execution ID:
@@ -168,9 +168,12 @@ execution ID:
 Jido.Exec.start(MyApp.Runner, "order-42", MyApp.Flows.ProcessOrder, params, context)
 ```
 
-Runic owns the worker, its checkpoints, and recovery. Use managed execution
-when work must survive a restart, when you want to step through it, or when
-another process must observe it. See [Managed Execution](managed-execution.md).
+Runic owns the worker, its checkpoints, and recovery. Its default executor
+uses supervised tasks; a custom executor defines how its work runs. Use
+managed execution when work must survive a restart, when you want to step
+through it, or when another process must observe it. Recovery after a Store
+or VM restart requires a persistent Store. See
+[Managed Execution](managed-execution.md).
 
 `Jido.Exec.compile/2` returns the `%Runic.Workflow{}` without running it. Use it
 to check targets and inspect the executable graph.

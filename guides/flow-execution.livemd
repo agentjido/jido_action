@@ -11,7 +11,7 @@ Run the cells from top to bottom.
 ## Install The Package
 
 ```elixir
-Mix.install([{:jido_action, "~> 3.0.0-beta.12"}])
+Mix.install([{:jido_action, "~> 3.0.0-beta.20"}])
 ```
 
 ## Define Actions And A Flow
@@ -54,7 +54,7 @@ defmodule FlowExecution.Diamond do
         right: result("right", :value)
       }
 
-    output(%{result: result("combine")})
+    output %{result: result("combine")}
   end
 end
 ```
@@ -107,7 +107,7 @@ defmodule FlowExecution.Failing do
 
   flow do
     step "fail", action: FlowExecution.Fail, params: %{}
-    output(%{result: result("fail")})
+    output %{result: result("fail")}
   end
 end
 ```
@@ -117,8 +117,9 @@ end
 Exception.message(error)
 ```
 
-The Action's error is returned unchanged, with the failing component in
-`details.node`. Exec starts no new work after a failure. See
+The `:not_available` reason becomes a structured
+`Jido.Action.Error.ExecutionFailureError`, with the failing component in
+`details.node`. An existing Jido error keeps its type and details. Exec starts no new work after a failure. See
 [Errors](errors.md).
 
 ## Managed Execution
@@ -144,8 +145,8 @@ parent = self()
   )
 ```
 
-`start/6` returns before the work runs. Wait for `on_complete`, then read the
-result fact:
+`start/6` returns after worker start and input admission. Work can run before
+the call returns. Wait for `on_complete`, then read the Jido result:
 
 ```elixir
 receive do
@@ -154,8 +155,7 @@ after
   5_000 -> raise "the managed execution did not finish"
 end
 
-{:ok, workflow} = Runic.Runner.get_workflow(FlowExecution.Runner, "diamond-1")
-Jido.Exec.result(workflow)
+{:ok, %{result: %{total: 13}}} = Jido.Exec.result(FlowExecution.Runner, "diamond-1")
 ```
 
 Use `Runic.Runner.checkpoint/2` and `stop/3` for durable lifecycle control.

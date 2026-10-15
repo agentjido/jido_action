@@ -26,7 +26,11 @@ children = [
 Supervisor.start_link(children, strategy: :one_for_one)
 ```
 
-See the `Runic.Runner` documentation for store adapters and other options.
+The default ETS Store keeps data only while its owning Store process lives.
+It can support worker stop and resume within that lifetime. It does not
+survive a Store, Runner, or VM restart. For recovery across those restarts,
+configure a Runic Store adapter that persists data outside those processes.
+See `Runic.Runner.Store` for the adapter contract.
 
 ## Start An Execution
 
@@ -86,8 +90,9 @@ compiles the target, starts a worker, and requests dispatch. Work can start
 before `start/6` returns. A later Action failure does not change the successful
 start return value.
 
-Each execution ID can run once per Runner. Starting a second execution with an
-ID that is still running returns an error.
+Use a unique ID for each logical execution. Starting another worker with an
+ID that is still registered returns an error. Use `resume/4` to restore stored
+work instead of starting it again.
 
 ## Read The Result
 
@@ -96,6 +101,8 @@ Wait for completion, then read the public result:
 ```elixir
 receive do
   {:done, "add-1"} -> :ok
+after
+  5_000 -> raise "the managed execution did not finish"
 end
 
 {:ok, %{value: 4}, [added: 1, added: 2]} = Jido.Exec.result(MyApp.Runner, "add-1")
@@ -131,9 +138,10 @@ options:
 
 The `max_concurrency` default differs from `run/4`, which defaults to `1`.
 `task_supervisor` is not a managed option; the default executor uses the
-Runner's own Task Supervisor. Unknown options return a configuration error.
+Runner's own Task Supervisor. A custom executor defines how its work runs.
+Unknown options return a configuration error.
 
-See [Execution](execution.md#options) for how `timeout` and `max_attempts`
+See [Execution](execution.md#immediate-runtime-options) for how `timeout` and `max_attempts`
 apply to runnables.
 
 ## Keep Data Portable
@@ -160,16 +168,31 @@ Start with `dispatch_mode: :manual` to control dispatch yourself. Each
 scheduler, that is one runnable.
 
 ```elixir
+parent = self()
+
 {:ok, _pid} =
   Jido.Exec.start(MyApp.Runner, "add-3", MyApp.Flows.AddTwice, %{value: 10}, %{},
-    dispatch_mode: :manual
+    dispatch_mode: :manual,
+    hooks: [
+      on_complete: fn _runnable, _duration, _state -> send(parent, {:unit_done, "add-3"}) end,
+      on_failed: fn _runnable, _reason, _state -> send(parent, {:unit_done, "add-3"}) end
+    ]
   )
 
 step_all = fn step_all, count ->
   case Jido.Exec.step(MyApp.Runner, "add-3") do
-    {:ok, _workflow} -> step_all.(step_all, count + 1)
-    {:error, :busy} -> step_all.(step_all, count)
-    {:complete, workflow} -> {count, workflow}
+    {:ok, _workflow} ->
+      receive do
+        {:unit_done, "add-3"} -> step_all.(step_all, count + 1)
+      after
+        5_000 -> raise "the scheduler unit did not finish"
+      end
+
+    {:complete, workflow} ->
+      {count, workflow}
+
+    {:error, reason} ->
+      raise "cannot step execution: #{inspect(reason)}"
   end
 end
 
@@ -177,6 +200,9 @@ end
 
 {:ok, %{value: 13}, [added: 1, added: 2]} = Jido.Exec.result(MyApp.Runner, "add-3")
 ```
+
+The example waits for each scheduler unit through Runic hooks. It does not
+poll `step/2` while a unit is active. Keep hooks short; they run in the Worker.
 
 `step/2` returns:
 
@@ -215,8 +241,8 @@ Use the Runner for durable lifecycle control:
 
 The Runic store is the source of truth for progress. A resume restores the
 acknowledged stored completed work and continues with the remaining work.
-Work completed after the last acknowledged checkpoint can run again. Jido keeps no separate checkpoint, and Flow JSON holds only the
-definition.
+Work completed after the last acknowledged checkpoint can run again. Jido
+keeps no separate checkpoint, and Flow JSON holds only the definition.
 
 Managed execution continues after its caller exits. Runic owns its active
 tasks. With the default executor, a successful `Runic.Runner.stop/3` or

@@ -17,7 +17,7 @@ on:
         type: string
         default: ""
       version_override:
-        description: "v-prefixed SemVer version for prepare (for example v3.0.0-beta.11)"
+        description: "v-prefixed SemVer version for prepare (for example v3.0.0-beta.20)"
         required: false
         type: string
         default: ""

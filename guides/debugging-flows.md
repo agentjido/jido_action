@@ -103,7 +103,7 @@ the result:
 
 ```elixir
 {:ok, workflow} = Runic.Runner.get_workflow(MyApp.Runner, "order-42")
-Jido.Exec.result(workflow)
+Jido.Exec.result(MyApp.Runner, "order-42")
 Runic.Runner.checkpoint(MyApp.Runner, "order-42")
 Runic.Runner.stop(MyApp.Runner, "order-42", persist: true)
 Jido.Exec.resume(MyApp.Runner, "order-42", context, checkpoint_strategy: :every_cycle)
@@ -119,19 +119,22 @@ Start an execution with `dispatch_mode: :manual` and call `Jido.Exec.step/2`
 to advance it one unit at a time. See
 [Managed Execution](managed-execution.md#step-through-an-execution).
 
-## Inspect The Three Phases
+## Inspect Ready Work
 
-For low-level tests or tools, use Runic's public execution phases:
+Start managed work with `dispatch_mode: :manual` to inspect it before dispatch.
+Read a snapshot through the Runner and use Runic's public preparation API:
 
 ```elixir
-workflow = Jido.Exec.compile!(MyApp.OrderFlow)
-workflow = Runic.Workflow.plan_eagerly(workflow, input)
-{workflow, runnables} = Runic.Workflow.prepare_for_dispatch(workflow)
+{:ok, workflow} = Runic.Runner.get_workflow(MyApp.Runner, "order-42")
+{_snapshot, runnables} = Runic.Workflow.prepare_for_dispatch(workflow)
+Enum.map(runnables, & &1.node.name)
 ```
 
-Execute each Runnable through its Runic component and apply the result with
-`Runic.Workflow.apply_runnable/2`. This is the same contract used by schedulers.
-Do not read or edit private graph state.
+This operates on a copy. It does not advance the live worker. Use
+`Jido.Exec.step/2` or `Runic.Runner.continue/2` to dispatch live work. Do not
+feed raw application input to a compiled Flow through `plan_eagerly/2`:
+Flow input validation and the runtime frame are supplied by the Exec boundary.
+Do not construct that private frame in application code.
 
 ## Runic Ownership Boundary
 

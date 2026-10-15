@@ -175,7 +175,7 @@ Step after the owner Flow has compiled:
 ```elixir
 action = MyApp.Flows.Greeting.step_action("normalize")
 
-Jido.Flow.new!(%{
+names = Jido.Flow.new!(%{
   name: "normalize_names",
   components: [
     %{
@@ -186,8 +186,11 @@ Jido.Flow.new!(%{
       params: %{name: Jido.Flow.Ref.item()}
     }
   ],
-  output: Jido.Flow.Ref.result("names")
+  output: %{names: Jido.Flow.Ref.result("names")}
 })
+
+{:ok, %{names: [%{name: "Ada"}, %{name: "Grace"}]}} =
+  Jido.Exec.run(names, %{people: [" Ada ", " Grace "]})
 ```
 
 This is normal Action reuse. It is not an inline Map body.

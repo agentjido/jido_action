@@ -1,7 +1,7 @@
 # Version 2 To Version 3 Migration Guide
 
 This guide moves an application from `jido_action` `2.3.2` to
-`3.0.0-beta.12`. Read [Core Concepts](concepts.md) first if you are new to the
+`3.0.0-beta.20`. Read [Core Concepts](concepts.md) first if you are new to the
 version 3 model.
 
 Each section shows version 2 code that no longer works the same way, then the
@@ -18,14 +18,14 @@ Change the package version in `mix.exs`:
 ```elixir
 def deps do
   [
-    {:jido_action, "~> 3.0.0-beta.12"}
+    {:jido_action, "~> 3.0.0-beta.20"}
   ]
 end
 ```
 
-Version 3 no longer depends on NimbleOptions, Req, Lua, Multigraph, or
-Igniter. Add a direct dependency for each one that your application code still
-calls. `jido_action` still lists Jason as a dependency today, but declare Jason
+Version 3 no longer uses NimbleOptions, Req, Lua, or Igniter as production
+dependencies. Runic and Multigraph are current production dependencies. Add
+a direct dependency for each package that your application code still calls. `jido_action` still lists Jason as a dependency today, but declare Jason
 yourself if your code calls it.
 
 ## Replace Version 2 Action Options And Schemas
@@ -413,7 +413,8 @@ Jido.Exec.run(MyApp.Actions.CreateOrder, params, context,
 ```
 
 Managed execution does not use this option. `start/6` rejects
-`task_supervisor:`. Its Actions run under the Runner's own Task Supervisor.
+`task_supervisor:`. Its default executor runs Actions under the Runner's own
+Task Supervisor. A custom executor defines how its work runs.
 
 ## Replace Continuation Loops
 
@@ -558,12 +559,13 @@ Check these behavior changes:
   [Outputs And Effects](action-effects.livemd).
 - `Jido.Exec.effect_id/4` derives a stable deduplication key for one effect
   in a managed result.
-- Runic does not persist run context. After a resume, Actions receive an empty
-  context. Put data that must survive a restart in params.
+- Runic does not persist run context or execution policy. Pass the same
+  context and managed options to `Jido.Exec.resume/4` that you passed to
+  `start/6`. Keep data that must be stored in params.
 
 ## Version 2 To Version 3 Migration Checklist
 
-1. Change the dependency to `jido_action` `3.0.0-beta.12`.
+1. Change the dependency to `jido_action` `3.0.0-beta.20`.
 2. Add direct dependencies that application code used through version 2.
 3. Remove unsupported Action options and convert NimbleOptions schemas to
    static, map-shaped Zoi schemas.

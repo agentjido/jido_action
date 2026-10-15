@@ -12,7 +12,7 @@ Run the cells from top to bottom.
 ## Install The Package
 
 ```elixir
-Mix.install([{:jido_action, "~> 3.0.0-beta.12"}])
+Mix.install([{:jido_action, "~> 3.0.0-beta.20"}])
 ```
 
 ## Define A Child Flow
@@ -62,7 +62,7 @@ end
 {:ok, %{value: 3}} =
   Jido.Exec.run(NestedFlows.Parent, %{value: 1})
 
-%{kind: :subflow, flow: NestedFlows.Child} =
+%{kind: :call, call: %{kind: :flow, target: NestedFlows.Child}} =
   NestedFlows.Parent.flow()
   |> Jido.Flow.to_map()
   |> Map.fetch!(:components)
@@ -71,7 +71,8 @@ end
 
 The child Flow validates `params` against its own input schema, runs its
 components, and validates its output. `result("child", :value)` reads that
-output. `Jido.Flow.to_map/1` reports the component as `kind: :subflow`.
+output. `Jido.Flow.to_map/1` reports the canonical `:call` with a `:flow`
+target. The data authoring form uses `kind: :subflow`, as shown below.
 
 ## Define A Subflow With Data
 
@@ -125,8 +126,11 @@ failures.
 
 ## Limits
 
-Only `step` and `kind: :subflow` call a child Flow. Choice options, the Choice
-fallback, Map, Reduce, Iterate, and Dispatch targets must be Action modules.
+Use `step` or `kind: :subflow` for a static child Flow. Choice options, the
+Choice fallback, Map, Reduce, Iterate, and the Dispatch decision and expander
+must be Action modules. A Dispatch expander can select an Action or Flow at
+runtime. See [Dynamic Flows](dynamic-flows.md).
+
 A Subflow stores a Flow module, not a runtime `%Jido.Flow{}` value.
 
 Check the complete parent and child boundary without running work:
