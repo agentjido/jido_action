@@ -285,10 +285,7 @@ defmodule JidoAction.MixProject do
       {:zoi, "~> 0.18.11"},
       {:jason, "~> 1.4"},
       {:multigraph, "~> 0.16.1-mg.5"},
-      {:runic,
-       github: "mikehostetler/runic",
-       ref: "d6f013cddafb30a8c3ce54fbb4b22ab1d79144b6",
-       override: true},
+      {:runic, path: "../runic", override: true},
       {:splode, "~> 0.3.0"},
       {:spark, "~> 2.7.3"},
 
