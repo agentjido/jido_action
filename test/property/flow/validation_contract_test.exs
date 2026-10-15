@@ -2,7 +2,8 @@ Code.require_file("../support/fuzz.exs", __DIR__)
 Code.require_file("../support/runtime.exs", __DIR__)
 
 defmodule JidoActionTest.Property.Flow.ValidationContractTest do
-  use ExUnit.Case, async: true
+  use Covenant.Case, component: "jido_action.flow", async: true
+  @moduletag obligation: "jido_action.flow.I8"
   use ExUnitProperties
   alias JidoActionTest.Property.Fuzz
   alias Jido.{Exec, Flow}
@@ -64,6 +65,7 @@ defmodule JidoActionTest.Property.Flow.ValidationContractTest do
          "FLOW-004/inspection",
          "FLOW-004/invalid-target"
        ]
+  @tag obligation: "jido_action.flow.I9"
   property("validation inspection and Codec preserve inertness including invalid targets") do
     check(all(value <- integer(), max_runs: 30)) do
       Runtime.with_context(fn context ->

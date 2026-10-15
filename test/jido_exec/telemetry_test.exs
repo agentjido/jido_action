@@ -1,5 +1,6 @@
 defmodule Jido.Exec.TelemetryTest do
-  use ExUnit.Case, async: false
+  use Covenant.Case, component: "jido_action.execution", async: false
+  @moduletag obligation: "jido_action.execution.I23"
 
   alias Jido.Action.Error
   alias Jido.Exec

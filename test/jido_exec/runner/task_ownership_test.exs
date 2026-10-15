@@ -1,5 +1,6 @@
 defmodule Jido.Exec.Runner.TaskOwnershipTest do
-  use ExUnit.Case, async: false
+  use Covenant.Case, component: "jido_action.execution", async: false
+  @moduletag obligation: "jido_action.execution.I20"
 
   alias Jido.Exec
   alias JidoActionTest.Fixtures.Actions.KillingAction

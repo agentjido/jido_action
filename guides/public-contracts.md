@@ -7,71 +7,83 @@ source.
 Tests declare contract IDs with tags such as `@tag contracts: ["EXEC-003"]`.
 Keep an ID when its wording becomes more precise. Do not reuse a retired ID.
 
+The Covenant column points to focused evidence within the 15 reviewed public
+promise groups. Several entries share an obligation; no duplicate obligation
+is required for the same assertion. Some groups need several obligations.
+See the [contract review](public-api-contract-review.md) for the full mapping
+and [API reference](public-api-reference.md) for the supported behavior.
+
+Public register tags (`contracts:`) support property reports. Covenant tags
+(`obligation:`) connect tests to focused requirements. Run `mix test.contracts`
+to check them and write `test/contracts/coverage.json`. A passing tag is a
+minimum evidence check, not proof of complete API, branch, or matrix coverage.
+Covenant remains optional and does not run in default CI.
+
 ## Actions, Targets, And Instructions
 
-| ID | Public promise | Main evidence |
-| --- | --- | --- |
-| ACT-001 | Input validation runs before the Action callback. | `test/property/action/boundary_contract_test.exs`, `test/jido_exec/node/action_test.exs` |
-| ACT-002 | Callback exceptions, throws, exits, invalid returns, and returned errors become structured Jido errors. | `test/property/action/boundary_contract_test.exs`, `test/jido_exec/node/action_test.exs` |
-| ACT-003 | Output validation runs after the Action callback. | `test/property/action/boundary_contract_test.exs`, `test/jido_exec/node/action_test.exs` |
-| ACT-004 | Intentional non-map success uses an Output envelope, and effect requests are proper lists. | `test/property/action/boundary_contract_test.exs` |
-| ACT-005 | An inline Step becomes an ordinary Action and keeps access to its owner's lexical helpers. | `test/property/flow/inline_contract_test.exs`, `test/jido_action/inline_host_test.exs` |
-| TARGET-001 | Resolution preserves each supported target and kind and rejects invalid descriptors. | `test/property/instruction/target_contract_test.exs`, `test/jido_instruction/target_test.exs` |
-| INS-001 | An Instruction carries call data and uses shallow params and context overrides without treating metadata as execution policy. | `test/property/instruction/call_contract_test.exs`, `test/jido_instruction/` |
-| ERROR-001 | Error maps preserve their documented type, details, and retry policy and omit top-level stacktraces. | `test/property/action/error_contract_test.exs`, `test/jido_action/error_test.exs` |
+| ID | Public promise | Covenant obligation | Main evidence |
+| --- | --- | --- | --- |
+| ACT-001 | Input validation runs before the Action callback. | `jido_action.boundary.I1` | `test/property/action/boundary_contract_test.exs`, `test/jido_exec/node/action_test.exs` |
+| ACT-002 | Callback exceptions, throws, exits, invalid returns, and returned errors become structured Jido errors. | `jido_action.boundary.I2` | `test/property/action/boundary_contract_test.exs`, `test/jido_exec/node/action_test.exs` |
+| ACT-003 | Output validation runs after the Action callback. | `jido_action.boundary.I3` | `test/property/action/boundary_contract_test.exs`, `test/jido_exec/node/action_test.exs` |
+| ACT-004 | Intentional non-map success uses an Output envelope, and effect requests are proper lists. | `jido_action.boundary.I4` | `test/property/action/boundary_contract_test.exs` |
+| ACT-005 | An inline Step becomes an ordinary Action and keeps access to its owner's lexical helpers. | `jido_action.inline.I2` | `test/property/flow/inline_contract_test.exs`, `test/jido_action/inline_host_test.exs` |
+| TARGET-001 | Resolution preserves each supported target and kind and rejects invalid descriptors. | `jido_action.instruction.I5` | `test/property/instruction/target_contract_test.exs`, `test/jido_instruction/target_test.exs` |
+| INS-001 | An Instruction carries call data and uses shallow params and context overrides without treating metadata as execution policy. | `jido_action.instruction.I4` | `test/property/instruction/call_contract_test.exs`, `test/jido_instruction/` |
+| ERROR-001 | Error maps preserve their documented type, details, and retry policy and omit top-level stacktraces. | `jido_action.errors.I3` | `test/property/action/error_contract_test.exs`, `test/jido_action/error_test.exs` |
 
 ## Expressions
 
-| ID | Public promise | Main evidence |
-| --- | --- | --- |
-| EXPR-001 | Supported expression operations follow documented Elixir result and short-circuit rules. | `test/property/expression/expression_contract_test.exs`, `test/jido_flow/expr_test.exs` |
-| EXPR-002 | Expression constructors and public limits reject unsupported or oversized input. | `test/property/expression/expression_contract_test.exs` |
+| ID | Public promise | Covenant obligation | Main evidence |
+| --- | --- | --- | --- |
+| EXPR-001 | Supported expression operations follow documented Elixir result and short-circuit rules. | `jido_action.expression.I1` | `test/property/expression/expression_contract_test.exs`, `test/jido_flow/expr_test.exs` |
+| EXPR-002 | Expression construction checks operator and arity; parsing, validation, traversal, and evaluation enforce their documented limits. | `jido_action.expression.I4` | `test/property/expression/expression_contract_test.exs` |
 
 ## Flow Definition And Storage
 
-| ID | Public promise | Main evidence |
-| --- | --- | --- |
-| FLOW-001 | The DSL, map definitions, and Codec produce the same canonical Flow model. | `test/property/flow/graph_contract_test.exs`, `test/authoring/` |
-| FLOW-002 | References and explicit needs create dependencies. Source order does not create a dependency. | `test/property/flow/graph_contract_test.exs`, `test/jido_flow/canonical_data_test.exs` |
-| FLOW-003 | Invalid graph definitions return structured validation errors. | `test/property/flow/validation_contract_test.exs`, `test/authoring/rejections_test.exs` |
-| FLOW-004 | Validation and inspection do not run Action work. | `test/property/flow/validation_contract_test.exs`, `test/jido_flow/` |
-| FLOW-005 | Semantic identity distinguishes references from literal data and survives a Codec round trip. | `test/property/flow/validation_contract_test.exs`, `test/jido_flow/graph_identity_test.exs` |
-| FLOW-006 | Host extensions lower to ordinary canonical declarations. | `test/property/flow/inline_contract_test.exs`, `test/jido_flow/` |
-| STORE-001 | The JSON document version preserves canonical Flow meaning and deterministic stored-map encoding. | `test/property/storage/codec_contract_test.exs`, `test/jido_flow/codec_test.exs` |
-| STORE-002 | Stored identifiers resolve through a trusted Registry without creating atoms from unknown identifiers. | `test/property/storage/codec_contract_test.exs`, `test/jido_flow/codec_test.exs` |
-| STORE-003 | Malformed or oversized stored documents return structured errors. | `test/property/storage/codec_contract_test.exs`, `test/jido_flow/codec_test.exs` |
+| ID | Public promise | Covenant obligation | Main evidence |
+| --- | --- | --- | --- |
+| FLOW-001 | The DSL, map definitions, and Codec produce the same canonical Flow model. | `jido_action.flow.I7` | `test/property/flow/graph_contract_test.exs`, `test/authoring/` |
+| FLOW-002 | References and explicit needs create dependencies. Source order does not create a dependency. | `jido_action.flow.I8` | `test/property/flow/graph_contract_test.exs`, `test/jido_flow/canonical_data_test.exs` |
+| FLOW-003 | Invalid graph definitions return structured validation errors. | `jido_action.flow.I8` | `test/property/flow/validation_contract_test.exs`, `test/authoring/rejections_test.exs` |
+| FLOW-004 | Validation and inspection do not run Action work. | `jido_action.flow.I9` | `test/property/flow/validation_contract_test.exs`, `test/jido_flow/` |
+| FLOW-005 | Semantic identity distinguishes references from literal data and survives a Codec round trip. | `jido_action.flow.I10` | `test/property/flow/validation_contract_test.exs`, `test/jido_flow/graph_identity_test.exs` |
+| FLOW-006 | Host extensions lower to ordinary canonical declarations. | `jido_action.flow.I11` | `test/property/flow/inline_contract_test.exs`, `test/jido_flow/` |
+| STORE-001 | The JSON document version preserves canonical Flow meaning and deterministic stored-map encoding. | `jido_action.codec.I5` | `test/property/storage/codec_contract_test.exs`, `test/jido_flow/codec_test.exs` |
+| STORE-002 | Stored identifiers resolve through a trusted Registry without creating atoms from unknown identifiers. | `jido_action.codec.I6` | `test/property/storage/codec_contract_test.exs`, `test/jido_flow/codec_test.exs` |
+| STORE-003 | Malformed or oversized stored documents return structured errors. | `jido_action.codec.I7` | `test/property/storage/codec_contract_test.exs`, `test/jido_flow/codec_test.exs` |
 
 ## Execution And Effects
 
-| ID | Public promise | Main evidence |
-| --- | --- | --- |
-| EXEC-001 | One Action executes as a one-node Runic workflow. | `test/jido_exec/api_test.exs`, `test/property/execution/exec_contract_test.exs` |
-| EXEC-002 | A Flow compiles to executable Runic components and edges. | `test/jido_exec/compiler_test.exs`, `test/jido_exec/flow_execution_test.exs` |
-| EXEC-003 | Choice, Map, Reduce, Iterate, nested Flow, and Dispatch keep their authored semantics. | `test/property/flow/component_contract_test.exs`, `test/property/flow/mixed_contract_test.exs`, `test/property/execution/runner_fuzz_test.exs` |
-| EXEC-004 | Failure stops new work according to Runic policy, while work that is already admitted can finish. | `test/property/flow/iterate_fuzz_test.exs`, `test/jido_exec/runner/policy_test.exs`, `test/property/execution/runner_fuzz_test.exs` |
-| EXEC-005 | One concurrency policy applies to nested and collection work, while Reduce and Iterate remain serial. | `test/property/flow/iterate_fuzz_test.exs`, `test/jido_exec/runner/policy_test.exs`, `test/property/execution/runner_fuzz_test.exs` |
-| EXEC-006 | Manual managed execution dispatches one Runic scheduler unit per step and returns inspectable Runic workflow state. | `test/jido_exec/runner/stepwise_test.exs`, Runic stepwise Runner tests, `test/property/execution/runner_fuzz_test.exs` |
-| EXEC-007 | Jido emits bounded Action and immediate Flow telemetry. Runic owns managed runtime telemetry. | `test/jido_exec/telemetry_test.exs`, Runic Runner telemetry tests, `test/property/execution/runner_fuzz_test.exs` |
-| EFFECT-001 | Effects preserve dependency, component, nested, and collection order and request multiplicity. | `test/property/flow/component_contract_test.exs`, `test/examples/action_effects_test.exs` |
-| EFFECT-002 | Failed Action output does not expose an executable effect batch. | `test/property/action/boundary_contract_test.exs`, `test/property/flow/component_contract_test.exs` |
+| ID | Public promise | Covenant obligation | Main evidence |
+| --- | --- | --- | --- |
+| EXEC-001 | An Action compiles to an executable Runic workflow without running its work. | `jido_action.boundary.I5` | `test/jido_exec/api_test.exs`, `test/property/execution/exec_contract_test.exs` |
+| EXEC-002 | Flow compilation and Runic reconstruction preserve executable meaning. | `jido_action.boundary.I5` | `test/jido_exec/compiler_test.exs`, `test/jido_exec/flow_execution_test.exs` |
+| EXEC-003 | Choice, Map, Reduce, Iterate, nested Flow, and Dispatch keep their authored semantics. | `jido_action.execution.I17` | `test/property/flow/component_contract_test.exs`, `test/property/flow/mixed_contract_test.exs`, `test/property/execution/runner_fuzz_test.exs` |
+| EXEC-004 | Failure stops new work according to Runic policy, while work that is already admitted can finish. | `jido_action.execution.I18` | `test/property/flow/iterate_fuzz_test.exs`, `test/jido_exec/runner/policy_test.exs`, `test/property/execution/runner_fuzz_test.exs` |
+| EXEC-005 | One concurrency policy applies to nested and collection work, while Reduce and Iterate remain serial. | `jido_action.execution.I18` | `test/property/flow/iterate_fuzz_test.exs`, `test/jido_exec/runner/policy_test.exs`, `test/property/execution/runner_fuzz_test.exs` |
+| EXEC-006 | Manual managed execution dispatches one Runic scheduler unit per step and returns inspectable Runic workflow state. | `jido_action.execution.I21` | `test/jido_exec/runner/stepwise_test.exs`, Runic stepwise Runner tests, `test/property/execution/runner_fuzz_test.exs` |
+| EXEC-007 | Jido emits bounded Action and immediate Flow telemetry. Timeout or process death can prevent stop events. Runic owns managed runtime telemetry. | `jido_action.execution.I23` | `test/jido_exec/telemetry_test.exs`, Runic Runner telemetry tests, `test/property/execution/runner_fuzz_test.exs` |
+| EFFECT-001 | Effects preserve dependency, component, nested, and collection order and request multiplicity. | `jido_action.execution.I19` | `test/property/flow/component_contract_test.exs`, `test/examples/action_effects_test.exs` |
+| EFFECT-002 | Failed Action output does not expose an executable effect batch. | `jido_action.boundary.I3` | `test/property/action/boundary_contract_test.exs`, `test/property/flow/component_contract_test.exs` |
 
 ## Durability
 
-| ID | Public promise | Main evidence |
-| --- | --- | --- |
-| DURABLE-001 | A ten-Action Flow can stop after Action 5 and resume at Action 6. | `test/jido_exec/runner/durability_test.exs` |
-| DURABLE-002 | Completed work does not run again after Runic Runner recovery. | `test/jido_exec/runner/durability_test.exs`, Runic Runner recovery tests, `test/property/execution/runner_fuzz_test.exs` |
-| DURABLE-003 | Map, Iterate, nested Flow, and Dispatch progress survive recovery. | `test/jido_exec/runner/durability_test.exs`, `test/property/execution/runner_fuzz_test.exs` |
-| DURABLE-004 | Runtime state uses the Runic Store and event stream. Jido has no checkpoint format. | `test/jido_exec/runner/durability_test.exs`, `test/property/execution/runner_fuzz_test.exs` |
-| DURABLE-005 | Logical effect identity is stable across retry attempts. | `test/jido_exec/runner/policy_test.exs`, `test/property/execution/runner_fuzz_test.exs` |
+| ID | Public promise | Covenant obligation | Main evidence |
+| --- | --- | --- | --- |
+| DURABLE-001 | Recovery resumes after acknowledged stored progress; the ten-Action case is one example. | `jido_action.execution.I22` | `test/jido_exec/runner/durability_test.exs` |
+| DURABLE-002 | Acknowledged stored completed work is preserved during recovery. Work after the last acknowledged checkpoint can repeat. | `jido_action.execution.I22` | `test/jido_exec/runner/durability_test.exs`, Runic Runner recovery tests, `test/property/execution/runner_fuzz_test.exs` |
+| DURABLE-003 | Map, Iterate, nested Flow, and Dispatch progress survive recovery. | `jido_action.execution.I22` | `test/jido_exec/runner/durability_test.exs`, `test/property/execution/runner_fuzz_test.exs` |
+| DURABLE-004 | Runtime state uses the Runic Store and event stream. Jido has no checkpoint format. | `jido_action.execution.I22` | `test/jido_exec/runner/durability_test.exs`, `test/property/execution/runner_fuzz_test.exs` |
+| DURABLE-005 | Logical effect identity is stable across retry attempts with fixed execution, activation, output, and effect index. | `jido_action.execution.I24` | `test/jido_exec/runner/policy_test.exs`, `test/property/execution/runner_fuzz_test.exs` |
 
 ## Security And Limits
 
-| ID | Public promise | Main evidence |
-| --- | --- | --- |
-| SECURITY-001 | Codec Registry lookup is the stored identifier-to-module boundary. | `test/jido_flow/codec_test.exs` |
-| SECURITY-002 | Managed execution rejects process-local params and context before start. | `test/jido_exec/portable_test.exs`, `test/property/execution/runner_fuzz_test.exs` |
-| SECURITY-003 | Malformed options and unsupported executable values return structured errors. | Exec and authoring rejection tests |
+| ID | Public promise | Covenant obligation | Main evidence |
+| --- | --- | --- | --- |
+| SECURITY-001 | Codec Registry lookup is the stored identifier-to-module boundary. | `jido_action.codec.I6` | `test/jido_flow/codec_test.exs` |
+| SECURITY-002 | Managed execution rejects process-local params and context before start. | `jido_action.boundary.I10` | `test/jido_exec/portable_test.exs`, `test/property/execution/runner_fuzz_test.exs` |
+| SECURITY-003 | Malformed options and unsupported executable values return structured errors. | `jido_action.boundary.I6` | Exec and authoring rejection tests |
 
 ## Fuzz Cases
 

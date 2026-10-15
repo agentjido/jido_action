@@ -1,5 +1,6 @@
 defmodule Jido.Flow.CodecTest do
-  use ExUnit.Case, async: false
+  use Covenant.Case, component: "jido_action.codec", async: false
+  @moduletag obligation: "jido_action.codec.I7"
 
   alias Jido.Flow.Error.InvalidDefinitionError
   alias Jido.Flow

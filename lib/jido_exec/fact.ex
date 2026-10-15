@@ -92,7 +92,9 @@ defmodule Jido.Exec.Fact do
   end
 
   defp wrap(value, depth) when is_list(value) do
-    Enum.map(value, &wrap(&1, depth + 1))
+    if List.improper?(value),
+      do: local_value(value),
+      else: Enum.map(value, &wrap(&1, depth + 1))
   end
 
   defp wrap(value, depth) when is_tuple(value) do
@@ -112,7 +114,8 @@ defmodule Jido.Exec.Fact do
   @spec unwrap(term()) :: term()
   def unwrap(%LocalValue{value: value}), do: value
   def unwrap(%_{} = value), do: value
-  def unwrap(value) when is_list(value), do: Enum.map(value, &unwrap/1)
+  def unwrap([]), do: []
+  def unwrap([head | tail]), do: [unwrap(head) | unwrap(tail)]
 
   def unwrap(value) when is_tuple(value) do
     value
@@ -131,7 +134,7 @@ defmodule Jido.Exec.Fact do
   defp contains_local_value?(%_{}), do: false
 
   defp contains_local_value?(value) when is_list(value),
-    do: Enum.any?(value, &contains_local_value?/1)
+    do: List.improper?(value) or Enum.any?(value, &contains_local_value?/1)
 
   defp contains_local_value?(value) when is_tuple(value) do
     value |> Tuple.to_list() |> Enum.any?(&contains_local_value?/1)

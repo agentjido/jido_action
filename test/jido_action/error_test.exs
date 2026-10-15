@@ -42,7 +42,7 @@ defmodule JidoActionTest.Action.ErrorTest do
   end
 
   describe "Splode compatibility" do
-    @describetag obligation: "jido_action.errors.I2"
+    @describetag obligation: "jido_action.errors.I1"
 
     test "concrete errors use their expected classes" do
       assert Error.validation_error("invalid").class == :invalid
@@ -231,7 +231,7 @@ defmodule JidoActionTest.Action.ErrorTest do
   end
 
   describe "JSON encoding" do
-    @describetag obligation: "jido_action.errors.I5"
+    @describetag obligation: "jido_action.errors.I3"
 
     test "does not provide transport encoding for error structs" do
       error = Error.execution_error("failed")

@@ -88,7 +88,7 @@ defmodule JidoActionTest.ActionTest do
       assert_raise ArgumentError, ~r/invalid byte 0xFF/, fn -> module.to_json() end
     end
 
-    @tag obligation: "jido_action.action.I4"
+    @tag obligation: "jido_action.action.I2"
     test "a missing run callback is reported during compilation" do
       module = unique_module("RuntimeDefaultAction")
 
@@ -520,7 +520,7 @@ defmodule JidoActionTest.ActionTest do
   end
 
   describe "parameter validation" do
-    @describetag obligation: "jido_action.action.I3"
+    @describetag obligation: "jido_action.action.I1"
     test "prepares raw parameters before schema validation" do
       module = unique_module("PrepareParamsAction")
 
@@ -689,7 +689,7 @@ defmodule JidoActionTest.ActionTest do
   end
 
   describe "output validation" do
-    @describetag obligation: "jido_action.action.I3"
+    @describetag obligation: "jido_action.action.I1"
     test "action with valid output schema validates successfully" do
       assert {:ok, result} =
                OutputSchemaAction.validate_output(%{result: "test", length: 4, extra: "data"})

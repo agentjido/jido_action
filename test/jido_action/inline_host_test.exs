@@ -326,7 +326,7 @@ defmodule Jido.Action.InlineHostTest do
     refute_received :body_ran
   end
 
-  @tag obligation: "jido_action.inline.I4"
+  @tag obligation: "jido_action.inline.I2"
   test "host hooks retain early and late targets in either registration order" do
     for first_position <- [:before, :after], second_position <- [:before, :after] do
       hooks = [
@@ -395,7 +395,7 @@ defmodule Jido.Action.InlineHostTest do
     end
   end
 
-  @tag obligation: "jido_action.inline.I4"
+  @tag obligation: "jido_action.inline.I2"
   test "a host hook can emit the first Action after the owner hook" do
     owner = Module.concat(__MODULE__, "Owner#{System.unique_integer([:positive])}")
 
@@ -417,7 +417,7 @@ defmodule Jido.Action.InlineHostTest do
     assert Jido.Exec.run(target, %{value: 7}) == {:ok, %{value: 7}}
   end
 
-  @tag obligation: "jido_action.inline.I4"
+  @tag obligation: "jido_action.inline.I2"
   test "late host declarations do not permit user clauses in the lookup function" do
     for position <- [:before, :after], defaults <- [0, 1] do
       args = if defaults == 0, do: "", else: "_ \\\\ []"

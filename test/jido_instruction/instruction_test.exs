@@ -13,7 +13,7 @@ defmodule JidoActionTest.InstructionTest do
   }
 
   describe "template/3" do
-    @describetag obligation: "jido_action.instruction.I1"
+    @describetag obligation: "jido_action.instruction.I2"
 
     test "creates an inert module template without loading the target" do
       target = Module.concat(__MODULE__, "NotLoaded#{System.unique_integer([:positive])}")
@@ -350,7 +350,7 @@ defmodule JidoActionTest.InstructionTest do
   end
 
   describe "normalize!/3" do
-    @describetag obligation: ["jido_action.instruction.I4", "jido_action.instruction.I7"]
+    @describetag obligation: ["jido_action.instruction.I4", "jido_action.instruction.I3"]
 
     for field <- [:params, :context, :metadata] do
       @field field
@@ -490,7 +490,7 @@ defmodule JidoActionTest.InstructionTest do
   end
 
   describe "new!/1" do
-    @describetag obligation: "jido_action.instruction.I7"
+    @describetag obligation: "jido_action.instruction.I3"
 
     test "returns the instruction on success" do
       instruction = Instruction.new!(target: BasicAction, params: %{value: 7})

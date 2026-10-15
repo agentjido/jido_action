@@ -146,7 +146,9 @@ or a `Jido.Expr` operation.
 
 ### Map
 
-`collection` must resolve to a list. `on_error` is `:fail_fast`, the default,
+`collection` must resolve to a finite Enumerable. Lists retain input order;
+other Enumerables use their own enumeration order. Runtime collection length
+is not bounded by Codec limits. `on_error` is `:fail_fast`, the default,
 or `:collect_errors`.
 
 ```elixir
@@ -171,8 +173,10 @@ or `:collect_errors`.
 
 ### Reduce
 
-`initial` is the first accumulator. It must be a map. Each call returns the
-next accumulator.
+`initial` is the first accumulator. It must resolve to a plain map or a
+`Jido.Action.Output` envelope. Each call returns the next accumulator.
+Collections must be finite Enumerables. Lists retain input order; other
+Enumerables use their own enumeration order.
 
 ```elixir
 {:ok, summer} =
@@ -239,14 +243,16 @@ See [Iterate And State](flow-iterate-state.livemd) for the State rules.
 ### Dispatch
 
 A Dispatch has `decision`, `expander`, and `params`. A Flow can contain one
-Dispatch. It must be the single final component, and the Flow output must be
-its complete result. See [Dynamic Flows](dynamic-flows.md).
+Dispatch. It must be the sole graph terminal, and the Flow output must be its
+complete result. Source declaration order does not determine the terminal.
+See [Dynamic Flows](dynamic-flows.md).
 
 ## References And Expressions
 
 Build references with `Jido.Flow.Ref`: `input/1`, `context/1`, `result/2`,
 `select/2`, `item/1`, `item_index/0`, `item_id/0`, `accumulator/1`, `state/1`,
-`iteration_index/0`, and `body_result/1`. The constructors do not validate;
+`iteration_index/0`, and `body_result/1`. Constructors defer validation, except
+`select/2`, which validates its existing source and can raise.
 `Jido.Flow.new/1` validates every path and scope. See
 [References And Data](flow-references.livemd).
 

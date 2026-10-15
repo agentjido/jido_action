@@ -24,7 +24,7 @@ defmodule Jido.Action.Inline do
   owner compiles. It does not execute work or create atoms. Do not pass runtime
   or stored code to the compile-time APIs.
 
-  This API requires `3.0.0-beta.6` or later. See
+  See
   [Building DSLs With Inline Actions](building-dsls-with-inline-actions.md) for a complete public-only host
   with bound input, callback input, schemas, execution context, and lookup.
   """

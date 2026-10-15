@@ -116,7 +116,8 @@ defmodule Jido.Flow.DSL.ExtensionTest.ExtendedNeedsFlow do
 end
 
 defmodule Jido.Flow.DSL.ExtensionTest do
-  use ExUnit.Case, async: true
+  use Covenant.Case, component: "jido_action.flow", async: true
+  @moduletag obligation: "jido_action.flow.I11"
   alias Jido.Flow.DSL.ExtensionTest.{ExtendedFlow, ExtendedNeedsFlow, InlineFlow, PlainFlow}
 
   test "a Flow extension lowers its macros to canonical Flow declarations" do

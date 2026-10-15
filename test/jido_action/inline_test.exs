@@ -162,7 +162,7 @@ defmodule Jido.Action.InlineTest do
     end
   end
 
-  @tag obligation: ["jido_action.inline.I1", "jido_action.inline.I4"]
+  @tag obligation: ["jido_action.inline.I1", "jido_action.inline.I2"]
   test "header errors preserve the source location" do
     for {mode, source, message} <- [
           {:bound, "[value <- 1, value <- 2]", "duplicate inline Action binding"},
@@ -353,7 +353,7 @@ defmodule Jido.Action.InlineTest do
     end
   end
 
-  @tag obligation: "jido_action.inline.I4"
+  @tag obligation: "jido_action.inline.I2"
   test "setup is idempotent and retains host hooks in either registration order" do
     for position <- [:before, :after] do
       owner = unique_owner("Hooks")
@@ -626,7 +626,7 @@ defmodule Jido.Action.InlineTest do
     end
   end
 
-  @tag obligation: "jido_action.inline.I4"
+  @tag obligation: "jido_action.inline.I2"
   test "owner body and index functions reject user clauses and default-argument arities" do
     for kind <- [:index, :body], position <- [:before, :after], defaults <- [0, 1] do
       owner = unique_owner("Reserved")
@@ -659,7 +659,7 @@ defmodule Jido.Action.InlineTest do
     end
   end
 
-  @tag obligation: "jido_action.inline.I4"
+  @tag obligation: "jido_action.inline.I2"
   test "warnings, compile failures and runtime stacktraces retain the body source" do
     warning_owner = unique_owner("Warning")
 
@@ -776,7 +776,7 @@ defmodule Jido.Action.InlineTest do
     assert {:ok, %{value: 25.0}} = target.run(%{operand: 4}, %{})
   end
 
-  @tag obligation: "jido_action.inline.I4"
+  @tag obligation: "jido_action.inline.I2"
   test "clause definitions retain their source line" do
     owner = unique_owner("ClauseLine")
 
@@ -804,7 +804,7 @@ defmodule Jido.Action.InlineTest do
            end)
   end
 
-  @tag obligation: ["jido_action.inline.I1", "jido_action.inline.I4"]
+  @tag obligation: ["jido_action.inline.I1", "jido_action.inline.I2"]
   test "clause-body parse errors preserve the source location" do
     clauses = case_clauses("%{operand: 0} -> :zero\n%{operand: operand} -> :ok")
 
@@ -916,7 +916,7 @@ defmodule Jido.Action.InlineTest do
     end
   end
 
-  @tag obligation: ["jido_action.inline.I1", "jido_action.inline.I4"]
+  @tag obligation: ["jido_action.inline.I1", "jido_action.inline.I2"]
   test "guarded clauses keep one parameter and native repeated when guards" do
     owner = unique_owner("GuardedHead")
 
@@ -975,7 +975,7 @@ defmodule Jido.Action.InlineTest do
     assert target.run(%{value: 1}, %{}) == {:ok, %{value: 1, marker: :owner_helper}}
   end
 
-  @tag obligation: ["jido_action.inline.I3", "jido_action.inline.I4"]
+  @tag obligation: ["jido_action.inline.I3", "jido_action.inline.I2"]
   test "compilation rejects function scope even while the owner is open" do
     owner = unique_owner("FunctionScope")
 
@@ -994,7 +994,7 @@ defmodule Jido.Action.InlineTest do
     refute Code.ensure_loaded?(target)
   end
 
-  @tag obligation: "jido_action.inline.I4"
+  @tag obligation: "jido_action.inline.I2"
   test "generated pattern lines use positive source lines or the caller line" do
     for {metadata, expected} <- [{[], 40}, {[line: 0], 40}, {[line: 1], 1}] do
       owner = unique_owner("PatternLine")

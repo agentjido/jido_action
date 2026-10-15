@@ -35,21 +35,21 @@ callers. This does not establish complete Flow contract coverage.
 - **kind:** functional
 - **status:** active
 
-### jido_action.boundary.I5 — Native Action components retain their executable identity
+### jido_action.boundary.I5 — Compilation and reconstruction retain executable meaning
 - **scope:** `Jido.Exec.Node.Action`, `Runic.Component.Jido.Exec.Node.Action`, `Runic.Transmutable.Jido.Exec.Node.Action`, `Runic.Identity.Projectable.Jido.Exec.Node.Action`
-- **must:** Build a native Runic Action component with its exact Instruction, identity, port schemas, Flow context and source data. Connect it as an executable workflow component. Source reconstruction retains equivalent behavior. Runtime context stays outside canonical component identity. Action results use native SingleOutput meaning rather than an error encoded as a successful Fact.
+- **must:** Compile supported Action and Flow targets to executable Runic workflows without running Action work. Reconstruction from the Runic build log retains equivalent public results. Runtime context stays outside stored component definitions. Private node layout, port records, hashes, and source AST are normal implementation checks, not additional public promises.
 - **kind:** functional
 - **status:** active
 
 ### jido_action.boundary.I6 — Call options and targets reject malformed policy
 - **scope:** `Jido.Exec.compile/2`, `Jido.Exec.run/4`, `Jido.Exec.start/6`, `Jido.Exec.step/2`, `Jido.Exec.resume/4`, `Jido.Exec.result/1`
-- **must:** Return structured configuration errors for invalid targets, root component options, concurrency values, Task Supervisor values and managed requests. Preserve the option and rejected value. A missing Task Supervisor cannot start Action work.
+- **must:** Return documented configuration errors for invalid executable targets and supported option containers, including root component options, concurrency, and Task Supervisor values. Retain useful option and value details. A missing Task Supervisor cannot start Action work. Native Runner lookup/control reasons can remain atoms, and arbitrary invalid process references are not universally contained.
 - **kind:** functional
 - **status:** active
 
 ### jido_action.boundary.I7 — Collection Action calls retain ordered values and failure data
 - **scope:** `Jido.Exec.Node.Action`
-- **must:** Map Action calls preserve input order, duplicate items and their stable item IDs. Collected Action failures retain node, target, item position and retry data without a stacktrace. Reference failures retain their own paths without invented item identity. Failed items expose no effects. Native batch reconstruction retains behavior and keeps shared parent data outside each item Fact.
+- **must:** Map Action calls preserve input order, duplicate items and their stable item IDs. Collected Action failures retain node, target, item position and retry data without a stacktrace. Reference failures retain their own paths without invented item identity. Failed items expose no effects. Native batch reconstruction retains public behavior. Shared parent Fact layout is an implementation check, not a public data format.
 - **kind:** functional
 - **status:** active
 

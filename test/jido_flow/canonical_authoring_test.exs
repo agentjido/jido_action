@@ -100,7 +100,8 @@ defmodule Jido.Flow.CanonicalAuthoringTest.SparkMixedFlow do
 end
 
 defmodule Jido.Flow.CanonicalAuthoringTest do
-  use ExUnit.Case, async: true
+  use Covenant.Case, component: "jido_action.flow", async: true
+  @moduletag obligation: "jido_action.flow.I7"
   alias Jido.Flow
   alias Jido.Flow.Codec
   alias Jido.Flow.Ref

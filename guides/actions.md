@@ -26,7 +26,7 @@ end
 
 - `name/0` and `description/0`;
 - `schema/0` and `output_schema/0`;
-- `to_json/0` for a compile-time JSON-safe description;
+- `to_json/0` for a JSON-safe description of the compiled definition;
 - `validate_params/1` and `validate_output/1`.
 
 The module must implement `run/2`. A missing implementation stops compilation.
@@ -36,6 +36,9 @@ JSON Schema. It returns `nil` for an empty input or output schema. It raises
 `ArgumentError` when Zoi cannot project a declared schema to JSON Schema. That
 projection is descriptive. Use `validate_params/1` and `validate_output/1` for
 the runtime contract.
+
+Successful compilation does not guarantee that `to_json/0` can project the
+schema or metadata. Projection errors occur when the description is requested.
 
 Use `to_json/0` when a tool registry, an API, or a language model needs to
 describe the Action.

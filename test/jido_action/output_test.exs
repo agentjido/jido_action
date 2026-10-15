@@ -3,7 +3,7 @@ defmodule JidoActionTest.Action.OutputTest do
 
   alias Jido.Action.Output
 
-  @tag obligation: "jido_action.output.I3"
+  @tag obligation: "jido_action.output.I1"
   test "stream construction and validation do not consume the enumerable" do
     owner = self()
     token = make_ref()

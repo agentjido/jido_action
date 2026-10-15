@@ -2,7 +2,8 @@ Code.require_file("../support/runtime.exs", __DIR__)
 Code.require_file("../support/fuzz.exs", __DIR__)
 
 defmodule JidoActionTest.Property.Storage.CodecContractTest do
-  use ExUnit.Case, async: true
+  use Covenant.Case, component: "jido_action.codec", async: true
+  @moduletag obligation: "jido_action.codec.I7"
   use ExUnitProperties
   alias Jido.{Expr, Flow}
   alias Jido.Flow.{Codec, Ref, Registry}
@@ -31,6 +32,7 @@ defmodule JidoActionTest.Property.Storage.CodecContractTest do
          "STORE-001/key-kinds",
          "STORE-001/step-wire-format"
        ]
+  @tag obligation: "jido_action.codec.I5"
   property "every component kind preserves portable generated data in version one" do
     check all(value <- portable(), scalar <- integer(), max_runs: 40) do
       assert_portability(value, scalar)
@@ -45,6 +47,7 @@ defmodule JidoActionTest.Property.Storage.CodecContractTest do
          "STORE-002/executable-fields",
          "STORE-002/read-alias"
        ]
+  @tag obligation: "jido_action.codec.I6"
   property "unknown identifiers wrong Registry kinds and executable stored fields reject inertly" do
     check all(suffix <- integer(0..1_000_000), max_runs: 40) do
       identifier = "pbt_unregistered_#{suffix}"

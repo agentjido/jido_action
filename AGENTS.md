@@ -58,7 +58,8 @@ Read these files before a change that affects their subject:
   integration is in `lib/jido_exec/runner/`.
 - `test/support/` contains shared Actions and Flow fixtures.
 
-Compiler, codec, node, and runner modules are internal.
+Compiler, Codec helper, node, and runner modules are internal.
+`Jido.Flow.Codec` and `Jido.Flow.Registry` are public storage APIs.
 Do not make an internal module public only to make a test easy. Test through a
 public boundary unless the internal rule itself needs a focused unit test.
 
@@ -201,8 +202,9 @@ for validation, return normalization, and error behavior.
   supply them again. Do not compile context into stored workflow components.
 - Managed execution rejects non-portable params, context, metadata, outputs,
   and effects.
-- Telemetry handlers run synchronously. Each started Jido span must stop when
-  Exec returns.
+- Telemetry handlers run synchronously. Normal Jido spans stop when Exec returns.
+  Timeout or process death can prevent an Action stop event; caller death
+  can also prevent a Flow stop event.
 
 ### Telemetry And Errors
 
@@ -212,8 +214,9 @@ for validation, return normalization, and error behavior.
   stable. Start and stop metadata must not include params, context, results,
   or full errors.
 - Public failures return exception structs. Keep `to_map/1` deterministic.
-- Do not change error types, matchable messages, detail keys, or retry
-  classification without contract tests and documentation updates.
+- Do not change error types, reason/detail keys, or retry classification
+  without contract tests and documentation updates. Message text is for
+  diagnostics; callers match on error types and details.
 
 ## Documentation
 

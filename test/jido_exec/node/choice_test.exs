@@ -1,12 +1,54 @@
 defmodule Jido.Exec.Node.ChoiceTest do
-  use Covenant.Case, component: "jido_action.boundary", async: true
+  use Covenant.Case, component: "jido_action.execution", async: true
 
   alias Jido.Exec
   alias Jido.Flow
   alias Jido.Flow.Ref
   alias JidoActionTest.Fixtures.Actions.Add
 
-  @tag obligation: "jido_action.boundary.I5"
+  @tag obligation: "jido_action.execution.I17"
+  test "an option named fallback remains separate from the default branch" do
+    for {condition, amount} <- [{true, 100}, {false, -10}], concurrency <- [1, 4] do
+      flow =
+        Flow.new!(%{
+          name: "fallback_option",
+          components: [
+            %{
+              kind: :choice,
+              name: "route",
+              options: [
+                %{
+                  name: "fallback",
+                  condition: condition,
+                  action: Add,
+                  params: %{value: 2, amount: 100}
+                }
+              ],
+              fallback: %{action: Add, params: %{value: 2, amount: -10}}
+            }
+          ],
+          output: Ref.result("route")
+        })
+
+      assert Exec.run(flow, %{}, %{}, max_concurrency: concurrency) ==
+               {:ok, %{value: 2 + amount}}
+
+      workflow =
+        flow
+        |> Exec.compile!()
+        |> Runic.Workflow.build_log()
+        |> Runic.Workflow.from_log()
+        |> Runic.Workflow.put_run_context(%{_global: %{}})
+        |> Runic.Workflow.react_until_satisfied(
+          Runic.Workflow.Fact.new(value: Jido.Exec.Frame.new(%{})),
+          scheduler_policies: [{:default, %{on_failure: :halt}}]
+        )
+
+      assert Exec.result(workflow) == {:ok, %{value: 2 + amount}}
+    end
+  end
+
+  @tag obligation: "jido_action.execution.I17"
   test "Choice uses Runic Conditions and selects the first matching branch" do
     flow =
       Flow.new!(%{

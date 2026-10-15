@@ -177,7 +177,7 @@ Use unique Runner names and execution IDs. Coordinate Actions with messages or
 barriers instead of sleeps. When you test parallel work, compare ordered public
 results and record the actual execution set separately.
 
-## Property And System Suites
+## Additional Test Suites
 
 The repository separates larger checks:
 
@@ -187,13 +187,25 @@ mix test.property
 mix test.system
 mix test.load
 mix test.fuzz
+mix test.contracts
+mix test.ci
 mix test.all
 ```
 
-The default `mix test` suite excludes these tagged groups. `mix test.all` runs
-the default tests and all five optional suites. It also requires a passing
-property report and measurements for all 15 fuzz cases. CI and release
-preflight use this command. Run it after a Flow compiler or Exec change.
+The default `mix test` suite excludes authoring, property, system, load, and
+fuzz tests. `mix test.ci` runs the default tests plus property, fuzz, system,
+and load tests. `mix test.all` also includes authoring tests. Both commands
+require a passing property report and measurements for all 15 fuzz cases.
+CI uses `mix test.ci`; release preflight uses `mix test.all`. Run the full
+suite after a Flow compiler or Exec change.
+
+`mix test.contracts` runs the Covenant contract report. Normal tests that
+carry Covenant obligation tags still run in their usual suites. Covenant
+reports and mutation checks are optional and are not part of CI or release
+preflight. See [the contract check instructions](https://github.com/agentjido/jido_action/blob/release/v3/test/contracts/README.md)
+for static and mutation commands.
+
+Benchmarks are optional. See [benchmarks](benchmarks.md) for their commands.
 
 See [the property test guide](https://github.com/agentjido/jido_action/blob/release/v3/test/property/README.md) for bounds, replay,
 execution modes, and remaining coverage limits.

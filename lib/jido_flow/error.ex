@@ -163,7 +163,9 @@ defmodule Jido.Flow.Error do
 
   Detail values stay unchanged. A caller that sends the map through JSON or
   another transport must convert its own detail values for that transport.
-  Nested Flow and Action errors become their public maps.
+  Members of an Invalid error group become public maps recursively.
+  Values inside a leaf details map, including nested exceptions and
+  stacktraces, stay unchanged.
   """
   @spec to_map(term()) :: error_map()
   def to_map({:error, reason, _effects}), do: to_map(reason)

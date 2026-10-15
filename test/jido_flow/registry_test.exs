@@ -1,5 +1,6 @@
 defmodule Jido.Flow.RegistryTest do
-  use ExUnit.Case, async: true
+  use Covenant.Case, component: "jido_action.codec", async: true
+  @moduletag obligation: "jido_action.codec.I6"
 
   alias Jido.Flow.Error.InvalidDefinitionError
   alias Jido.Flow.Codec

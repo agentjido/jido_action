@@ -63,9 +63,10 @@ A `flow` block contains component declarations and one `output`:
 A `step` whose target is a Flow module becomes a Subflow. See
 [Nested Flows](nested-flows.livemd).
 
-A Flow can contain at most one `dispatch`. It must be the single final
-component in the dependency graph, and the Flow output must be its complete
-result, such as `output result("route")`.
+A Flow can contain at most one `dispatch`. It must be the sole graph terminal,
+and the Flow output must be its complete result, such as
+`output result("route")`. Source declaration order does not determine the
+terminal.
 
 ```elixir
 defmodule FlowLanguage.Example do

@@ -38,7 +38,7 @@ defmodule Jido.Exec.Node.Choice do
   @doc false
   @spec connect(t(), [term()], Workflow.t()) :: Workflow.t()
   def connect(%__MODULE__{} = node, parents, %Workflow{} = workflow) do
-    paths = node.options ++ [%{name: "fallback", call: node.fallback}]
+    paths = Enum.map(node.options, &{{:option, &1.name}, &1.call}) ++ [{:fallback, node.fallback}]
 
     selector =
       Selector.new(
@@ -53,19 +53,21 @@ defmodule Jido.Exec.Node.Choice do
     workflow = connect_from(workflow, parents, selector)
 
     workflow =
-      Enum.reduce(paths, workflow, fn path, current ->
+      Enum.reduce(paths, workflow, fn {route, call}, current ->
+        path = route_path(route)
+
         branch =
           Branch.new(
-            id: {node.id, :branch, path.name},
-            name: internal_name(node, "branch", path.name),
+            id: {node.id, :branch, route},
+            name: internal_name(node, "branch", path),
             component: node.component,
-            option: path.name,
+            option: route,
             location: node.location,
             node_path: node.node_path
           )
 
         condition =
-          condition({node.id, :condition, path.name}, internal_name(node, "if", path.name))
+          condition({node.id, :condition, route}, internal_name(node, "if", path))
 
         flow = %{
           component: node.component,
@@ -75,10 +77,10 @@ defmodule Jido.Exec.Node.Choice do
         }
 
         action =
-          Action.new(path.call,
+          Action.new(call,
             flow: flow,
-            id: {node.id, :action, path.name},
-            name: internal_name(node, "action", path.name)
+            id: {node.id, :action, route},
+            name: internal_name(node, "action", path)
           )
 
         current
@@ -130,6 +132,8 @@ defmodule Jido.Exec.Node.Choice do
   defp connect_from(workflow, parents, child), do: Workflow.add_step(workflow, parents, child)
 
   defp internal_name(node, kind, path), do: "__jido_choice__/#{node.name}/#{kind}/#{path}"
+  defp route_path({:option, name}), do: "option/#{name}"
+  defp route_path(:fallback), do: "fallback"
   @impl Runic.Workflow.SingleOutput
   @doc false
   @spec run(t(), term(), Context.t()) :: Result.t()

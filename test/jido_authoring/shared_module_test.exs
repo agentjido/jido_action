@@ -48,7 +48,7 @@ defmodule Jido.Authoring.SharedModuleTest do
     end
   end
 
-  @tag obligation: ["jido_action.action.I1", "jido_action.action.I4"]
+  @tag obligation: ["jido_action.action.I1", "jido_action.action.I2"]
   test "Action and Flow modules share the Action contract and retain distinct kinds" do
     for {module, kind} <- [{Echo, :action}, {EchoFlow, :flow}] do
       assert module.__info__(:attributes)[:behaviour] == [Jido.Action]
@@ -73,7 +73,7 @@ defmodule Jido.Authoring.SharedModuleTest do
     end
   end
 
-  @tag obligation: "jido_action.action.I3"
+  @tag obligation: "jido_action.action.I1"
   test "Flow validation runs once at each boundary with native child steps" do
     input = %{value: 1, observer: self()}
 
@@ -91,7 +91,7 @@ defmodule Jido.Authoring.SharedModuleTest do
     assert %Jido.Exec.Node.Action{} = Runic.Workflow.get_component(workflow, "echo")
   end
 
-  @tag obligation: ["jido_action.action.I1", "jido_action.action.I3"]
+  @tag obligation: "jido_action.action.I1"
   test "a shared Flow target stays native when nested and bound as an Instruction" do
     parent =
       Flow.new!(%{

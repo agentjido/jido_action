@@ -42,10 +42,10 @@ defmodule Jido.Exec.Node.Choice.Selector do
   defp first_match(node, frame, context) do
     state = Frame.resolver_state(frame, context)
 
-    Enum.reduce_while(node.options, {:ok, "fallback"}, fn option, _acc ->
+    Enum.reduce_while(node.options, {:ok, :fallback}, fn option, _acc ->
       case ValueResolver.condition(option.condition, state, node.component, option.name) do
-        {:ok, true} -> {:halt, {:ok, option.name}}
-        {:ok, false} -> {:cont, {:ok, "fallback"}}
+        {:ok, true} -> {:halt, {:ok, {:option, option.name}}}
+        {:ok, false} -> {:cont, {:ok, :fallback}}
         {:error, error} -> {:halt, {:error, error}}
       end
     end)

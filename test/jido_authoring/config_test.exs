@@ -138,7 +138,7 @@ defmodule Jido.Authoring.ConfigTest do
     end
   end
 
-  @tag obligation: ["jido_action.action.I2", "jido_action.action.I3"]
+  @tag obligation: ["jido_action.action.I2", "jido_action.action.I1"]
   test "option and schema builders run once for both module forms and inline Actions" do
     for kind <- [:action, :flow] do
       module = compile_module(kind, "#{inspect(__MODULE__)}.options()")

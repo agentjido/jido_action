@@ -1,7 +1,10 @@
 # Errors
 
-Every failure from `Jido.Exec`, `Jido.Flow`, `Jido.Instruction`, and
-`Jido.Flow.Codec` is an exception struct in a `{:error, exception}` tuple.
+Execution and validation failures from `Jido.Exec.run/4`, `Jido.Flow`,
+`Jido.Instruction`, and `Jido.Flow.Codec` normally return an exception struct
+in a `{:error, exception}` tuple. Managed control and lookup calls can return
+native Runic reasons such as `{:error, :busy}` or `{:error, :not_found}`.
+Invalid Runner or process references are not all contained by this boundary.
 This guide lists the structs, shows which phase produces each one, and
 explains how to handle them.
 

@@ -37,8 +37,9 @@ API to use. See the guides on HexDocs for explanations and examples.
 - Use `MyAction.to_json/0` for a JSON-safe description (name, description,
   input and output JSON Schema). It is descriptive; Zoi validation is
   authoritative.
-- Object schemas are open at the root: undeclared keys pass through. Set
-  `unrecognized_keys:` on nested objects that must reject or preserve keys.
+- Direct object and struct schemas preserve unknown root keys when their
+  default policy is strip. Explicit strict and typed policies stay unchanged.
+  Nested and wrapped schemas use their declared policy.
 
 ## Running Work
 
@@ -144,8 +145,8 @@ API to use. See the guides on HexDocs for explanations and examples.
   target selection.
 - Use Action modules for `map`, `reduce`, `choice`, `iterate`, and `dispatch`
   targets. Inline bodies are supported only in `step`.
-- Use at most one `dispatch`. It must be the last component, and `output` must
-  be its complete result.
+- Use at most one `dispatch`. It must be the sole graph terminal, and `output`
+  must be its complete result. Source order does not determine the terminal.
 - Return `{:continue, input, target}` only from a Dispatch expander. Every
   other Action, including a root Action, fails with
   `reason: :unsupported_continuation`.
@@ -183,8 +184,9 @@ API to use. See the guides on HexDocs for explanations and examples.
   `min`, `max`, `abs`, and `<>`.
 - Do not use pipes, function calls, `&&`, `||`, `===`, tuples, or ranges in
   Flow expressions. Put that logic in an Action.
-- `and`, `or`, and `not` require Boolean operands. There is no implicit type
-  conversion.
+- `and` and `or` require a Boolean left operand and return the evaluated right
+  value unchanged. `not` requires a Boolean. Flow condition slots require a
+  Boolean final value. There is no implicit type conversion.
 
 ## Flows As Data
 

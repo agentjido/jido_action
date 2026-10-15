@@ -116,7 +116,8 @@ Flow does not accept inline bodies for either role.
 Every Flow with Dispatch must follow these rules:
 
 - The Flow has only one Dispatch.
-- Dispatch is the last component.
+- Dispatch is the sole graph terminal. Source declaration order does not
+  determine the terminal.
 - Flow output is the complete Dispatch result, such as `result("route")`.
 - Only the expander can return `{:continue, input, target}`.
 - The decision and all other Flow components cannot continue.

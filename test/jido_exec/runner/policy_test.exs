@@ -1,5 +1,6 @@
 defmodule Jido.Exec.Runner.PolicyTest do
-  use ExUnit.Case, async: false
+  use Covenant.Case, component: "jido_action.execution", async: false
+  @moduletag obligation: "jido_action.execution.I18"
 
   alias Jido.Action.Error
   alias Jido.Exec
@@ -85,6 +86,7 @@ defmodule Jido.Exec.Runner.PolicyTest do
              Exec.run(TimeoutAction, %{}, %{}, timeout: 5, max_attempts: 3)
   end
 
+  @tag obligation: ["jido_action.execution.I18", "jido_action.execution.I24"]
   test "retry attempts keep one activation and one logical effect identity" do
     {:ok, counter} = Agent.start_link(fn -> 0 end)
 

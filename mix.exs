@@ -47,6 +47,8 @@ defmodule JidoAction.MixProject do
         "test.load": :test,
         "test.property": :test,
         "test.fuzz": :test,
+        "test.contracts": :test,
+        "test.ci": :test,
         "test.all": :test
       ]
     ]
@@ -135,6 +137,8 @@ defmodule JidoAction.MixProject do
           "guides/building-dsls-with-inline-actions.md"
         ],
         Reference: [
+          "guides/public-api-reference.md",
+          "guides/public-api-contract-review.md",
           "guides/public-contracts.md",
           "guides/benchmarks.md",
           "CHANGELOG.md",
@@ -189,6 +193,8 @@ defmodule JidoAction.MixProject do
         {"guides/building-dsls-with-inline-actions.md",
          title: "Building DSLs With Inline Actions"},
         # Reference
+        {"guides/public-api-reference.md", title: "Public API Reference"},
+        {"guides/public-api-contract-review.md", title: "Public API Contract Review"},
         {"guides/public-contracts.md", title: "Public Contract Register"},
         {"guides/benchmarks.md", title: "Execution Benchmarks"},
         {"CHANGELOG.md", title: "Changelog"},
@@ -309,6 +315,13 @@ defmodule JidoAction.MixProject do
       "test.load": "test test/load --only load --seed 0",
       "test.property": "test test/property --only property --seed 0",
       "test.fuzz": fn args -> test_with_report(args, ["test/property", "--only", "fuzz"]) end,
+      "test.contracts": "covenant.check",
+      "test.ci": fn args ->
+        test_with_report(
+          args,
+          Enum.flat_map(~w(property fuzz system load), &["--include", &1])
+        )
+      end,
       "test.all": fn args ->
         test_with_report(
           args,

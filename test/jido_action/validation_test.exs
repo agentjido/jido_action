@@ -64,7 +64,7 @@ defmodule JidoActionTest.Action.ValidationTest do
     end
   end
 
-  @tag obligation: "jido_action.validation.I4"
+  @tag obligation: "jido_action.validation.I1"
   test "classification rejects foreign schemas, failed lazy builders and mixed codecs" do
     for value <- [%{}, %{inner: Zoi.any()}, %URI{}, nil, :unsupported] do
       assert Validation.zoi_schema?(value) == false
@@ -331,7 +331,7 @@ defmodule JidoActionTest.Action.ValidationTest do
     assert thrown.details.phase == :thrown
   end
 
-  @tag obligation: "jido_action.validation.I4"
+  @tag obligation: "jido_action.validation.I1"
   test "classifies Action-compatible schema containers" do
     map = Zoi.object(%{value: Zoi.integer()})
     any = Zoi.any()
@@ -376,7 +376,7 @@ defmodule JidoActionTest.Action.ValidationTest do
 
   def map_schema, do: Zoi.object(%{value: Zoi.integer()})
 
-  @tag obligation: "jido_action.validation.I4"
+  @tag obligation: "jido_action.validation.I1"
   test "defaults do not make scalar schemas map-compatible" do
     for schema <- [Zoi.integer(), Zoi.string(), Zoi.literal(:not_a_map)] do
       refute Validation.map_schema?(Zoi.default(schema, %{value: 0}))

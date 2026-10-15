@@ -1,5 +1,6 @@
 defmodule Jido.Exec.Runner.ManagedTest do
-  use ExUnit.Case, async: false
+  use Covenant.Case, component: "jido_action.execution", async: false
+  @moduletag obligation: "jido_action.execution.I21"
 
   alias Jido.Action.Error.{ExecutionFailureError, TimeoutError}
   alias Jido.Exec

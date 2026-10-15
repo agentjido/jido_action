@@ -214,8 +214,8 @@ Use the Runner for durable lifecycle control:
 ```
 
 The Runic store is the source of truth for progress. A resume restores the
-completed work and continues with the remaining work. Completed Actions do not
-run again. Jido keeps no separate checkpoint, and Flow JSON holds only the
+acknowledged stored completed work and continues with the remaining work.
+Work completed after the last acknowledged checkpoint can run again. Jido keeps no separate checkpoint, and Flow JSON holds only the
 definition.
 
 Managed execution continues after its caller exits. Runic owns its active

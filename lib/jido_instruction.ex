@@ -20,7 +20,9 @@ defmodule Jido.Instruction do
   Resolution checks the currently loaded module on every execution. A stored
   `kind` value does not remain authoritative after code reload.
 
-  `normalize!/3` and `resolve/3` accept a target or an existing Instruction.
+  `resolve/3` accepts a target or an existing Instruction. Use `new!/1`
+  when construction must raise on invalid call data. `normalize!/3` is an
+  internal raising helper, not a separate authoring API.
   Existing Instructions are flattened. Their parameters and context are merged
   with shallow, right-biased call data. Metadata remains an annotation and has
   no meaning to the target or to Exec.

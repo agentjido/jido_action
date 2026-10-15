@@ -5,12 +5,16 @@ Run the short property suite or the full fuzz suite from the package root:
 ```sh
 mix test.property
 mix test.fuzz
+mix test.ci --warnings-as-errors
 mix test.all --warnings-as-errors
 ```
 
-`mix test.all` selects the default tests and all five optional suites. It
-requires a finished, passing property report and measurements for every
-required fuzz case. CI and release preflight use this command.
+`mix test.ci` selects the default tests plus property, fuzz, system, and load
+tests. `mix test.all` also includes authoring tests. Both commands require a
+finished, passing property report and measurements for every required fuzz
+case. CI uses `mix test.ci`; release preflight uses `mix test.all`. Covenant
+reports and mutation checks run separately with the commands in
+[the contract check instructions](../contracts/README.md).
 
 The [public contract register](../../guides/public-contracts.md#fuzz-cases)
 lists all 15 required fuzz cases and their bounds. The required ID list is in

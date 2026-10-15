@@ -299,8 +299,8 @@ JSON `path` when one applies. The error map lists the leaves under
 
 Diagnosis uses the same field rules and error order as data authoring:
 
-1. Document type, version, size, collection size, and nesting checks. A failure
-   is terminal.
+1. UTF-8, size, collection size, and nesting safety checks, followed by
+   document type and version checks. A failure is terminal.
 2. Unknown fields, root configuration, components in list order, and output.
    Each component checks its common fields, then its kind-specific fields.
    Registry and tagged-value errors keep their position in that field order.

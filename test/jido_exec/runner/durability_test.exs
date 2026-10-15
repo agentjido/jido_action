@@ -1,5 +1,6 @@
 defmodule Jido.Exec.Runner.DurabilityTest do
-  use ExUnit.Case, async: false
+  use Covenant.Case, component: "jido_action.execution", async: false
+  @moduletag obligation: "jido_action.execution.I22"
 
   alias Jido.Exec
   alias Jido.Flow
@@ -491,6 +492,7 @@ defmodule Jido.Exec.Runner.DurabilityTest do
     assert Recorder.steps() == [:dispatch_decision, :dispatch_expander, :dispatch_target]
   end
 
+  @tag obligation: "jido_action.execution.I20"
   test "cancellation stops a selected Dispatch Action" do
     start_supervised!(Recorder)
     start_supervised!({CheckpointGate, self()})

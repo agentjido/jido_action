@@ -1,5 +1,6 @@
 defmodule Jido.Exec.Runner.ObservationTest do
-  use ExUnit.Case, async: false
+  use Covenant.Case, component: "jido_action.execution", async: false
+  @moduletag obligation: "jido_action.execution.I21"
 
   alias Jido.Exec
   alias Jido.Flow
@@ -115,6 +116,7 @@ defmodule Jido.Exec.Runner.ObservationTest do
     assert second.input_fact_id != third.input_fact_id
   end
 
+  @tag obligation: ["jido_action.execution.I18", "jido_action.execution.I21"]
   test "managed failure selection follows component order after active work drains", ctx do
     id = {:failure, System.unique_integer([:positive])}
 
@@ -144,6 +146,7 @@ defmodule Jido.Exec.Runner.ObservationTest do
              Exec.result(ctx.runner, id)
   end
 
+  @tag obligation: ["jido_action.execution.I18", "jido_action.execution.I21"]
   test "serial managed admission selects the same first failure as concurrent admission", ctx do
     id = {:serial_failure, System.unique_integer([:positive])}
 
@@ -166,6 +169,7 @@ defmodule Jido.Exec.Runner.ObservationTest do
              Exec.result(ctx.runner, id)
   end
 
+  @tag obligation: ["jido_action.execution.I18", "jido_action.execution.I19"]
   test "native Map outcomes and effects keep input order after later items finish first", ctx do
     id = {:batch_order, System.unique_integer([:positive])}
 
@@ -197,6 +201,7 @@ defmodule Jido.Exec.Runner.ObservationTest do
               }, [:a, :b, :c]}
   end
 
+  @tag obligation: "jido_action.execution.I20"
   test "native Map cancellation stops active items and admits no later item", ctx do
     id = {:batch_cancel, System.unique_integer([:positive])}
     flow = map_flow(%{label: Ref.item(), fail: false})
@@ -220,6 +225,7 @@ defmodule Jido.Exec.Runner.ObservationTest do
   end
 
   @tag :capture_log
+  @tag obligation: "jido_action.execution.I18"
   test "native Map failure stops admission and selects the same item at each concurrency", ctx do
     flow = map_flow(%{label: Ref.item(), fail: true})
 

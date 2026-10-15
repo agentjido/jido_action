@@ -1,5 +1,6 @@
 defmodule Jido.Flow.GraphValidationTest do
-  use ExUnit.Case, async: true
+  use Covenant.Case, component: "jido_action.flow", async: true
+  @moduletag obligation: "jido_action.flow.I8"
   alias Jido.Expr
   alias Jido.Flow
   alias Jido.Flow.{Codec, Error, Ref, Registry}

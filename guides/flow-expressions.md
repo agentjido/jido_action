@@ -176,7 +176,10 @@ Each complete operation tree, including a condition, has these limits:
 - 1,048,576 cumulative binary bytes; and
 - 4,096 bits per integer magnitude.
 
-The limits apply at construction and evaluation. Evaluation also counts
+Flow construction validates each complete expression tree. `Jido.Expr.new/2`
+checks only operator and arity; use `Jido.Expr.validate/2` for a complete
+tree, including trusted parser leaves or macro pins. Parsing, validation,
+traversal, and evaluation apply their stated limits. Evaluation also counts
 resolved data, comparison work, and generated values. A Boolean tree must fit
 within the node limit even when evaluation skips an operand.
 

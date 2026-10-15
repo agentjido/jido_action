@@ -1,7 +1,8 @@
 Code.require_file("../support/runtime.exs", __DIR__)
 
 defmodule JidoActionTest.Property.Flow.ComponentContractTest do
-  use ExUnit.Case, async: true
+  use Covenant.Case, component: "jido_action.execution", async: true
+  @moduletag obligation: "jido_action.execution.I19"
   use ExUnitProperties
   @moduletag :property
   alias Jido.{Exec, Expr, Flow}
@@ -89,6 +90,7 @@ defmodule JidoActionTest.Property.Flow.ComponentContractTest do
          "EXEC-003/choice-fallback",
          "EFFECT-002/choice-failure"
        ]
+  @tag obligation: ["jido_action.execution.I17", "jido_action.execution.I19"]
   property "Choice uses the first match and never falls back after selected work fails" do
     check all(value <- integer(-50..50), max_runs: 25) do
       for {first, second, selected} <- [
