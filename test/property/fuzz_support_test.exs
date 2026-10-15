@@ -2,7 +2,7 @@ Code.require_file("support/fuzz.exs", __DIR__)
 Code.require_file("support/runtime.exs", __DIR__)
 
 defmodule JidoActionTest.Property.FuzzSupportTest do
-  use ExUnit.Case, async: true
+  use ExUnit.Case, async: false
   @moduletag :property
   alias Jido.Exec
   alias JidoActionTest.Property.{Fuzz, Runtime}
@@ -25,7 +25,7 @@ defmodule JidoActionTest.Property.FuzzSupportTest do
     opts = [root: root, seed: 0, max_runs: 10, examples: [0]]
 
     assert_raise ExUnit.AssertionError, fn ->
-      Fuzz.check("fault_probe", StreamData.integer(0..100), opts, fn value ->
+      check_expected_failure("fault_probe", StreamData.integer(0..100), opts, fn value ->
         assert value < 3
         ["below-three"]
       end)
@@ -43,7 +43,7 @@ defmodule JidoActionTest.Property.FuzzSupportTest do
 
     # The same failure is checked before any new random sample in the next run.
     assert_raise ExUnit.AssertionError, fn ->
-      Fuzz.check("fault_probe", StreamData.constant(0), opts, fn value ->
+      check_expected_failure("fault_probe", StreamData.constant(0), opts, fn value ->
         assert value < 3
         ["below-three"]
       end)
@@ -64,7 +64,7 @@ defmodule JidoActionTest.Property.FuzzSupportTest do
     token = make_ref()
 
     assert_raise RuntimeError, "probe", fn ->
-      Fuzz.check(
+      check_expected_failure(
         "cleanup_probe",
         StreamData.integer(1..10),
         [root: root, seed: 1, max_runs: 1],
@@ -104,7 +104,7 @@ defmodule JidoActionTest.Property.FuzzSupportTest do
 
     try do
       assert_raise RuntimeError, "one-time failure", fn ->
-        Fuzz.check(
+        check_expected_failure(
           "unstable_probe",
           StreamData.constant(0),
           [root: root, seed: 1, max_runs: 1],
@@ -159,7 +159,7 @@ defmodule JidoActionTest.Property.FuzzSupportTest do
 
   test "saved failures retain the owning public contracts", %{root: root} do
     assert_raise RuntimeError, "contract probe", fn ->
-      Fuzz.check(
+      check_expected_failure(
         "contract_failure",
         StreamData.constant(0),
         [root: root, max_runs: 1, contracts: ["EFFECT-001"]],
@@ -224,7 +224,7 @@ defmodule JidoActionTest.Property.FuzzSupportTest do
       for variant <- [:property, :fuzz] do
         Task.async(fn ->
           assert_raise RuntimeError, "shared failure", fn ->
-            Fuzz.check(
+            check_expected_failure(
               "shared_failure",
               StreamData.constant(0),
               [root: root, fuzz: variant == :fuzz],
@@ -267,6 +267,12 @@ defmodule JidoActionTest.Property.FuzzSupportTest do
              first["counterexample"] |> File.read!() |> JSON.decode!()
 
     assert Path.wildcard(Path.join(root, "**/*.tmp")) == []
+  end
+
+  defp check_expected_failure(id, generator, opts, assertion) do
+    ExUnit.CaptureIO.capture_io(:stderr, fn ->
+      Fuzz.check(id, generator, opts, assertion)
+    end)
   end
 
   defp stats(root, id, variant \\ :property),
