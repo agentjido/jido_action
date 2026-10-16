@@ -145,8 +145,7 @@ defmodule JidoAction.MixProject do
           "LICENSE"
         ],
         Upgrade: [
-          "guides/v2-to-v3-migration.md",
-          "guides/v2-to-v3-upgrade-skill.md"
+          "guides/v2-to-v3-migration.md"
         ],
         "Visual Test": [
           "guides/visual-test.md"
@@ -201,7 +200,6 @@ defmodule JidoAction.MixProject do
         {"LICENSE", title: "Apache 2.0 License"},
         # Upgrade
         {"guides/v2-to-v3-migration.md", title: "Version 2 To Version 3 Migration Guide"},
-        {"guides/v2-to-v3-upgrade-skill.md", title: "v2 To v3 Upgrade Skill"},
         # Visual Test
         {"guides/visual-test.md", title: "Visual Test: Flow Diagrams"}
       ],
