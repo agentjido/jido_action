@@ -46,6 +46,8 @@ defmodule FirstFlow.Greeting do
 end
 ```
 
+![Greeting Flow: normalize runs before greet](assets/flows/greeting.svg)
+
 Source order does not create a dependency. References and `needs:` create
 dependencies. The body is normal Elixir code. Jido compiles it to an ordinary
 Action; you do not need a separate Action module for each small operation.
@@ -236,6 +238,12 @@ defmodule FirstFlow.Checkout do
   end
 end
 ```
+
+![Checkout Flow: greeting and lines are independent; subtotal and pricing feed receipt](assets/flows/checkout.svg)
+
+Arrows show data dependencies. The greeting and line items form independent
+branches. The receipt waits for the greeting, the lines, and the selected
+price. The bottom pill shows the Flow output.
 
 Read each component from its references:
 

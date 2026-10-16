@@ -195,7 +195,7 @@ The authoring suite also runs complete README and guide examples against the
 package source. It skips install cells and fragments that need a surrounding
 module or application.
 
-Benchmarks are optional. See [benchmarks](benchmarks.md) for their commands.
+Benchmarks are optional. See [benchmarks](https://github.com/agentjido/jido_action/blob/release/v3/guides/benchmarks.md) for their commands.
 
 See [the property test guide](https://github.com/agentjido/jido_action/blob/release/v3/test/property/README.md) for bounds, replay,
 execution modes, and remaining coverage limits.

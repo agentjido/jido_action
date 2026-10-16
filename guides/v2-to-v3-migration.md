@@ -27,7 +27,7 @@ Upgrade one area at a time. Compile and test the application after each area.
 | Callback outputs and extra return values | [Keep map results or use an Output envelope](#keep-the-output-contract); [return effects as a list](#return-effects-as-a-list). |
 | Instruction fields and shorthand | [Build an explicit executable target](#instructions). |
 | Exec options, async handles, and supervisors | [Select immediate or managed execution and update policy](#execution). |
-| Plans, Chains, Closures, and continuation loops | [Use Flows or caller-owned functions](#flows-and-application-integrations). |
+| Plans, Chains, and Closures | [Use Flows or caller-owned functions](#flows-and-application-integrations). |
 | Stored version 2 data | [Write an explicit data migration](#migrate-stored-version-2-data-deliberately). |
 | Earlier version 3 beta APIs | [Apply the beta API replacements](#upgrading-from-earlier-v3-betas). |
 
@@ -416,16 +416,8 @@ Unknown options return a `Jido.Action.Error.ConfigurationError`. See
 
 ### Replace Async Handles
 
-Version 3 removes the Jido async handle and the version 2 step-wise Execution
-APIs. Replace `run_async`, `await`, `cancel`, `ready`, `step/1`, `wave`,
-`continue`, and `result` calls on an Execution value with one of these paths:
-
-- use `Jido.Exec.run/4` for immediate execution;
-- use `Jido.Exec.compile/2` for a native `Runic.Workflow`;
-- use `Jido.Exec.start/6` with a supervised `Runic.Runner` for managed work,
-  and `Jido.Exec.step/2` for manual dispatch;
-- use `Runic.Runner` to checkpoint and stop, `Jido.Exec.resume/4` to resume,
-  and `Jido.Exec.result(runner, execution_id)` to read a managed result.
+Version 2 provides `Jido.Exec.run_async/4`, `await/1,2`, and `cancel/1`.
+Version 3 removes these async handles.
 
 For in-memory background work, call `Jido.Exec.run/4` from your own supervised
 Task. Stop that Task to cancel the call. For work that must outlive the caller,
@@ -470,15 +462,6 @@ Managed execution does not use this option. `start/6` rejects
 Task Supervisor. A custom executor defines how its work runs.
 
 ## Flows And Application Integrations
-
-### Replace Continuation Loops
-
-Version 3 keeps control flow in Flow components, so Runic owns it. Use Choice
-for routing, Iterate for bounded loops, and Dispatch for runtime target
-selection. Only a Dispatch expander can return `{:continue, input, target}`.
-Any other Action that returns it fails with an `ExecutionFailureError` whose
-`details.reason` is `:unsupported_continuation`. See
-[Dynamic Flows](dynamic-flows.md).
 
 ### Replace Jido Plan With Jido Flow
 
@@ -578,7 +561,11 @@ compiled workflow or add checkpoint fields to Instructions.
 ## Upgrading From Earlier v3 Betas
 
 The `Jido.Exec` rebuild on Runic replaced the version 3 execution API that
-shipped through `3.0.0-beta.12`. Replace each removed API:
+shipped through `3.0.0-beta.12`. The execution-value APIs and root Action
+continuations below belong to earlier V3 betas, not V2. Apply this section
+only if your application used those beta APIs.
+
+Replace each removed API:
 
 | Removed | Replacement |
 | --- | --- |
@@ -611,6 +598,15 @@ Check these behavior changes:
   context and managed options to `Jido.Exec.resume/4` that you passed to
   `start/6`. Keep data that must be stored in params.
 
+### Replace Continuation Loops
+
+Version 3 keeps control flow in Flow components, so Runic owns it. Use Choice
+for routing, Iterate for bounded loops, and Dispatch for runtime target
+selection. Only a Dispatch expander can return `{:continue, input, target}`.
+Any other Action that returns it fails with an `ExecutionFailureError` whose
+`details.reason` is `:unsupported_continuation`. See
+[Dynamic Flows](dynamic-flows.md).
+
 ## Version 2 To Version 3 Migration Checklist
 
 1. Change the dependency to `jido_action` `3.0.0-beta.20`.
@@ -630,7 +626,8 @@ Check these behavior changes:
 10. Replace async handles with your own Task or managed execution. Select an
     explicit Task wait timeout.
 11. Remove the `Jido.Action.TaskSupervisor` child.
-12. Replace continuation loops with Choice, Iterate, or Dispatch.
+12. If upgrading from an earlier V3 beta, apply the API replacements in
+    [Upgrading From Earlier v3 Betas](#upgrading-from-earlier-v3-betas).
 13. Move rollback and compensation to their owning application service.
 14. Replace Plans, Chains, and Closures where the application uses them.
 15. Replace catalog, bundled-tool, and generator integrations.

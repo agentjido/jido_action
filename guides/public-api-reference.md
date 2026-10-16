@@ -7,7 +7,7 @@ record the evidence for the public promises.
 For a first example, use [Getting Started](getting-started.livemd) or
 [Build Your First Flow](build-your-first-flow.livemd). This document gives the
 exact boundaries needed to write callers, tests, tools, and stored data.
-The [contract review](public-api-contract-review.md) selects 15 proposed
+The [contract review](https://github.com/agentjido/jido_action/blob/release/v3/guides/public-api-contract-review.md) selects 15 proposed
 behavior obligations and maps all 36 register entries and 42 original
 obligations. It also records defects, documentation conflicts, and checks.
 

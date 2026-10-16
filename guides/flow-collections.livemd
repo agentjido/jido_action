@@ -70,6 +70,12 @@ defmodule FlowCollections.Example do
 end
 ```
 
+![Map doubles items in input order, then Reduce adds their values to a serial accumulator](assets/flows/map-reduce.svg)
+
+The side arrow shows that the output also reads the complete Map result.
+Map can run item calls concurrently; Reduce passes each accumulator to the
+next call. The values shown use the input `[1, 2, 3]`.
+
 ```elixir
 {:ok, %{items: items, total: %{total: 12}} = result} =
   Jido.Exec.run(FlowCollections.Example, %{values: [1, 2, 3]})

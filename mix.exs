@@ -138,17 +138,10 @@ defmodule JidoAction.MixProject do
         ],
         Reference: [
           "guides/public-api-reference.md",
-          "guides/public-api-contract-review.md",
-          "guides/public-contracts.md",
-          "guides/benchmarks.md",
-          "CHANGELOG.md",
-          "LICENSE"
+          "CHANGELOG.md"
         ],
         Upgrade: [
           "guides/v2-to-v3-migration.md"
-        ],
-        "Visual Test": [
-          "guides/visual-test.md"
         ]
       ],
       extras: [
@@ -193,17 +186,14 @@ defmodule JidoAction.MixProject do
          title: "Building DSLs With Inline Actions"},
         # Reference
         {"guides/public-api-reference.md", title: "Public API Reference"},
-        {"guides/public-api-contract-review.md", title: "Public API Contract Review"},
-        {"guides/public-contracts.md", title: "Public Contract Register"},
-        {"guides/benchmarks.md", title: "Execution Benchmarks"},
         {"CHANGELOG.md", title: "Changelog"},
-        {"LICENSE", title: "Apache 2.0 License"},
         # Upgrade
-        {"guides/v2-to-v3-migration.md", title: "Version 2 To Version 3 Migration Guide"},
-        # Visual Test
-        {"guides/visual-test.md", title: "Visual Test: Flow Diagrams"}
+        {"guides/v2-to-v3-migration.md", title: "Version 2 To Version 3 Migration Guide"}
       ],
-      assets: %{"guides/assets" => "assets"},
+      assets: %{
+        "guides/assets" => "assets",
+        "guides/assets/flows" => "guides/assets/flows"
+      },
       extra_section: "Guides",
       formatters: ["html"],
       # The migration guide names removed functions on purpose.

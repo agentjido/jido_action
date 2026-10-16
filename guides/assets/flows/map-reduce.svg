@@ -1,0 +1,40 @@
+<svg xmlns="http://www.w3.org/2000/svg" class="jfd" viewBox="0 0 640 754" width="640" height="754" role="img" aria-labelledby="title description">
+<title id="title">Map results and serial Reduce</title>
+<desc id="description">Input values one, two, and three are doubled. Map returns an ordered list of results even when calls overlap. Reduce starts with total zero and adds two, four, and six in order. The output includes both the Map list and the final total map.</desc>
+<style>
+.jfd{--jfd-bg:#fff;--jfd-card:hsl(207,43%,98.5%);--jfd-border:hsl(212,33%,91%);--jfd-text:hsl(218,73%,4%);--jfd-muted:hsl(240,5%,46%);--jfd-edge:hsl(210,21%,64%);--jfd-l:44%;--jfd-tint:.13;--jfd-sans:"Lato",system-ui,-apple-system,"Segoe UI",sans-serif;--jfd-monof:ui-monospace,SFMono-Regular,Menlo,monospace}
+@media (prefers-color-scheme:dark){.jfd{--jfd-bg:hsl(218,73%,4%);--jfd-card:hsl(216,52%,11%);--jfd-border:hsl(211,32%,22%);--jfd-text:hsl(212,33%,91%);--jfd-muted:hsl(210,21%,64%);--jfd-edge:hsl(210,21%,34%);--jfd-l:74%;--jfd-tint:.2}}
+.jfd text{font-family:var(--jfd-sans)}
+.jfd .jfd-mono,.jfd .jfd-mono *{font-family:var(--jfd-monof);font-size:11px;fill:var(--jfd-muted)}
+.jfd .jfd-edge{fill:none;stroke:var(--jfd-edge);stroke-width:1.6}
+.jfd .jfd-arrow{fill:var(--jfd-edge)}
+.jfd .jfd-card{fill:var(--jfd-card);stroke:hsl(var(--h) var(--s) 62%);stroke-width:1.5}
+.jfd .jfd-ghost{fill:var(--jfd-card);stroke:hsl(var(--h) var(--s) 62% / .45);stroke-width:1.2}
+.jfd .jfd-band{fill:hsl(var(--h) var(--s) 62% / var(--jfd-tint))}
+.jfd .jfd-icon{fill:hsl(var(--h) var(--s) var(--jfd-l))}
+.jfd .jfd-icon-line{fill:none;stroke:hsl(var(--h) var(--s) var(--jfd-l));stroke-width:1.8}
+.jfd .jfd-icon-text{font-family:var(--jfd-monof);font-size:12px;font-weight:700;fill:hsl(var(--h) var(--s) var(--jfd-l))}
+.jfd .jfd-kind{font-size:10px;font-weight:700;letter-spacing:.09em;fill:hsl(var(--h) var(--s) var(--jfd-l))}
+.jfd .jfd-name{font-size:15px;font-weight:700;fill:var(--jfd-text)}
+.jfd .jfd-chip{fill:hsl(var(--h) var(--s) 62% / var(--jfd-tint))}
+.jfd .jfd-chip-text{fill:hsl(var(--h) var(--s) var(--jfd-l))}
+.jfd .jfd-inner{fill:none;stroke:hsl(var(--h) var(--s) 62% / .7);stroke-dasharray:4 3}
+.jfd .jfd-inner-step{fill:var(--jfd-bg);stroke:var(--jfd-border)}
+.jfd .jfd-option{fill:var(--jfd-bg);stroke:var(--jfd-border)}
+.jfd .jfd-diamond{fill:hsl(var(--h) var(--s) var(--jfd-l))}
+.jfd .jfd-diamond-open{fill:none;stroke:hsl(var(--h) var(--s) var(--jfd-l));stroke-width:1.5}
+.jfd .jfd-option-name{font-size:12.5px;font-weight:700;fill:var(--jfd-text)}
+.jfd .jfd-option-cond{font-size:10.5px}
+.jfd .jfd-option-target{font-size:10.5px}
+.jfd .jfd-pill-box{fill:hsl(250 68% 62% / var(--jfd-tint));stroke:hsl(250 68% 62% / .55);stroke-width:1.3}
+.jfd .jfd-pill-title{font-size:12.5px;font-weight:700;fill:var(--jfd-text)}
+.jfd .jfd-field{fill:var(--jfd-bg);stroke:var(--jfd-border)}
+.jfd .jfd-label rect{fill:var(--jfd-bg);stroke:var(--jfd-border)}
+.jfd .jfd-label text{font-family:var(--jfd-monof);font-size:10.5px;fill:var(--jfd-muted)}
+
+.jfd .jfd-background{fill:var(--jfd-bg)}
+.jfd .jfd-control{stroke-dasharray:5 4}
+</style>
+<rect class="jfd-background" width="640" height="754" rx="12"/>
+<g transform="translate(155,20)"><rect class="jfd-pill-box" width="330" height="48" rx="16"/><text class="jfd-pill-title" x="165.0" y="19" text-anchor="middle">Flow input</text><text class="jfd-mono" x="165.0" y="36" text-anchor="middle">values: [1, 2, 3]</text></g><path class="jfd-edge" data-from="$input" data-to="doubled" d="M320,68 C320,89.0 320,89.0 320,103"/><polygon class="jfd-arrow" points="320,110 315.5,102 324.5,102"/><g class="jfd-node" style="--h:210;--s:62%" transform="translate(110,110)"><rect class="jfd-card" width="420" height="226" rx="10"/><path class="jfd-band" d="M0,26 V10 Q0,0 10,0 H410 Q420,0 420,10 V26 Z"/><text class="jfd-kind" x="14" y="18">MAP</text><text class="jfd-name" x="14" y="52">doubled</text><text class="jfd-mono" x="14" y="76">FlowCollections.Double: one call per item</text><rect class="jfd-option" x="14" y="90" width="392" height="48" rx="6"/><text class="jfd-option-name" x="26" y="109">1 -&gt; %{value: 2, index: 0}</text><text class="jfd-mono" x="26" y="126">2 -&gt; %{value: 4, index: 1}</text><text class="jfd-mono" x="26" y="157">3 -&gt; %{value: 6, index: 2}</text><text class="jfd-mono" x="14" y="186">Calls can overlap with max_concurrency &gt; 1.</text><text class="jfd-mono" x="14" y="206">The result list keeps input order.</text></g><path class="jfd-edge" data-from="doubled" data-to="total" d="M320,336 C320,364.0 320,364.0 320,385"/><polygon class="jfd-arrow" points="320,392 315.5,384 324.5,384"/><g class="jfd-node" style="--h:275;--s:62%" transform="translate(110,392)"><rect class="jfd-card" width="420" height="228" rx="10"/><path class="jfd-band" d="M0,26 V10 Q0,0 10,0 H410 Q420,0 420,10 V26 Z"/><text class="jfd-kind" x="14" y="18">REDUCE</text><text class="jfd-name" x="14" y="52">total</text><text class="jfd-mono" x="14" y="76">FlowCollections.Sum: one call at a time</text><rect class="jfd-option" x="14" y="90" width="392" height="48" rx="6"/><text class="jfd-option-name" x="26" y="109">initial %{total: 0}</text><text class="jfd-mono" x="26" y="126">+ 2 -&gt; %{total: 2}</text><text class="jfd-mono" x="26" y="157">+ 4 -&gt; %{total: 6}</text><text class="jfd-mono" x="26" y="179">+ 6 -&gt; %{total: 12}</text><text class="jfd-mono" x="14" y="208">Each result becomes the next accumulator.</text></g><path class="jfd-edge" data-from="total" data-to="$output" d="M320,620 C320,651.0 320,651.0 320,675"/><polygon class="jfd-arrow" points="320,682 315.5,674 324.5,674"/><path class="jfd-edge" data-from="doubled" data-to="$output" d="M530,280 H580 V654 Q580,668 562,668 H510 V675"/><polygon class="jfd-arrow" points="510,682 505.5,674 514.5,674"/><g transform="translate(70,682)"><rect class="jfd-pill-box" width="500" height="48" rx="16"/><text class="jfd-pill-title" x="250.0" y="19" text-anchor="middle">output</text><text class="jfd-mono" x="250.0" y="36" text-anchor="middle">%{items: result(&quot;doubled&quot;), total: result(&quot;total&quot;)}</text></g>
+</svg>

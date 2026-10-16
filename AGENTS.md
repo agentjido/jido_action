@@ -236,8 +236,10 @@ current form.
 | Module docs | Users | The API reference |
 | `CHANGELOG.md` | Users | Release history; `git_ops` manages released entries |
 
-The ExDoc sidebar groups and module groups live in `mix.exs`. Add every new
-guide to `extras` and `groups_for_extras`.
+The ExDoc sidebar groups and module groups live in `mix.exs`. Add user guides
+to `extras` and `groups_for_extras`. Keep contributor review records, contract
+registers, and benchmark instructions in the repository without sidebar
+entries. Published pages must use repository links to files outside ExDoc.
 
 ### Rules
 
@@ -257,6 +259,26 @@ guide to `extras` and `groups_for_extras`.
 - Add `@spec` and `@typedoc` for public data and functions. Add
   `@moduledoc false` or `@doc false` for internal surfaces.
 - Do not document a feature before tests establish its exact behavior.
+
+### Flow Diagrams
+
+- Keep standalone SVG diagrams in `guides/assets/flows/`. Copy the existing
+  card, kind label, arrow, and input/output pill pattern.
+- Put a diagram directly after the Flow definition it explains. Add a short
+  caption when branching, collection work, or ordering needs explanation.
+- Match component names, references, and output to `Jido.Flow.explain/1` and
+  `Jido.Flow.dependencies/1`. Solid arrows show data dependencies. Dashed
+  arrows show `needs:` control dependencies. Layout does not define execution
+  order or concurrency.
+- Include a `viewBox`, an SVG title and description, and descriptive Markdown
+  alt text. Keep assets self-contained, with a background and readable light
+  and dark palettes. Image palettes follow the system color preference;
+  embedded SVG images cannot read ExDoc's page theme variables.
+- In a guide, use `![Flow description](assets/flows/example.svg)`. In the
+  package README, use `![Flow description](guides/assets/flows/example.svg)`.
+  ExDoc copies these assets and GitHub renders the README image links.
+- Check the diagram against the example whenever its Flow changes. Use
+  diagrams for graphs and control flow; keep small API fragments as code.
 
 ### Guide-Backed Tests
 

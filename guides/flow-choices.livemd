@@ -52,6 +52,11 @@ defmodule FlowChoices.Example do
 end
 ```
 
+![Choice route tests urgent before priority, then uses otherwise if neither matches](assets/flows/choice.svg)
+
+The rows show option order, not parallel branches. Only the selected Action
+runs. An Action failure fails the Choice; it does not select `otherwise`.
+
 ```elixir
 {:ok, urgent} =
   Jido.Exec.run(FlowChoices.Example, %{id: 1, priority: 100})

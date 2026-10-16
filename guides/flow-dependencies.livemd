@@ -53,6 +53,8 @@ defmodule FlowDependencies.Diamond do
 end
 ```
 
+![Diamond Flow: left and right both feed join](assets/flows/diamond.svg)
+
 `left` and `right` are independent. `join` depends on both because its
 `params` read both results. `Jido.Flow.dependencies/1` returns the graph:
 
@@ -90,6 +92,11 @@ end
 {:ok, %{"publish" => publish}} = Jido.Flow.dependencies(FlowDependencies.Publish.flow())
 publish
 ```
+
+![Publish Flow: publish reads render and waits for audit](assets/flows/publish.svg)
+
+The solid arrow from `render` carries a data dependency. The dashed arrow
+from `audit` is the `needs:` control dependency; it passes no result data.
 
 Each entry keeps the two sources separate. `needs` lists explicit control
 dependencies. `references` lists components read through result references.

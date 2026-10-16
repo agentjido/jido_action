@@ -58,6 +58,12 @@ defmodule NestedFlows.Parent do
 end
 ```
 
+![Parent Flow passes input into child, reads the child output in finish, and returns the final value](assets/flows/nested.svg)
+
+The expanded `child` card shows its own input, step, and output. The parent
+reads the child output through `result("child", :value)`. Values shown use
+the parent input `%{value: 1}`.
+
 ```elixir
 {:ok, %{value: 3}} =
   Jido.Exec.run(NestedFlows.Parent, %{value: 1})

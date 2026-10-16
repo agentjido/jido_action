@@ -1,0 +1,40 @@
+<svg xmlns="http://www.w3.org/2000/svg" class="jfd" viewBox="0 0 520 530" width="520" height="530" role="img" aria-labelledby="title description">
+<title id="title">Ordered Choice routes</title>
+<desc id="description">FlowChoices.Example tests urgent before priority. Only the first matching Action runs. Otherwise selects the standard queue when neither option matches. Action failure fails the Choice; it does not select otherwise.</desc>
+<style>
+.jfd{--jfd-bg:#fff;--jfd-card:hsl(207,43%,98.5%);--jfd-border:hsl(212,33%,91%);--jfd-text:hsl(218,73%,4%);--jfd-muted:hsl(240,5%,46%);--jfd-edge:hsl(210,21%,64%);--jfd-l:44%;--jfd-tint:.13;--jfd-sans:"Lato",system-ui,-apple-system,"Segoe UI",sans-serif;--jfd-monof:ui-monospace,SFMono-Regular,Menlo,monospace}
+@media (prefers-color-scheme:dark){.jfd{--jfd-bg:hsl(218,73%,4%);--jfd-card:hsl(216,52%,11%);--jfd-border:hsl(211,32%,22%);--jfd-text:hsl(212,33%,91%);--jfd-muted:hsl(210,21%,64%);--jfd-edge:hsl(210,21%,34%);--jfd-l:74%;--jfd-tint:.2}}
+.jfd text{font-family:var(--jfd-sans)}
+.jfd .jfd-mono,.jfd .jfd-mono *{font-family:var(--jfd-monof);font-size:11px;fill:var(--jfd-muted)}
+.jfd .jfd-edge{fill:none;stroke:var(--jfd-edge);stroke-width:1.6}
+.jfd .jfd-arrow{fill:var(--jfd-edge)}
+.jfd .jfd-card{fill:var(--jfd-card);stroke:hsl(var(--h) var(--s) 62%);stroke-width:1.5}
+.jfd .jfd-ghost{fill:var(--jfd-card);stroke:hsl(var(--h) var(--s) 62% / .45);stroke-width:1.2}
+.jfd .jfd-band{fill:hsl(var(--h) var(--s) 62% / var(--jfd-tint))}
+.jfd .jfd-icon{fill:hsl(var(--h) var(--s) var(--jfd-l))}
+.jfd .jfd-icon-line{fill:none;stroke:hsl(var(--h) var(--s) var(--jfd-l));stroke-width:1.8}
+.jfd .jfd-icon-text{font-family:var(--jfd-monof);font-size:12px;font-weight:700;fill:hsl(var(--h) var(--s) var(--jfd-l))}
+.jfd .jfd-kind{font-size:10px;font-weight:700;letter-spacing:.09em;fill:hsl(var(--h) var(--s) var(--jfd-l))}
+.jfd .jfd-name{font-size:15px;font-weight:700;fill:var(--jfd-text)}
+.jfd .jfd-chip{fill:hsl(var(--h) var(--s) 62% / var(--jfd-tint))}
+.jfd .jfd-chip-text{fill:hsl(var(--h) var(--s) var(--jfd-l))}
+.jfd .jfd-inner{fill:none;stroke:hsl(var(--h) var(--s) 62% / .7);stroke-dasharray:4 3}
+.jfd .jfd-inner-step{fill:var(--jfd-bg);stroke:var(--jfd-border)}
+.jfd .jfd-option{fill:var(--jfd-bg);stroke:var(--jfd-border)}
+.jfd .jfd-diamond{fill:hsl(var(--h) var(--s) var(--jfd-l))}
+.jfd .jfd-diamond-open{fill:none;stroke:hsl(var(--h) var(--s) var(--jfd-l));stroke-width:1.5}
+.jfd .jfd-option-name{font-size:12.5px;font-weight:700;fill:var(--jfd-text)}
+.jfd .jfd-option-cond{font-size:10.5px}
+.jfd .jfd-option-target{font-size:10.5px}
+.jfd .jfd-pill-box{fill:hsl(250 68% 62% / var(--jfd-tint));stroke:hsl(250 68% 62% / .55);stroke-width:1.3}
+.jfd .jfd-pill-title{font-size:12.5px;font-weight:700;fill:var(--jfd-text)}
+.jfd .jfd-field{fill:var(--jfd-bg);stroke:var(--jfd-border)}
+.jfd .jfd-label rect{fill:var(--jfd-bg);stroke:var(--jfd-border)}
+.jfd .jfd-label text{font-family:var(--jfd-monof);font-size:10.5px;fill:var(--jfd-muted)}
+
+.jfd .jfd-background{fill:var(--jfd-bg)}
+.jfd .jfd-control{stroke-dasharray:5 4}
+</style>
+<rect class="jfd-background" width="520" height="530" rx="12"/>
+<g transform="translate(125,20)"><rect class="jfd-pill-box" width="270" height="48" rx="16"/><text class="jfd-pill-title" x="135.0" y="19" text-anchor="middle">Flow input</text><text class="jfd-mono" x="135.0" y="36" text-anchor="middle">priority, id</text></g><path class="jfd-edge" data-from="$input" data-to="route" d="M260,68 C260,89.0 260,89.0 260,103"/><polygon class="jfd-arrow" points="260,110 255.5,102 264.5,102"/><g class="jfd-node" style="--h:35;--s:62%" transform="translate(70,110)"><rect class="jfd-card" width="380" height="298" rx="10"/><path class="jfd-band" d="M0,26 V10 Q0,0 10,0 H370 Q380,0 380,10 V26 Z"/><text class="jfd-kind" x="14" y="18">CHOICE</text><text class="jfd-name" x="14" y="52">route</text><text class="jfd-mono" x="14" y="76">Test options in order. Run one Action.</text><rect class="jfd-option" x="14" y="90" width="352" height="48" rx="6"/><text class="jfd-option-name" x="26" y="109">1. urgent: priority &gt;= 90</text><text class="jfd-mono" x="26" y="126">FlowChoices.Route / queue: :urgent</text><rect class="jfd-option" x="14" y="148" width="352" height="48" rx="6"/><text class="jfd-option-name" x="26" y="167">2. priority: priority &gt;= 50</text><text class="jfd-mono" x="26" y="184">FlowChoices.Route / queue: :priority</text><rect class="jfd-option" x="14" y="206" width="352" height="48" rx="6"/><text class="jfd-option-name" x="26" y="225">otherwise: no option matched</text><text class="jfd-mono" x="26" y="242">FlowChoices.Route / queue: :standard</text><text class="jfd-mono" x="14" y="278">First match wins; pass id to the selected Action.</text></g><path class="jfd-edge" data-from="route" data-to="$output" d="M260,408 C260,432.0 260,432.0 260,449"/><polygon class="jfd-arrow" points="260,456 255.5,448 264.5,448"/><g transform="translate(110,456)"><rect class="jfd-pill-box" width="300" height="48" rx="16"/><text class="jfd-pill-title" x="150.0" y="19" text-anchor="middle">output</text><text class="jfd-mono" x="150.0" y="36" text-anchor="middle">%{route: result(&quot;route&quot;)}</text></g>
+</svg>

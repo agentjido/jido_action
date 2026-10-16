@@ -1,0 +1,49 @@
+<svg xmlns="http://www.w3.org/2000/svg" class="jfd" viewBox="0 0 630 508" width="630" height="508" role="img" aria-labelledby="title description">
+<title id="title">Diamond dependencies</title>
+<desc id="description">The input value feeds independent left and right steps. The join step waits for both results. The output is a map with the joined result.</desc>
+<style>
+.jfd{--jfd-bg:#fff;--jfd-card:hsl(207,43%,98.5%);--jfd-border:hsl(212,33%,91%);--jfd-text:hsl(218,73%,4%);--jfd-muted:hsl(240,5%,46%);--jfd-edge:hsl(210,21%,64%);--jfd-l:44%;--jfd-tint:.13;--jfd-sans:"Lato",system-ui,-apple-system,"Segoe UI",sans-serif;--jfd-monof:ui-monospace,SFMono-Regular,Menlo,monospace}
+@media (prefers-color-scheme:dark){.jfd{--jfd-bg:hsl(218,73%,4%);--jfd-card:hsl(216,52%,11%);--jfd-border:hsl(211,32%,22%);--jfd-text:hsl(212,33%,91%);--jfd-muted:hsl(210,21%,64%);--jfd-edge:hsl(210,21%,34%);--jfd-l:74%;--jfd-tint:.2}}
+.jfd text{font-family:var(--jfd-sans)}
+.jfd .jfd-mono,.jfd .jfd-mono *{font-family:var(--jfd-monof);font-size:11px;fill:var(--jfd-muted)}
+.jfd .jfd-edge{fill:none;stroke:var(--jfd-edge);stroke-width:1.6}
+.jfd .jfd-arrow{fill:var(--jfd-edge)}
+.jfd .jfd-card{fill:var(--jfd-card);stroke:hsl(var(--h) var(--s) 62%);stroke-width:1.5}
+.jfd .jfd-ghost{fill:var(--jfd-card);stroke:hsl(var(--h) var(--s) 62% / .45);stroke-width:1.2}
+.jfd .jfd-band{fill:hsl(var(--h) var(--s) 62% / var(--jfd-tint))}
+.jfd .jfd-icon{fill:hsl(var(--h) var(--s) var(--jfd-l))}
+.jfd .jfd-icon-line{fill:none;stroke:hsl(var(--h) var(--s) var(--jfd-l));stroke-width:1.8}
+.jfd .jfd-icon-text{font-family:var(--jfd-monof);font-size:12px;font-weight:700;fill:hsl(var(--h) var(--s) var(--jfd-l))}
+.jfd .jfd-kind{font-size:10px;font-weight:700;letter-spacing:.09em;fill:hsl(var(--h) var(--s) var(--jfd-l))}
+.jfd .jfd-name{font-size:15px;font-weight:700;fill:var(--jfd-text)}
+.jfd .jfd-chip{fill:hsl(var(--h) var(--s) 62% / var(--jfd-tint))}
+.jfd .jfd-chip-text{fill:hsl(var(--h) var(--s) var(--jfd-l))}
+.jfd .jfd-inner{fill:none;stroke:hsl(var(--h) var(--s) 62% / .7);stroke-dasharray:4 3}
+.jfd .jfd-inner-step{fill:var(--jfd-bg);stroke:var(--jfd-border)}
+.jfd .jfd-option{fill:var(--jfd-bg);stroke:var(--jfd-border)}
+.jfd .jfd-diamond{fill:hsl(var(--h) var(--s) var(--jfd-l))}
+.jfd .jfd-diamond-open{fill:none;stroke:hsl(var(--h) var(--s) var(--jfd-l));stroke-width:1.5}
+.jfd .jfd-option-name{font-size:12.5px;font-weight:700;fill:var(--jfd-text)}
+.jfd .jfd-option-cond{font-size:10.5px}
+.jfd .jfd-option-target{font-size:10.5px}
+.jfd .jfd-pill-box{fill:hsl(250 68% 62% / var(--jfd-tint));stroke:hsl(250 68% 62% / .55);stroke-width:1.3}
+.jfd .jfd-pill-title{font-size:12.5px;font-weight:700;fill:var(--jfd-text)}
+.jfd .jfd-field{fill:var(--jfd-bg);stroke:var(--jfd-border)}
+.jfd .jfd-label rect{fill:var(--jfd-bg);stroke:var(--jfd-border)}
+.jfd .jfd-label text{font-family:var(--jfd-monof);font-size:10.5px;fill:var(--jfd-muted)}
+
+.jfd .jfd-background{fill:var(--jfd-bg)}
+.jfd .jfd-control{stroke-dasharray:5 4}
+</style>
+<rect class="jfd-background" width="630" height="508" rx="12"/>
+<path class="jfd-edge" data-from="$input" data-to="left" d="M285,68 C285,99.0 172,99.0 172,123"/><polygon class="jfd-arrow" points="172,130 167.5,122 176.5,122"/>
+<path class="jfd-edge" data-from="$input" data-to="right" d="M345,68 C345,99.0 458,99.0 458,123"/><polygon class="jfd-arrow" points="458,130 453.5,122 462.5,122"/>
+<path class="jfd-edge" data-from="left" data-to="join" d="M172,224 C172,254.5 280,254.5 280,278"/><polygon class="jfd-arrow" points="280,285 275.5,277 284.5,277"/>
+<path class="jfd-edge" data-from="right" data-to="join" d="M458,224 C458,254.5 350,254.5 350,278"/><polygon class="jfd-arrow" points="350,285 345.5,277 354.5,277"/>
+<path class="jfd-edge" data-from="join" data-to="$output" d="M315,379 C315,399.5 315,399.5 315,413"/><polygon class="jfd-arrow" points="315,420 310.5,412 319.5,412"/>
+<g transform="translate(245.0,20)"><rect class="jfd-pill-box" width="140" height="48" rx="16"/><text class="jfd-pill-title" x="70.0" y="19" text-anchor="middle">Flow input</text><text class="jfd-mono" x="70.0" y="36" text-anchor="middle">value</text></g>
+<g class="jfd-node" style="--h:174;--s:62%" transform="translate(60,130)"><rect class="jfd-card" width="224" height="94" rx="10"/><path class="jfd-band" d="M0,26 V10 Q0,0 10,0 H214 Q224,0 224,10 V26 Z"/><text class="jfd-kind" x="14" y="18">STEP</text><text class="jfd-name" x="14" y="52">left</text><text class="jfd-mono" x="14" y="74">FlowDependencies.Echo</text></g>
+<g class="jfd-node" style="--h:174;--s:62%" transform="translate(346,130)"><rect class="jfd-card" width="224" height="94" rx="10"/><path class="jfd-band" d="M0,26 V10 Q0,0 10,0 H214 Q224,0 224,10 V26 Z"/><text class="jfd-kind" x="14" y="18">STEP</text><text class="jfd-name" x="14" y="52">right</text><text class="jfd-mono" x="14" y="74">FlowDependencies.Echo</text></g>
+<g class="jfd-node" style="--h:174;--s:62%" transform="translate(203,285)"><rect class="jfd-card" width="224" height="94" rx="10"/><path class="jfd-band" d="M0,26 V10 Q0,0 10,0 H214 Q224,0 224,10 V26 Z"/><text class="jfd-kind" x="14" y="18">STEP</text><text class="jfd-name" x="14" y="52">join</text><text class="jfd-mono" x="14" y="74">FlowDependencies.Echo</text></g>
+<g transform="translate(210.0,420)"><rect class="jfd-pill-box" width="210" height="48" rx="16"/><text class="jfd-pill-title" x="105.0" y="19" text-anchor="middle">output</text><text class="jfd-mono" x="105.0" y="36" text-anchor="middle">%{joined: result(&quot;join&quot;)}</text></g>
+</svg>

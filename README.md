@@ -136,6 +136,8 @@ end
   Jido.Exec.run(MyApp.Flows.Welcome, %{name: "Ada"})
 ```
 
+![Welcome Flow: input name passes through greet and notify to the output](guides/assets/flows/welcome.svg)
+
 `"notify"` reads the result of `"greet"`, so it runs after it. Source order
 does not create dependencies. Independent steps can run concurrently when
 you pass `max_concurrency:`.
@@ -254,4 +256,4 @@ See the [contribution guide](https://github.com/agentjido/jido_action/blob/main/
 ## License
 
 Copyright 2024-2026 Mike Hostetler. Licensed under the Apache License, Version
-2.0. See [LICENSE](LICENSE).
+2.0. See [LICENSE](https://github.com/agentjido/jido_action/blob/release/v3/LICENSE).
