@@ -280,7 +280,7 @@ defmodule JidoAction.MixProject do
       # Development & Test Dependencies
       {:covenant,
        github: "mikehostetler/covenant",
-       ref: "cf09f6c17c0847cdadd3f1297ba536d49623e328",
+       ref: "7b089eae2a6cf4347324cbdde232c20b5663ef90",
        only: [:dev, :test],
        runtime: false},
       {:git_ops, "~> 2.9", only: :dev, runtime: false},
