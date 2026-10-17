@@ -278,11 +278,7 @@ defmodule JidoAction.MixProject do
       {:spark, "~> 2.7.3"},
 
       # Development & Test Dependencies
-      {:covenant,
-       github: "mikehostetler/covenant",
-       ref: "7b089eae2a6cf4347324cbdde232c20b5663ef90",
-       only: [:dev, :test],
-       runtime: false},
+      {:covenant, "~> 0.2.0", only: [:dev, :test], runtime: false},
       {:git_ops, "~> 2.9", only: :dev, runtime: false},
       {:git_hooks, "~> 0.8", only: [:dev, :test], runtime: false},
       {:credo, "~> 1.7", only: [:dev, :test]},

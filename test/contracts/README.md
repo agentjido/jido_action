@@ -4,7 +4,7 @@ The contract files under `test/contracts` define the requirements checked by
 the tagged tests. See the stable
 [public register](../../guides/public-contracts.md).
 
-Mix fetches the pinned Covenant fork. No local Covenant checkout is required:
+Mix fetches Covenant 0.2 from Hex. No local Covenant checkout is required:
 
 ```sh
 export ERL_FLAGS="+S 2:2 +SDcpu 1 +SDio 1"
@@ -12,7 +12,7 @@ mix deps.get
 mix test.contracts
 ```
 
-The Git dependency in `mix.exs` includes macro and protocol mutation support.
+The Hex dependency in `mix.exs` includes macro and protocol mutation support.
 It is used in development and tests only. `config/config.exs` sets
 `contracts_dir: "test/contracts"`.
 
