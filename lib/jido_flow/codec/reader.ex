@@ -108,6 +108,15 @@ defmodule Jido.Flow.Codec.Reader do
   defp field(:state, value, registry, stored, canonical),
     do: record(value, Component.state_fields(), registry, stored, canonical)
 
+  defp field(:wait_options, values, registry, stored, canonical),
+    do:
+      sequence(
+        values,
+        &record(&1, Component.wait_option_fields(), registry, &2, &3),
+        stored,
+        canonical
+      )
+
   defp field(:options, values, registry, stored, canonical),
     do:
       sequence(
@@ -134,7 +143,7 @@ defmodule Jido.Flow.Codec.Reader do
   defp component(%{"kind" => kind} = value, registry, stored, canonical) do
     kind =
       Enum.find(
-        [:call, :choice, :map, :reduce, :iterate, :dispatch],
+        [:call, :choice, :map, :reduce, :iterate, :dispatch, :wait],
         &(Atom.to_string(&1) == kind)
       )
 

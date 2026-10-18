@@ -143,6 +143,8 @@ defmodule Jido.Flow.Definition do
 
   @doc false
   @spec calls(component_node()) :: [{atom(), Component.target(), Value.t()}]
+  def calls(%{kind: :wait}), do: []
+
   def calls(%{kind: :call, call: call}), do: [{:call, call, call.params}]
 
   def calls(%{kind: :choice, options: options, fallback: fallback}) do
@@ -158,6 +160,8 @@ defmodule Jido.Flow.Definition do
 
   @doc false
   @spec values(component_node()) :: [Value.t()]
+  def values(%{kind: :wait, options: options}), do: Enum.map(options, & &1.match)
+
   def values(%{kind: :call, call: call}), do: [call.params]
 
   def values(%{kind: :choice, options: options, fallback: fallback}),

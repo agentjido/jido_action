@@ -104,9 +104,16 @@ defmodule Jido.Exec do
 
   defp span(%Instruction{}, work), do: work.()
 
+  defp reject_waits(workflow) do
+    if Enum.any?(Multigraph.vertices(workflow.graph), &is_struct(&1, Jido.Exec.Node.Wait)),
+      do: {:error, Jido.Exec.Node.Wait.unsupported()},
+      else: :ok
+  end
+
   defp do_run_instruction(instruction, opts) do
     with {:ok, instruction} <- validate_flow_input(instruction),
          {:ok, workflow} <- compile(instruction),
+         :ok <- reject_waits(workflow),
          {:ok, workflow, observation} <-
            run_workflow(workflow, execution_input(instruction), instruction.context, opts) do
       result(workflow, observation)
@@ -129,6 +136,7 @@ defmodule Jido.Exec do
          {:ok, instruction} <- validate_flow_input(instruction),
          :ok <- validate_durable_instruction(instruction),
          {:ok, workflow} <- compile(%{instruction | context: %{}}),
+         :ok <- reject_waits(workflow),
          {:ok, policy, worker_opts} <- managed_options(runner, execution_id, opts),
          {:ok, pid} <-
            Runic.Runner.start_workflow(runner, execution_id, workflow, worker_opts) do

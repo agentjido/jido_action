@@ -172,6 +172,12 @@ defmodule Jido.Flow.DSL.Macros do
     end
   end
 
+  defmacro timer(name, options), do: named_entity(name, options, "Timer", :__timer__, __CALLER__)
+  defmacro await(name, options), do: named_entity(name, options, "Await", :__await__, __CALLER__)
+
+  defmacro selection(name, options),
+    do: named_block_entity(name, options, "Selection", :__selection__, __CALLER__)
+
   defmacro dispatch(name, options) do
     named_entity(name, options, "Dispatch", :__dispatch__, __CALLER__)
   end
@@ -295,5 +301,32 @@ defmodule Jido.Flow.DSL.IterateMacros do
 
   defp extension_module(segments) do
     Module.concat(["Jido", "Flow", "DSL", "Extension" | segments])
+  end
+end
+
+defmodule Jido.Flow.DSL.SelectionMacros do
+  @moduledoc false
+  alias Jido.Flow.DSL.MacroSupport
+
+  defmacro timer(name, options) do
+    MacroSupport.entity(
+      [name],
+      options,
+      Jido.Flow.DSL.Extension.Flow.Selection.TimerOption,
+      :__timer_option__,
+      __CALLER__,
+      {"Selection timer", "one Selection timer"}
+    )
+  end
+
+  defmacro await(name, options) do
+    MacroSupport.entity(
+      [name],
+      options,
+      Jido.Flow.DSL.Extension.Flow.Selection.AwaitOption,
+      :__await_option__,
+      __CALLER__,
+      {"Selection await", "one Selection await"}
+    )
   end
 end

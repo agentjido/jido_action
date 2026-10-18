@@ -6,6 +6,7 @@ defmodule Jido.Flow.Component do
 
   @common [name: :name, needs: :needs, meta: :meta]
   @fields %{
+    wait: [options: :wait_options],
     call: [call: {:call, [:action, :flow], :flow}],
     choice: [options: :options, fallback: {:call, [:action], :flow}],
     map: [
@@ -26,6 +27,7 @@ defmodule Jido.Flow.Component do
     ],
     dispatch: [decision: {:call, [:action], :flow}, expander: {:target, [:action]}]
   }
+  @wait_option [name: :name, event: :event, match: {:value, :flow}, after_ms: :delay]
   @option [name: :name, condition: {:condition, :flow}, call: {:call, [:action], :flow}]
   @state [schema: :schema, initial: {:value, :iterate_initial}, update: {:value, :iterate_update}]
   @maximum_iterations 10_000
@@ -49,6 +51,10 @@ defmodule Jido.Flow.Component do
   @doc false
   @spec option_fields() :: keyword()
   def option_fields, do: @option
+
+  @doc false
+  @spec wait_option_fields() :: keyword()
+  def wait_option_fields, do: @wait_option
 
   @doc false
   @spec state_fields() :: keyword()
@@ -89,6 +95,39 @@ defmodule Jido.Flow.Component do
 
   @doc false
   @spec authoring(map()) :: map() | FieldError.t()
+  def authoring(%{kind: kind} = attrs) when kind in [:timer, :await] do
+    option =
+      attrs
+      |> Map.take([:name, :event, :match, :after_ms])
+      |> Map.put_new(:event, nil)
+      |> Map.put_new(:match, %{})
+      |> Map.put_new(:after_ms, nil)
+
+    attrs
+    |> Map.drop([:event, :match, :after_ms])
+    |> Map.put(:kind, :wait)
+    |> Map.put(:options, [option])
+  end
+
+  def authoring(%{kind: :selection, options: options} = attrs) when is_list(options) do
+    options =
+      Enum.map(options, fn option ->
+        case option do
+          %{kind: kind} when kind in [:timer, :await] ->
+            option
+            |> Map.delete(:kind)
+            |> Map.put_new(:event, nil)
+            |> Map.put_new(:match, %{})
+            |> Map.put_new(:after_ms, nil)
+
+          other ->
+            other
+        end
+      end)
+
+    attrs |> Map.put(:kind, :wait) |> Map.put(:options, options)
+  end
+
   def authoring(%{kind: :call}) do
     %FieldError{
       errors: [
@@ -321,6 +360,39 @@ defmodule Jido.Flow.Component do
 
   defp validate(:maximum_iterations, _value, _mode),
     do: failure("iterate max_iterations must be an integer from 1 to 10000")
+
+  defp validate(:event, nil, _mode), do: {:ok, nil}
+
+  defp validate(:event, value, _mode) when is_binary(value) and byte_size(value) > 0,
+    do: {:ok, value}
+
+  defp validate(:event, _value, _mode), do: failure("wait event must be a non-empty string")
+  defp validate(:delay, nil, _mode), do: {:ok, nil}
+
+  defp validate(:delay, value, _mode) when is_integer(value) and value >= 0,
+    do: {:ok, value}
+
+  defp validate(:delay, _value, _mode), do: failure("wait delay must be a non-negative integer")
+
+  defp validate(:wait_options, values, mode) when is_list(values) do
+    if values != [] and not List.improper?(values) do
+      with {:ok, options} <- sequence(values, &record(&1, @wait_option, mode)) do
+        valid? =
+          Enum.all?(options, fn o ->
+            (is_nil(o.event) and is_integer(o.after_ms) and o.match == %{}) or
+              (is_binary(o.event) and is_nil(o.after_ms) and is_map(o.match))
+          end)
+
+        if valid? and length(Enum.uniq_by(options, & &1.name)) == length(options),
+          do: {:ok, options},
+          else: failure("wait options need unique names and exactly one timer or event")
+      end
+    else
+      failure("wait options must be a non-empty proper list")
+    end
+  end
+
+  defp validate(:wait_options, _value, _mode), do: failure("wait options must be a list")
 
   defp validate(:options, values, mode) when is_list(values) do
     cond do
