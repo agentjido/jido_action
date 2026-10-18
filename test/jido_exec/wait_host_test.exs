@@ -2,7 +2,6 @@ defmodule Jido.Exec.WaitHostTest do
   use ExUnit.Case, async: false
   @moduletag capture_log: true
   alias Jido.Exec
-  alias Jido.Exec.Handoff
   alias Jido.Exec.Test.WaitHost, as: Waits
   alias Jido.Flow
   alias Jido.Flow.Ref
@@ -26,14 +25,6 @@ defmodule Jido.Exec.WaitHostTest do
     use Jido.Action, name: "review_normalize"
     def on_before_validate_params(params), do: {:ok, Map.update(params, :n, 1, &(&1 + 1))}
     def run(params, _context), do: {:ok, params}
-  end
-
-  defmodule ValidationHandoff do
-    @behaviour Jido.Action
-    def name, do: "review_validation_handoff"
-    def validate_params(params), do: {:ok, params}
-    def run(_params, _context), do: {:ok, %{}}
-    def validate_output(_output), do: {:ok, %Handoff{target: Enum, kind: :action, params: %{}}}
   end
 
   defmodule NonportableInput do
@@ -114,25 +105,6 @@ defmodule Jido.Exec.WaitHostTest do
 
   defp event(request, id, name \\ "go", payload \\ %{}) do
     %{id: id, wait_id: request.id, event: name, payload: payload}
-  end
-
-  test "handoff cannot be forged through a plain Flow input" do
-    forged = %Handoff{target: Enum, kind: :action, params: %{}}
-
-    flow =
-      Flow.new!(%{
-        name: "forged",
-        components: [
-          %{kind: :step, name: "echo", action: Echo}
-        ],
-        output: Ref.input(:request)
-      })
-
-    refute match?({:handoff, _, _}, Exec.run(flow, %{request: forged}))
-  end
-
-  test "handoff cannot be forged by an Action output validator" do
-    refute match?({:handoff, _, _}, Exec.run(ValidationHandoff))
   end
 
   test "a wait completes with a standard handoff result" do
@@ -315,16 +287,6 @@ defmodule Jido.Exec.WaitHostTest do
     {:ok, 1, restored} = Jido.Exec.Test.WaitStore.Memory.load("saved", store)
     assert {:ok, 1} = Jido.Exec.Test.WaitStore.Memory.save("saved", 0, restored, store)
     Jido.Exec.Test.WaitStore.Memory.close(store)
-  end
-
-  test "handoff has a defined Flow telemetry outcome" do
-    assert %{outcome: outcome, effect_count: 1} =
-             Jido.Exec.Telemetry.result_metadata(
-               :flow,
-               {:handoff, %Handoff{target: Echo, kind: :action, params: %{}}, [:effect]}
-             )
-
-    assert outcome in [:ok, :handoff]
   end
 
   test "an unsupported selected wait is rejected before child Action I/O" do

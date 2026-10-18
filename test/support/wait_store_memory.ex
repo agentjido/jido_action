@@ -1,7 +1,6 @@
 defmodule Jido.Exec.Test.WaitStore.Memory do
   @moduledoc false
 
-  @behaviour Jido.Exec.Test.WaitStore
   @typedoc "An ETS table owned by the process that called `new/0`."
   @type t :: :ets.tid()
 
@@ -13,7 +12,6 @@ defmodule Jido.Exec.Test.WaitStore.Memory do
   @spec close(t()) :: true
   def close(table), do: :ets.delete(table)
 
-  @impl true
   @doc "Loads and decodes the saved Runic snapshot."
   @spec load(term(), t()) :: {:ok, non_neg_integer(), Runic.Workflow.t()} | {:error, term()}
   def load(id, table) do
@@ -27,7 +25,6 @@ defmodule Jido.Exec.Test.WaitStore.Memory do
     end
   end
 
-  @impl true
   @doc "Saves one native snapshot with an expected revision and idempotent reply recovery."
   @spec save(term(), non_neg_integer(), Runic.Workflow.t(), t()) ::
           {:ok, non_neg_integer()} | {:error, :conflict}

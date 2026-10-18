@@ -92,10 +92,6 @@ defmodule Jido.Exec.Node.Output do
     }
   end
 
-  @doc false
-  @spec resolve(t(), term(), map()) :: {:ok, term(), [term()]} | {:error, Exception.t()}
-  def resolve(%__MODULE__{} = node, input, context), do: resolve(node, input, context, false)
-
   defp resolve(node, input, context, handoff?) do
     with {:ok, frame} <- Frame.merge(input),
          {:ok, output} <- ValueResolver.resolve(node.output, Frame.resolver_state(frame, context)),

@@ -132,7 +132,7 @@ defmodule Jido.Exec.Node.Dispatch do
   @doc false
   @spec expansion(t(), term(), term(), term(), map()) ::
           {term(), (Workflow.t() -> Workflow.t())} | no_return()
-  def expansion(node, target, input, frame, runtime \\ %{}) do
+  def expansion(node, target, input, frame, runtime) do
     case Instruction.resolve(target) do
       {:ok, %Instruction{kind: :action} = instruction} ->
         action_target(node, instruction, input, frame)

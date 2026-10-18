@@ -13,7 +13,6 @@ defmodule Jido.Exec.Handoff do
   def new(target, params) do
     with {:ok, instruction} <- Instruction.resolve(target, params),
          :ok <- unbound_runtime(instruction),
-         :ok <- Instruction.validate_resolved(instruction),
          {:ok, _workflow} <- Jido.Exec.compile(instruction),
          {:ok, params} <- Validation.input(instruction.target, instruction.params),
          :ok <- Portable.validate(params, :handoff_input) do

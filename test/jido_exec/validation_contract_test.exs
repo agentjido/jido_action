@@ -6,6 +6,7 @@ defmodule Jido.Exec.ValidationContractTest do
   alias Jido.Exec.Validation
   alias Jido.Flow
   alias Jido.Flow.Ref
+  alias Runic.Workflow.SingleOutput.{Context, Result}
 
   @moduletag capture_log: true
 
@@ -366,9 +367,14 @@ defmodule Jido.Exec.ValidationContractTest do
         parent_component: "child"
       )
 
-    with {:ok, frame} <- Jido.Exec.Node.Input.resolve(input, Jido.Exec.Frame.new(params), %{}),
-         {:ok, parent, []} <- Jido.Exec.Node.Output.resolve(output, frame, %{}) do
-      {:ok, Jido.Exec.Frame.resolver_state(parent, %{}).results["child"]}
+    with {:ok, frame} <- Jido.Exec.Node.Input.resolve(input, Jido.Exec.Frame.new(params), %{}) do
+      case Jido.Exec.Node.Output.run(output, frame, %Context{}) do
+        %Result{status: :value, value: parent} ->
+          {:ok, Jido.Exec.Frame.resolver_state(parent, %{}).results["child"]}
+
+        %Result{status: :failure, error: error} ->
+          {:error, error}
+      end
     end
   end
 end
