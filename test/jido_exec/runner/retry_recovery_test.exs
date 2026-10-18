@@ -2,7 +2,6 @@ defmodule Jido.Exec.Runner.RetryRecoveryTest do
   use ExUnit.Case, async: false
   @moduletag capture_log: true
   alias Jido.Exec
-  alias Jido.Exec.Recovery
 
   defmodule LostReplyStore do
     @behaviour Runic.Runner.Store
@@ -80,17 +79,6 @@ defmodule Jido.Exec.Runner.RetryRecoveryTest do
     %{runner: runner}
   end
 
-  test "hosts can inspect recovery limits without assuming a durable budget" do
-    assert %{
-             retry_budget_persisted?: false,
-             retry_deadline_persisted?: false,
-             retry_releases_task?: false,
-             controlled_retry_clock?: false,
-             completed_work_preserved?: true,
-             terminal_failure_preserved?: true
-           } = Recovery.capabilities()
-  end
-
   test "a lost save reply does not repeat completed work or a non-retryable failure" do
     store = start_supervised!({Agent, fn -> %{logs: %{}, lose?: false} end})
     runner = __MODULE__.LostReplyRunner
@@ -125,7 +113,7 @@ defmodule Jido.Exec.Runner.RetryRecoveryTest do
 
     assert Process.alive?(worker)
     assert {:ok, _saved} = LostReplyStore.load("lost-reply", store)
-    assert {:ok, %{persistence: persistence}} = Recovery.status(runner, "lost-reply")
+    assert {:ok, persistence} = Runic.Runner.persistence_status(runner, "lost-reply")
     assert persistence.status == {:error, {:persistence_failed, :lost_reply}}
     assert :ok = Runic.Runner.stop(runner, "lost-reply", persist: true)
     assert {:ok, _} = Exec.resume(runner, "lost-reply", context, opts)
@@ -142,7 +130,7 @@ defmodule Jido.Exec.Runner.RetryRecoveryTest do
     assert_receive {:attempt, 1, task}, 2_000
     send(task, {:release, 1})
     assert_receive {:attempt, 2, ^task}, 2_000
-    assert {:ok, %{execution: :running, retry_state: :unavailable}} = Recovery.status(runner, id)
+    assert {:ok, %{active_units: 1}} = Runic.Runner.admission_status(runner, id)
     assert :ok = Runic.Runner.stop(runner, id, persist: true)
     owner = self()
     opts = Keyword.put(opts, :on_complete, fn _, _ -> send(owner, :completed) end)
@@ -154,7 +142,7 @@ defmodule Jido.Exec.Runner.RetryRecoveryTest do
     send(resumed, {:release, 4})
     assert_receive :completed, 2_000
     assert {:error, %{message: "retry probe"}} = Exec.result(runner, id)
-    assert {:ok, %{execution: :stopped, retry_state: :unavailable}} = Recovery.status(runner, id)
+    assert {:ok, %{status: :stopped}} = Runic.Runner.admission_status(runner, id)
     assert :ok = Runic.Runner.stop(runner, id, persist: true)
     assert {:ok, _worker} = Exec.resume(runner, id, context, opts)
     assert {:error, %{message: "retry probe"}} = Exec.result(runner, id)
@@ -181,7 +169,7 @@ defmodule Jido.Exec.Runner.RetryRecoveryTest do
     assert_receive {:attempt, 1, task}, 2_000
     assert_receive {:trace, ^task, :call, {Process, :sleep, [86_400_000]}}, 2_000
     monitor = Process.monitor(task)
-    assert {:ok, %{execution: :running}} = Recovery.status(runner, id)
+    assert {:ok, %{active_units: 1}} = Runic.Runner.admission_status(runner, id)
     assert :ok = Runic.Runner.checkpoint(runner, id)
     {store, state} = Runic.Runner.get_store(runner)
     assert {:ok, events} = store.stream(id, state)
@@ -199,7 +187,7 @@ defmodule Jido.Exec.Runner.RetryRecoveryTest do
     monitor = Process.monitor(resumed)
     assert :ok = Runic.Runner.cancel(runner, id)
     assert_receive {:DOWN, ^monitor, :process, ^resumed, _}, 2_000
-    assert {:error, :not_found} = Recovery.status(runner, id)
+    assert {:error, :not_found} = Runic.Runner.admission_status(runner, id)
     assert Agent.get(__MODULE__.Counter, & &1.attempt) == 2
   end
 end

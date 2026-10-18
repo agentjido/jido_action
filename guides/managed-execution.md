@@ -281,25 +281,20 @@ Correlate the two by `runnable_id`. See [Execution](execution.md#telemetry).
 
 ## Retry Recovery Limits
 
-```elixir
-capabilities = Jido.Exec.Recovery.capabilities()
-false = capabilities.retry_budget_persisted?
-false = capabilities.retry_deadline_persisted?
-false = capabilities.retry_releases_task?
-```
-
-The current published Runic dependency keeps the retry loop inside one task.
+The audit uses Runic `0.1.0-alpha.12`. This dependency keeps the retry loop inside one task.
 A failed attempt can enter backoff before its attempt events reach the Worker.
 A checkpoint at that point cannot save a retry budget or an absolute retry
 deadline. Restore can repeat that activation from attempt zero and grant it a
 new budget. Delayed backoff retains the task and its concurrency slot. The
 native API supplies no controlled retry clock or observable retry deadline.
 
-`Jido.Exec.Recovery.status(runner, execution_id)` reports running, ready,
-stopped, or quiescent work, plus the native Store acknowledgement. It returns
-`retry_state: :unavailable`. It does not guess an attempt count from admission
-events or call an active task a persisted retry. Quiescence does not mean
-success; read `Jido.Exec.result/2` for the outcome.
+Use native `Runic.Runner.admission_status/2` and `persistence_status/2` to
+inspect current admission and Store acknowledgement. These are separate
+observations. They do not provide a saved retry count or deadline.
+Quiescence does not mean success; read `Jido.Exec.result/2` for the outcome.
+This audit adds no public capability map or status wrapper. A downstream
+project can select another Runic version, so it must verify these limits
+against its own dependency lock.
 
 Accepted completed work and terminal failures survive save/restore. A terminal
 retry-limit failure and a non-retryable failure are not new pending attempts.
