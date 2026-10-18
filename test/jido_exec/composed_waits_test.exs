@@ -164,6 +164,133 @@ defmodule Jido.Exec.ComposedWaitsTest do
     Memory.close(store)
   end
 
+  test "a later wait preserves an earlier branch at a mixed-depth join" do
+    flow =
+      Flow.new!(%{
+        name: "mixed_depth",
+        components: [
+          %{kind: :await, name: "active", event: "go"},
+          %{kind: :timer, name: "delay", after_ms: 10},
+          %{kind: :await, name: "future", event: "later", needs: ["delay"]}
+        ],
+        output: %{active: Ref.result("active"), future: Ref.result("future")}
+      })
+
+    {:ok, workflow} = Waits.start("mixed-depth", flow, %{}, %{}, now: 0)
+    {:waiting, requests} = Waits.status(workflow)
+    active = Enum.find(requests, &(&1.path == ["active"]))
+
+    {:ok, workflow} =
+      Waits.accept(
+        workflow,
+        %{id: "early", path: ["future"], event: "later", payload: %{later: true}},
+        %{},
+        now: 1
+      )
+
+    {:ok, workflow} =
+      Waits.accept(
+        workflow,
+        %{id: "active", wait_id: active.id, event: "go", payload: %{now: true}},
+        %{},
+        now: 2
+      )
+
+    {:ok, workflow} = Waits.advance(workflow, %{}, now: 10)
+
+    assert {:complete, {:ok, %{active: %{now: true}, future: %{later: true}}}} =
+             Waits.status(workflow)
+  end
+
+  for recovery <- [:snapshot, :events],
+      order <- [:short_first, :long_first],
+      delivery <- [:early, :active] do
+    @tag recovery: recovery, order: order, delivery: delivery
+    test "mixed-depth join after #{recovery} with #{order} and #{delivery} input", %{
+      context: ctx,
+      recovery: recovery,
+      order: order,
+      delivery: delivery
+    } do
+      flow =
+        Flow.new!(%{
+          name: "mixed_depth_effects",
+          components: [
+            %{kind: :await, name: "active", event: "approved"},
+            %{kind: :step, name: "short", action: Record, params: %{id: 1}, needs: ["active"]},
+            %{kind: :timer, name: "delay", after_ms: 10},
+            %{kind: :await, name: "future", event: "approved", needs: ["delay"]},
+            %{kind: :step, name: "long", action: Record, params: %{id: 2}, needs: ["future"]}
+          ],
+          output: %{short: Ref.result("short"), long: Ref.result("long")}
+        })
+
+      {:ok, workflow} = Waits.start("mixed-depth-effects", flow, %{}, ctx, now: 0)
+      {:waiting, requests} = Waits.status(workflow)
+      active = Enum.find(requests, &(&1.path == ["active"]))
+
+      workflow =
+        if delivery == :early do
+          {:ok, workflow} =
+            Waits.accept(
+              recover(workflow, recovery),
+              %{id: "early", path: ["future"], event: "approved", payload: %{id: 2}},
+              ctx,
+              now: 1
+            )
+
+          workflow
+        else
+          workflow
+        end
+
+      finish_long = fn workflow ->
+        {:ok, workflow} = Waits.advance(recover(workflow, recovery), ctx, now: 10)
+
+        if delivery == :active do
+          {:waiting, requests} = Waits.status(workflow)
+          future = Enum.find(requests, &(&1.path == ["future"]))
+          assert future
+
+          {:ok, workflow} =
+            Waits.accept(recover(workflow, recovery), event(future, "future", 2), ctx, now: 11)
+
+          workflow
+        else
+          workflow
+        end
+      end
+
+      input = event(active, "active", 1)
+
+      completed =
+        case order do
+          :short_first ->
+            {:ok, workflow} = Waits.accept(recover(workflow, recovery), input, ctx, now: 2)
+            assert {:waiting, [%{path: ["delay"]}]} = Waits.status(workflow)
+            assert Agent.get(__MODULE__.Counter, & &1) == [1]
+            finish_long.(workflow)
+
+          :long_first ->
+            workflow = finish_long.(workflow)
+            assert {:waiting, [%{path: ["active"]}]} = Waits.status(workflow)
+            assert Agent.get(__MODULE__.Counter, & &1) == [2]
+            {:ok, completed} = Waits.accept(recover(workflow, recovery), input, ctx, now: 12)
+            completed
+        end
+
+      expected =
+        {:complete, {:ok, %{short: %{id: 1}, long: %{id: 2}}, [%{recorded: 1}, %{recorded: 2}]}}
+
+      assert Waits.status(completed) == expected
+      completed = recover(completed, recovery)
+      assert Waits.status(completed) == expected
+      refute Runic.Workflow.is_runnable?(completed)
+      assert {:ok, ^completed} = Waits.accept(completed, input, ctx, now: 13)
+      assert Enum.sort(Agent.get(__MODULE__.Counter, & &1)) == [1, 2]
+    end
+  end
+
   test "nested waits retain separate paths, partial results, and completed effects", %{
     context: ctx
   } do
@@ -451,4 +578,9 @@ defmodule Jido.Exec.ComposedWaitsTest do
     {:ok, restored} = workflow |> Runic.Runner.encode_snapshot() |> Runic.Runner.decode_snapshot()
     restored
   end
+
+  defp recover(workflow, :snapshot), do: restore(workflow)
+
+  defp recover(workflow, :events),
+    do: workflow |> Runic.Workflow.event_log() |> Runic.Workflow.from_events()
 end

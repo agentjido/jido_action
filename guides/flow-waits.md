@@ -46,7 +46,7 @@ same result as its sole wait. Tests establish these rules in the proof driver.
 
 ## Recovery Proof
 
-The [test driver](https://github.com/agentjido/jido_action/blob/feat/302-flow-waits/test/support/wait_host.ex)
+The [test driver](https://github.com/agentjido/jido_action/blob/feat/303-dispatch-handoff/test/support/wait_host.ex)
 and its ETS Store are test support. They are excluded from the library build.
 They provide a controlled clock and synchronous native snapshot transitions
 for the package tests. They do not establish a second public Exec lifecycle.
@@ -69,6 +69,10 @@ The tests establish the following evidence:
 - Native snapshots and event replay retain pending requests, accepted input,
   and results. Runtime context must be supplied again. Effective bound input,
   validated Flow input, context, and metadata receive portability checks.
+- Parallel branches at different dependency depths retain earlier join input
+  when a later wait opens. Either completion order produces the same result
+  and effect order after snapshot or event replay. Early buffered input and
+  active input both have tests. Completed Actions do not run again.
 - ETS compare-and-swap selects one stored revision. Equal save retries recover
   a lost reply. This does not prove that competing computation performed no I/O.
 
@@ -87,10 +91,11 @@ retrying work. The test Store does not provide this host transaction.
 
 Native Runner suspension, managed retry and concurrency policy across waits,
 AgentServer activation and restart, and bounded history remain unproved.
-A probe with parallel waits at different dependency depths records both results
-but fails to produce the final joined result. The proof does not establish
-support for that graph shape. Native suspension and join recovery must resolve
-this gap before a public wait runtime is added. This
+The mixed-depth join defect is fixed in the package wait node. Opening a wait
+records its request and consumes the opening activation without producing
+output. It must not skip the branch: a skip suppresses downstream join input
+from other completed branches. The host later resolves the saved request.
+This fix does not establish native Runner suspension. The
 package adds no public wait driver, Store behavior, Signal transport, or second
 scheduler. Map and Iterate waiting Flow bodies remain unsupported.
 
@@ -106,6 +111,7 @@ contract before wait execution becomes a supported public feature.
 | Nested Flow | Each wait path includes every parent component. Native snapshots preserve completed Actions, partial results, pending waits, and effect order. Parent cancellation closes all descendants. |
 | Dispatch-selected Flow | A selected Flow can wait. Its path includes the Dispatch and all outer parents. In this proof, snapshot and native event replay preserve the selected graph without repeating the decision, expander, or completed child work. |
 | Independent parallel waits | Each occurrence has its own activation ID. Either input order produces the same final value and canonical effect order. This does not race Actions. |
+| Parallel waits at different depths | Opening a later wait preserves earlier join input. Snapshot and event replay preserve partial joins, completed Actions, and canonical effects with early or active input in either completion order. |
 | Map with a Flow body | Unsupported. Map accepts an Action module. The DSL fails at compilation; map and Codec definitions fail target validation before any Action starts. Separate waiting Map items have no established support. |
 | Iterate with a Flow body | Unsupported. Iterate accepts an Action module. The same early rejection applies. Repeated waiting iterations have no established support. |
 

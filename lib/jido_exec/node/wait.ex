@@ -57,7 +57,9 @@ defmodule Jido.Exec.Node.Wait do
               ancestry: {node.hash, runnable.input_fact.hash}
             )
 
-          Runnable.skip(runnable, [
+          # Opening a wait consumes this activation without producing output.
+          # A skip would suppress downstream work, including earlier join inputs.
+          Runnable.complete(runnable, :waiting, [
             FactProduced.new(fact,
               producer_label: :state_produced,
               weight: runnable.context.ancestry_depth + 1
