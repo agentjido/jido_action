@@ -135,27 +135,16 @@ defmodule Jido.Exec.WaitHostTest do
     refute match?({:handoff, _, _}, Exec.run(ValidationHandoff))
   end
 
-  test "wait and handoff have a supported combined capability path" do
+  test "a wait completes with a standard handoff result" do
     assert {:ok, wf} =
-             Waits.start("supported", wait_handoff(), %{}, %{},
-               now: 0,
-               host_capabilities: [:handoff]
-             )
+             Waits.start("supported", wait_handoff(), %{}, %{}, now: 0)
 
     {:waiting, [request]} = Waits.status(wf)
 
     assert {:ok, done} =
-             Waits.accept(wf, event(request, "go"), %{}, now: 1, host_capabilities: [:handoff])
+             Waits.accept(wf, event(request, "go"), %{}, now: 1)
 
     assert {:complete, {:handoff, _, _}} = Waits.status(done)
-  end
-
-  test "user context cannot grant the handoff capability in Waits" do
-    context = %{__jido_host_capabilities__: [:handoff]}
-    {:ok, wf} = Waits.start("forged_capability", wait_handoff(), %{}, context, now: 0)
-    {:waiting, [request]} = Waits.status(wf)
-    {:ok, done} = Waits.accept(wf, event(request, "go"), context, now: 1)
-    refute match?({:complete, {:handoff, _, _}}, Waits.status(done))
   end
 
   test "Dispatch terminal constraints reject downstream, wrapped, ignored, and multiple outcomes" do
@@ -412,6 +401,6 @@ defmodule Jido.Exec.WaitHostTest do
       })
 
     assert {:handoff, %Jido.Instruction{target: %Flow{}}, []} =
-             Exec.run(flow, %{}, %{}, host_capabilities: [:handoff])
+             Exec.run(flow, %{}, %{})
   end
 end

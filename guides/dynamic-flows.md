@@ -200,10 +200,11 @@ Dispatch selects one more target; it does not loop. Use an
 
 ## Terminal Handoff To A New Turn
 
-A terminal Dispatch expander can return `{:handoff, input, target}`. The host
-must pass `host_capabilities: [:handoff]` to `Jido.Exec.run/4` or
-`Jido.Exec.start/6`, and again to `Jido.Exec.resume/4`. Exec validates the
-successor target and input and returns `{:handoff, %Jido.Instruction{}, effects}`.
+A terminal Dispatch expander can return `{:handoff, input, target}`. Exec
+validates the successor target and input and returns
+`{:handoff, %Jido.Instruction{}, effects}`. Handoff is a standard Exec result.
+Every execution host must handle it. No option is required for immediate or
+managed execution, including resume.
 It does not run the successor or add its graph to the predecessor. An ordinary
 `{:continue, input, target}` still expands the current graph.
 
@@ -218,8 +219,7 @@ normal output schema. It retains the successful predecessor effects. An error
 returns no executable effect batch. DSL, map definitions, and Codec use the
 same Dispatch definition; no new definition field is needed.
 
-The opt-in capability is a promise made by the execution host. Before it
-advertises support, the host must implement and test these rules:
+The execution host must implement and test these rules:
 
 - Commit Agent state, predecessor completion, successor ID, acceptance order,
   and chain link atomically. Resolve a lost save reply before another acceptance.
@@ -237,5 +237,5 @@ advertises support, the host must implement and test these rules:
   automatically or claim effect replay or exactly-once delivery.
 
 These are host responsibilities. This package implements the portable terminal
-contract and unsupported-host rejection. It does not implement an Agent queue,
+contract and successor validation. It does not implement an Agent queue,
 chain database, caller connection, scheduler, or effect delivery service.

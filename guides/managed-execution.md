@@ -108,10 +108,14 @@ end
 {:ok, %{value: 4}, [added: 1, added: 2]} = Jido.Exec.result(MyApp.Runner, "add-1")
 ```
 
-`result(runner, execution_id)` returns the same success or error contract as
+`result(runner, execution_id)` returns the same success, handoff, or error contract as
 `run/4`. It uses the Runic observation for the input admitted by `start/6`.
 Active or ready work returns an error with `details.reason: :execution_active`.
 Later input occurrences do not replace this result.
+
+A terminal Dispatch returns `{:handoff, successor_instruction, effects}` through
+the same result API, including after resume. Every host must handle this result.
+See [Dynamic Flows](dynamic-flows.md#terminal-handoff-to-a-new-turn) for the host rules.
 
 Computation and Store acknowledgement are separate. Read
 `Runic.Runner.persistence_status/2` before treating a result as stored.

@@ -241,12 +241,7 @@ defmodule Jido.Exec.Node.Action do
     with {:ok, params} <- Validation.callback(action, :validate_params, decision, :input) do
       case call_action(action, params, context, true) do
         {:handoff, input, target} ->
-          with {:ok, handoff} <-
-                 Jido.Exec.Handoff.new(
-                   target,
-                   input,
-                   Map.get(run_context, :__jido_host_capabilities__, [])
-                 ) do
+          with {:ok, handoff} <- Jido.Exec.Handoff.new(target, input) do
             {:ok, {:jido_dispatch_handoff, frame, component, handoff, effects}, []}
           end
 

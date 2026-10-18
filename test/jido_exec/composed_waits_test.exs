@@ -114,16 +114,13 @@ defmodule Jido.Exec.ComposedWaitsTest do
     store = Memory.new()
 
     {:ok, waiting} =
-      Waits.start("handoff", WaitThenHandoff, %{id: 10}, ctx,
-        now: 0,
-        host_capabilities: [:handoff]
-      )
+      Waits.start("handoff", WaitThenHandoff, %{id: 10}, ctx, now: 0)
 
     assert {:ok, 1} = Memory.save("handoff", 0, waiting, store)
     {:ok, 1, restored} = Memory.load("handoff", store)
     {:waiting, [request]} = Waits.status(restored)
     input = event(request, "accepted", 10)
-    {:ok, done} = Waits.accept(restored, input, ctx, now: 1, host_capabilities: [:handoff])
+    {:ok, done} = Waits.accept(restored, input, ctx, now: 1)
     assert {:ok, 2} = Memory.save("handoff", 1, done, store)
     assert {:ok, 2} = Memory.save("handoff", 1, done, store)
     {:ok, 2, completed} = Memory.load("handoff", store)
@@ -133,7 +130,7 @@ defmodule Jido.Exec.ComposedWaitsTest do
              Waits.status(completed)
 
     assert {:ok, ^completed} =
-             Waits.accept(completed, input, ctx, now: 2, host_capabilities: [:handoff])
+             Waits.accept(completed, input, ctx, now: 2)
 
     replayed = completed |> Runic.Workflow.event_log() |> Runic.Workflow.from_events()
     assert Waits.status(replayed) == Waits.status(completed)
@@ -141,10 +138,7 @@ defmodule Jido.Exec.ComposedWaitsTest do
     assert Agent.get(__MODULE__.Controls, & &1) == [:handoff, :decision]
 
     {:ok, waiting} =
-      Waits.start("cancel-handoff", WaitThenHandoff, %{id: 11}, ctx,
-        now: 0,
-        host_capabilities: [:handoff]
-      )
+      Waits.start("cancel-handoff", WaitThenHandoff, %{id: 11}, ctx, now: 0)
 
     {:waiting, [request]} = Waits.status(waiting)
     assert {:ok, 1} = Memory.save("cancel-handoff", 0, waiting, store)
@@ -155,10 +149,7 @@ defmodule Jido.Exec.ComposedWaitsTest do
     assert :cancelled = Waits.status(cancelled)
 
     assert {:error, %{details: %{reason: :cancelled}}} =
-             Waits.accept(cancelled, event(request, "cancelled", 11), ctx,
-               now: 1,
-               host_capabilities: [:handoff]
-             )
+             Waits.accept(cancelled, event(request, "cancelled", 11), ctx, now: 1)
 
     assert Agent.get(__MODULE__.Controls, & &1) == [:handoff, :decision]
     Memory.close(store)

@@ -18,7 +18,8 @@ Action module | Flow module | %Jido.Flow{} | %Jido.Instruction{}
   -> validate Flow input (Flow targets only)
   -> compile to a %Runic.Workflow{}
   -> run the workflow until no work remains
-  -> {:ok, value} | {:ok, value, effects} | {:error, exception}
+  -> {:ok, value} | {:ok, value, effects}
+     | {:handoff, successor_instruction, effects} | {:error, exception}
 ```
 
 An Action compiles to a one-node workflow. A Flow compiles to a workflow
@@ -83,6 +84,11 @@ Successful execution returns one of these values:
 The value is the validated Action output or Flow output. Effects are opaque
 deferred requests. Exec does not dispatch them. Flow effect order follows
 canonical dependency order. Collection effects follow item order.
+
+A terminal Dispatch can also return `{:handoff, successor_instruction, effects}`.
+Every host must handle this standard result. Exec validates the successor but
+does not execute it. See [Dynamic Flows](dynamic-flows.md#terminal-handoff-to-a-new-turn)
+for successor acceptance and execution rules.
 
 Failed execution returns:
 

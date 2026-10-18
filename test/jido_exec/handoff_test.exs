@@ -69,7 +69,7 @@ defmodule Jido.Exec.HandoffTest do
   test "a terminal handoff validates the successor without running it" do
     assert {:handoff, %Instruction{target: Target, kind: :action, params: %{value: 7}},
             [:predecessor_effect]} =
-             Exec.run(Example, %{value: 7}, %{}, host_capabilities: [:handoff])
+             Exec.run(Example, %{value: 7}, %{})
   end
 
   test "ordinary data and validator output cannot grant control" do
@@ -127,12 +127,12 @@ defmodule Jido.Exec.HandoffTest do
       })
 
     assert {:handoff, %Instruction{target: ^successor}, []} =
-             Exec.run(flow, %{}, %{}, host_capabilities: [:handoff])
+             Exec.run(flow, %{}, %{})
 
     runner = __MODULE__.RuntimeRunner
     start_supervised!({Runic.Runner, name: runner})
     owner = self()
-    opts = [host_capabilities: [:handoff], on_complete: fn _, _ -> send(owner, :runtime_done) end]
+    opts = [on_complete: fn _, _ -> send(owner, :runtime_done) end]
     assert {:ok, _} = Exec.start(runner, "runtime", flow, %{}, %{}, opts)
     assert_receive :runtime_done, 2_000
 
@@ -161,23 +161,29 @@ defmodule Jido.Exec.HandoffTest do
       )
 
     on_exit(fn -> :telemetry.detach(handler) end)
-    Exec.run(Example, %{value: 7}, %{}, host_capabilities: [:handoff])
+    Exec.run(Example, %{value: 7}, %{})
     assert_receive {:flow_stop, %{outcome: :handoff, effect_count: 1}}
   end
 
-  test "hosts must explicitly accept handoffs" do
-    assert {:error, %{details: %{reason: :unsupported_host, capability: :handoff}}} =
-             Exec.run(Example, %{value: 7})
+  test "an ordinary Step cannot hand off" do
+    flow =
+      Flow.new!(%{
+        name: "step_handoff",
+        components: [%{kind: :step, name: "next", action: Expand, params: %{value: 7}}],
+        output: Ref.result("next")
+      })
+
+    assert {:error, %{details: %{reason: :unsupported_handoff}}} = Exec.run(flow)
   end
 
   test "invalid successor input fails without an executable effect batch" do
     assert {:error, %{details: %{context: "Action"}}} =
-             Exec.run(Example, %{value: "bad"}, %{}, host_capabilities: [:handoff])
+             Exec.run(Example, %{value: "bad"}, %{})
   end
 
   test "a root Action cannot hand off" do
     assert {:error, %{details: %{reason: :unsupported_handoff}}} =
-             Exec.run(Expand, %{value: 7}, %{}, host_capabilities: [:handoff])
+             Exec.run(Expand, %{value: 7}, %{})
   end
 
   test "DSL, maps, and stored definitions return the same handoff" do
@@ -209,25 +215,21 @@ defmodule Jido.Exec.HandoffTest do
 
     results =
       for target <- [Example, data, restored],
-          do: Exec.run(target, %{value: 7}, %{}, host_capabilities: [:handoff])
+          do: Exec.run(target, %{value: 7}, %{})
 
     assert length(Enum.uniq(results)) == 1
     assert {:handoff, %Instruction{}, _effects} = hd(results)
   end
 
   test "handoff envelopes reject invalid targets and non-portable input" do
-    assert {:error, _} = Handoff.new(Enum, %{}, [:handoff])
-    assert {:error, _} = Handoff.new(Target, %{value: 1, resource: self()}, [:handoff])
-    bound = Instruction.new!(target: Target, context: %{tenant: "tenant"})
+    assert {:error, _} = Handoff.new(Enum, %{})
+    assert {:error, _} = Handoff.new(Target, %{value: 1, resource: self()})
 
-    assert {:error, %{details: %{reason: :bound_handoff_runtime}}} =
-             Handoff.new(bound, %{value: 1}, [:handoff])
-  end
+    for runtime <- [context: %{tenant: "tenant"}, metadata: %{request_id: "request"}] do
+      bound = Instruction.new!([target: Target] ++ [runtime])
 
-  test "host options reject invalid capability lists" do
-    for capabilities <- [nil, [:unknown], [:handoff | :invalid]] do
-      assert {:error, %{class: :config}} =
-               Exec.run(Example, %{value: 1}, %{}, host_capabilities: capabilities)
+      assert {:error, %{details: %{reason: :bound_handoff_runtime}}} =
+               Handoff.new(bound, %{value: 1})
     end
   end
 
@@ -242,7 +244,7 @@ defmodule Jido.Exec.HandoffTest do
       })
 
     assert {:error, %{details: %{reason: :nested_handoff}}} =
-             Exec.run(parent, %{}, %{}, host_capabilities: [:handoff])
+             Exec.run(parent, %{}, %{})
   end
 
   test "managed results retain the same terminal contract across restore" do
@@ -250,7 +252,7 @@ defmodule Jido.Exec.HandoffTest do
     start_supervised!({Runic.Runner, name: runner})
     owner = self()
     id = "handoff-#{System.unique_integer([:positive])}"
-    opts = [host_capabilities: [:handoff], on_complete: fn _, _ -> send(owner, :done) end]
+    opts = [on_complete: fn _, _ -> send(owner, :done) end]
     assert {:ok, _} = Exec.start(runner, id, Example, %{value: 3}, %{}, opts)
     assert_receive :done, 2_000
 

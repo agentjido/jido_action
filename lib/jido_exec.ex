@@ -7,7 +7,7 @@ defmodule Jido.Exec do
   graph updates, and checkpoints.
 
   Use `run/4` for immediate execution. It returns `{:ok, output}`,
-  `{:ok, output, effects}`, or `{:error, error}`. An authorized terminal
+  `{:ok, output, effects}`, or `{:error, error}`. A terminal
   Dispatch can return `{:handoff, successor_instruction, effects}`.
   Effects are returned to the
   caller without dispatch. See [Execution](execution.md).
@@ -138,7 +138,7 @@ defmodule Jido.Exec do
            Runic.Runner.start_workflow(runner, execution_id, workflow, worker_opts) do
       case Runic.Runner.start_execution(runner, execution_id, execution_input(instruction),
              execution_id: managed_identity(execution_id),
-             run_context: %{_global: durable_context(instruction.context, opts)},
+             run_context: %{_global: durable_context(instruction.context)},
              scheduler_policies: [{:default, Map.from_struct(policy)}]
            ) do
         {:ok, _scope_id} ->
@@ -175,7 +175,7 @@ defmodule Jido.Exec do
         execution_id,
         worker_opts ++
           [
-            run_context: %{_global: durable_context(context, opts)},
+            run_context: %{_global: durable_context(context)},
             scheduler_policies: [{:default, Map.from_struct(policy)}]
           ]
       )
@@ -269,9 +269,8 @@ defmodule Jido.Exec do
   end
 
   defp run_workflow(workflow, input, context, opts) do
-    with {:ok, capabilities, opts} <- host_options(opts),
-         {:ok, policy, react_opts} <- execution_options(opts) do
-      context = Jido.Exec.Runtime.context(context, capabilities)
+    with {:ok, policy, react_opts} <- execution_options(opts) do
+      context = Jido.Exec.Runtime.context(context)
 
       {workflow, observation} =
         workflow
@@ -576,17 +575,14 @@ defmodule Jido.Exec do
       :scheduler,
       :scheduler_opts,
       :hooks,
-      :promise_opts,
-      :host_capabilities
+      :promise_opts
     ]
 
     if Keyword.keyword?(opts) do
       case Keyword.keys(opts) -- (policy_keys ++ worker_keys) do
         [] ->
-          with {:ok, _capabilities, _opts} <- host_options(opts),
-               {:ok, policy} <- build_policy(Keyword.take(opts, policy_keys)),
-               worker_opts =
-                 opts |> Keyword.take(worker_keys) |> Keyword.delete(:host_capabilities),
+          with {:ok, policy} <- build_policy(Keyword.take(opts, policy_keys)),
+               worker_opts = Keyword.take(opts, worker_keys),
                :ok <- validate_worker_options(worker_opts) do
             policy = %{policy | execution_mode: :durable}
 
@@ -729,11 +725,9 @@ defmodule Jido.Exec do
 
   defp validate_durable_instruction(instruction), do: Jido.Exec.Runtime.portable(instruction)
 
-  defp durable_context(context, opts) do
-    Jido.Exec.Runtime.context(context, Keyword.get(opts, :host_capabilities, []), true)
+  defp durable_context(context) do
+    Jido.Exec.Runtime.context(context, true)
   end
-
-  defp host_options(opts), do: Jido.Exec.Runtime.options(opts)
 
   defp runtime_context(nil), do: {:ok, %{}}
   defp runtime_context(context) when is_map(context), do: {:ok, context}

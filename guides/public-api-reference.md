@@ -145,6 +145,7 @@ represented by a tool schema.
 | `{:error, reason}` | Keep an exception reason as an exception. Convert other reasons to `ExecutionFailureError` with `action`, `phase: :run`, and the original `reason`. |
 | `{:error, reason, ignored}` | Use the same error rule and discard the third value. The implementation does not require this discarded value to be a proper list. |
 | `{:continue, input, target}` | Allowed only for a Dispatch expander. Input must resolve to a map. The target can be an Action, Flow module, Flow value, or bound Instruction. |
+| `{:handoff, input, target}` | Allowed only for a root terminal Dispatch expander. Returns a validated successor Instruction and predecessor effects without running the successor. Every host must handle this result. Bound context and metadata are rejected. See [Dynamic Flows](dynamic-flows.md#terminal-handoff-to-a-new-turn). |
 | Any other value | `ExecutionFailureError`, with `reason: :invalid_return` and `return: value`. |
 
 An invalid success effects list gives `ExecutionFailureError`, with
@@ -1586,7 +1587,7 @@ Evidence: [API tests](https://github.com/agentjido/jido_action/blob/v3.0.0-beta.
 | --- | --- |
 | `compile(target, opts \\ [])` | `{:ok, %Runic.Workflow{}}` or `{:error, exception}`. Checks the resolved target callbacks, canonical graph, child targets, and recursive nested Flow cycles. It does not run Action work or input/output validation callbacks. |
 | `compile!(target, opts \\ [])` | Workflow or raised compilation error. |
-| `run(target, params \\ %{}, context \\ %{}, opts \\ [])` | Blocks until completion. Returns `{:ok, value}`, `{:ok, value, effects}`, or `{:error, exception}`. An empty effect list uses the two-element success tuple. |
+| `run(target, params \\ %{}, context \\ %{}, opts \\ [])` | Blocks until completion. Returns `{:ok, value}`, `{:ok, value, effects}`, `{:handoff, successor_instruction, effects}`, or `{:error, exception}`. An empty effect list uses the two-element success tuple for ordinary success. |
 | `start(runner, execution_id, target, params \\ %{}, context \\ %{}, opts \\ [])` | `{:ok, worker_pid}` after worker start and input admission, or `{:error, exception}` for the handled failure paths. Work can start before the call returns. This is not a completion result. |
 | `resume(runner, execution_id, context \\ %{}, opts \\ [])` | Restores through the Runner Store. Returns a worker PID or normalized error as for start. Supply context and policy again. |
 | `step(runner, execution_id)` | `{:ok, workflow}`, `{:complete, workflow}`, or `{:error, reason}`. Reasons from Runic include `:busy`, `:automatic_dispatch`, and `:not_found`. These reasons are not exception structs. |
@@ -1596,7 +1597,8 @@ Evidence: [API tests](https://github.com/agentjido/jido_action/blob/v3.0.0-beta.
 | `effect_id(execution_id, activation_id, output_id, index)` | A `Runic.Identity` for a non-negative integer index. The index is zero-based. Invalid indices do not match the function clause. |
 
 `task_supervisor/0` is the type `pid() | atom() | {:via, module(), term()}`.
-`exec_result/0` permits the two success shapes and `{:error, term()}`;
+`exec_result/0` permits the two success shapes, `{:handoff, Instruction.t(), [term()]}`,
+and `{:error, term()}`;
 `step_result/0` permits the two workflow shapes and `{:error, term()}`.
 The managed specs accept a Runner module/name and an execution ID of any
 term. A stable ID must meet Runic's identity and Store requirements. These

@@ -6,7 +6,6 @@ defmodule Jido.Exec.Runtime do
 
   @reserved [
     :__jido_exec_durable__,
-    :__jido_host_capabilities__,
     :__jido_wait_host__,
     :__jido_wait_result__
   ]
@@ -16,26 +15,11 @@ defmodule Jido.Exec.Runtime do
   def user_context(context), do: Map.drop(context, @reserved)
 
   @doc false
-  @spec context(map(), [atom()], boolean()) :: map()
-  def context(context, capabilities, durable? \\ false) do
+  @spec context(map(), boolean()) :: map()
+  def context(context, durable? \\ false) do
     context
     |> user_context()
     |> Map.put(:__jido_exec_durable__, durable?)
-    |> Map.put(:__jido_host_capabilities__, capabilities)
-  end
-
-  @doc false
-  @spec options(keyword()) :: {:ok, [atom()], keyword()} | {:error, Exception.t()}
-  def options(opts) do
-    {capabilities, opts} = Keyword.pop(opts, :host_capabilities, [])
-
-    if is_list(capabilities) and not List.improper?(capabilities) and
-         Enum.all?(capabilities, &(&1 == :handoff)) do
-      {:ok, capabilities, opts}
-    else
-      {:error,
-       Jido.Action.Error.config_error("invalid host capabilities", %{value: capabilities})}
-    end
   end
 
   @doc false

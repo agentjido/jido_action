@@ -9,23 +9,15 @@ defmodule Jido.Exec.Handoff do
   defstruct [:target, :kind, :params]
 
   @doc false
-  @spec new(term(), term(), [atom()]) :: {:ok, t()} | {:error, Exception.t()}
-  def new(target, params, capabilities) do
-    if :handoff in capabilities do
-      with {:ok, instruction} <- Instruction.resolve(target, params),
-           :ok <- unbound_runtime(instruction),
-           :ok <- Instruction.validate_resolved(instruction),
-           {:ok, _workflow} <- Jido.Exec.compile(instruction),
-           {:ok, params} <- Validation.input(instruction.target, instruction.params),
-           :ok <- Portable.validate(params, :handoff_input) do
-        {:ok, %__MODULE__{target: instruction.target, kind: instruction.kind, params: params}}
-      end
-    else
-      {:error,
-       Jido.Action.Error.config_error("execution host does not accept handoffs", %{
-         reason: :unsupported_host,
-         capability: :handoff
-       })}
+  @spec new(term(), term()) :: {:ok, t()} | {:error, Exception.t()}
+  def new(target, params) do
+    with {:ok, instruction} <- Instruction.resolve(target, params),
+         :ok <- unbound_runtime(instruction),
+         :ok <- Instruction.validate_resolved(instruction),
+         {:ok, _workflow} <- Jido.Exec.compile(instruction),
+         {:ok, params} <- Validation.input(instruction.target, instruction.params),
+         :ok <- Portable.validate(params, :handoff_input) do
+      {:ok, %__MODULE__{target: instruction.target, kind: instruction.kind, params: params}}
     end
   end
 
