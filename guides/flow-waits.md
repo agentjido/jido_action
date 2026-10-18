@@ -98,3 +98,31 @@ A request needed by a wait in the same Turn must reach the host before the
 wait. Deferred post-commit effects cannot issue that request from an unfinished
 Turn. A real host integration must establish this rule and the complete recovery
 contract before wait execution becomes a supported public feature.
+
+## Composition Evidence
+
+| Form | Test proof scope and recovery evidence |
+| --- | --- |
+| Nested Flow | Each wait path includes every parent component. Native snapshots preserve completed Actions, partial results, pending waits, and effect order. Parent cancellation closes all descendants. |
+| Dispatch-selected Flow | A selected Flow can wait. Its path includes the Dispatch and all outer parents. In this proof, snapshot and native event replay preserve the selected graph without repeating the decision, expander, or completed child work. |
+| Independent parallel waits | Each occurrence has its own activation ID. Either input order produces the same final value and canonical effect order. This does not race Actions. |
+| Map with a Flow body | Unsupported. Map accepts an Action module. The DSL fails at compilation; map and Codec definitions fail target validation before any Action starts. Separate waiting Map items have no established support. |
+| Iterate with a Flow body | Unsupported. Iterate accepts an Action module. The same early rejection applies. Repeated waiting iterations have no established support. |
+
+A path identifies a component. The full wait ID identifies one activation and
+its input occurrence in one execution. Use that ID for active input. Equal
+component names in sibling nested Flows do not share input. Input from an old
+execution cannot release a new occurrence. Early path input is limited to the
+first static occurrence; it cannot address a future Dispatch target.
+
+The tests in `test/jido_exec/composed_waits_test.exs` use the test-only driver.
+They establish evidence for these graph shapes. They do not establish AgentServer wait integration. Jido core
+example `11_18` must supply end-to-end evidence for event acceptance, atomic
+state save, worker release and activation, cancellation, and restart. Hosts
+must not infer general Map or Iterate wait support from nested Flow tests.
+
+The wait-to-handoff proof saves and restores the waiting graph, accepts input,
+retries an equal save and duplicate input, and checks cancellation before the
+Dispatch. It returns a successor Instruction without running it. This proves
+package result composition. It does not prove atomic Agent state and successor
+acceptance, queue order, or caller-chain completion in an AgentServer.

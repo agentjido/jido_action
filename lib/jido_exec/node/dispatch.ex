@@ -231,7 +231,8 @@ defmodule Jido.Exec.Node.Dispatch do
         boundary_name: base_name,
         parent_component: target_key,
         input_params: input,
-        boundary_location: node.location
+        boundary_location: node.location,
+        node_path_prefix: node.node_path
       )
 
     case Jido.Exec.Node.Wait.validate_host(target, runtime) do
