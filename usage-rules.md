@@ -150,6 +150,9 @@ API to use. See the guides on HexDocs for explanations and examples.
   targets. Inline bodies are supported only in `step`.
 - Use at most one `dispatch`. It must be the sole graph terminal, and `output`
   must be its complete result. Source order does not determine the terminal.
+- A host can opt in to terminal Dispatch handoffs with `host_capabilities: [:handoff]`.
+  Handle `{:handoff, %Jido.Exec.Handoff{}, effects}` as predecessor completion
+  and atomic successor acceptance. See `guides/dynamic-flows.md` for host rules.
 - Return `{:continue, input, target}` only from a Dispatch expander. Every
   other Action, including a root Action, fails with
   `reason: :unsupported_continuation`.

@@ -94,11 +94,23 @@ defmodule Jido.Exec.Node.Output do
   def resolve(%__MODULE__{} = node, input, context) do
     with {:ok, frame} <- Frame.merge(input),
          {:ok, output} <- ValueResolver.resolve(node.output, Frame.resolver_state(frame, context)),
-         {:ok, output} <- Validation.output(node.validator, output) do
+         {:ok, output} <- validate_output(node, output) do
       effects = Frame.effects(frame, node.effect_order)
       complete_output(node, frame, output, effects)
     end
   end
+
+  defp validate_output(%{parent_component: nil}, %Jido.Exec.Handoff{} = handoff),
+    do: {:ok, handoff}
+
+  defp validate_output(_node, %Jido.Exec.Handoff{}),
+    do:
+      {:error,
+       Jido.Action.Error.config_error("handoff must finish the root Flow", %{
+         reason: :nested_handoff
+       })}
+
+  defp validate_output(node, output), do: Validation.output(node.validator, output)
 
   defp complete_output(%__MODULE__{parent_component: nil}, _frame, output, effects),
     do: {:ok, output, effects}

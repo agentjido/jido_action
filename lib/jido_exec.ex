@@ -37,6 +37,7 @@ defmodule Jido.Exec do
   @type exec_result ::
           {:ok, term()}
           | {:ok, term(), [term()]}
+          | {:handoff, Jido.Exec.Handoff.t(), [term()]}
           | {:error, Exception.t() | term()}
 
   @type step_result ::
@@ -131,7 +132,7 @@ defmodule Jido.Exec do
            Runic.Runner.start_workflow(runner, execution_id, workflow, worker_opts) do
       case Runic.Runner.start_execution(runner, execution_id, execution_input(instruction),
              execution_id: managed_identity(execution_id),
-             run_context: %{_global: durable_context(instruction.context)},
+             run_context: %{_global: durable_context(instruction.context, opts)},
              scheduler_policies: [{:default, Map.from_struct(policy)}]
            ) do
         {:ok, _scope_id} ->
@@ -168,7 +169,7 @@ defmodule Jido.Exec do
         execution_id,
         worker_opts ++
           [
-            run_context: %{_global: durable_context(context)},
+            run_context: %{_global: durable_context(context, opts)},
             scheduler_policies: [{:default, Map.from_struct(policy)}]
           ]
       )
@@ -262,7 +263,10 @@ defmodule Jido.Exec do
   end
 
   defp run_workflow(workflow, input, context, opts) do
-    with {:ok, policy, react_opts} <- execution_options(opts) do
+    with {:ok, capabilities, opts} <- host_options(opts),
+         {:ok, policy, react_opts} <- execution_options(opts) do
+      context = Map.put(context, :__jido_host_capabilities__, capabilities)
+
       {workflow, observation} =
         workflow
         |> Workflow.enable_event_emission()
@@ -355,7 +359,11 @@ defmodule Jido.Exec do
   defp project(%Fact{meta: meta} = fact) do
     value = Jido.Exec.Fact.value(fact)
     effects = get_in(meta, [:jido, :effects]) || []
-    if effects == [], do: {:ok, value}, else: {:ok, value, effects}
+
+    case value do
+      %Jido.Exec.Handoff{} -> {:handoff, value, effects}
+      _ -> if effects == [], do: {:ok, value}, else: {:ok, value, effects}
+    end
   end
 
   defp project(_missing),
@@ -608,14 +616,17 @@ defmodule Jido.Exec do
       :scheduler,
       :scheduler_opts,
       :hooks,
-      :promise_opts
+      :promise_opts,
+      :host_capabilities
     ]
 
     if Keyword.keyword?(opts) do
       case Keyword.keys(opts) -- (policy_keys ++ worker_keys) do
         [] ->
-          with {:ok, policy} <- build_policy(Keyword.take(opts, policy_keys)),
-               worker_opts = Keyword.take(opts, worker_keys),
+          with {:ok, _capabilities, _opts} <- host_options(opts),
+               {:ok, policy} <- build_policy(Keyword.take(opts, policy_keys)),
+               worker_opts =
+                 opts |> Keyword.take(worker_keys) |> Keyword.delete(:host_capabilities),
                :ok <- validate_worker_options(worker_opts) do
             policy = %{policy | execution_mode: :durable}
 
@@ -763,7 +774,23 @@ defmodule Jido.Exec do
     end
   end
 
-  defp durable_context(context), do: Map.put(context, :__jido_exec_durable__, true)
+  defp durable_context(context, opts) do
+    context
+    |> Map.put(:__jido_exec_durable__, true)
+    |> Map.put(:__jido_host_capabilities__, Keyword.get(opts, :host_capabilities, []))
+  end
+
+  defp host_options(opts) do
+    {capabilities, opts} = Keyword.pop(opts, :host_capabilities, [])
+
+    if is_list(capabilities) and not List.improper?(capabilities) and
+         Enum.all?(capabilities, &(&1 == :handoff)) do
+      {:ok, capabilities, opts}
+    else
+      {:error,
+       Jido.Action.Error.config_error("invalid host capabilities", %{value: capabilities})}
+    end
+  end
 
   defp runtime_context(nil), do: {:ok, %{}}
   defp runtime_context(context) when is_map(context), do: {:ok, context}

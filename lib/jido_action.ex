@@ -67,6 +67,7 @@ defmodule Jido.Action do
   @type result ::
           effect_result()
           | {:ok, map() | Output.t()}
+          | {:handoff, map(), Jido.Instruction.target()}
           | {:continue, map(), Jido.Instruction.target() | Jido.Instruction.t()}
           | {:error, term()}
           | {:error, term(), effects()}
@@ -168,6 +169,9 @@ defmodule Jido.Action do
     from a root Action and other Flow positions.
   - `{:error, reason}` where `reason` describes why the Action failed.
   - `{:error, reason, effects}` is accepted, but Exec discards the effects.
+
+  - `{:handoff, successor_input, successor_target}` only from a terminal Dispatch
+    expander with an execution host that accepts handoffs. See `Jido.Exec.Handoff`.
 
   Effects are optional for both maps and Output values. An empty list returns
   the two-element success form. Exec carries each request as opaque data and
