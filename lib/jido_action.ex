@@ -171,7 +171,7 @@ defmodule Jido.Action do
   - `{:error, reason, effects}` is accepted, but Exec discards the effects.
 
   - `{:handoff, successor_input, successor_target}` only from a terminal Dispatch
-    expander with an execution host that accepts handoffs. See `Jido.Exec.Handoff`.
+    expander with an execution host that accepts handoffs. See [Dynamic Flows](dynamic-flows.md).
 
   Effects are optional for both maps and Output values. An empty list returns
   the two-element success form. Exec carries each request as opaque data and

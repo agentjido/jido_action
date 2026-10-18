@@ -1,27 +1,19 @@
 defmodule Jido.Exec.Handoff do
-  @moduledoc """
-  A validated request to finish a Turn and accept a successor in a fresh graph.
-
-  Only a terminal Dispatch expander can return `{:handoff, params, target}`.
-  The execution host must opt in with `host_capabilities: [:handoff]`.
-  Exec returns `{:handoff, request, effects}` without running the successor.
-  See [Dynamic Flows](dynamic-flows.md) for the host commit contract.
-  """
+  @moduledoc false
 
   alias Jido.Exec.{Portable, Validation}
   alias Jido.Instruction
 
-  @typedoc "Portable successor data. Chain and Turn IDs belong to the host."
   @type t :: %__MODULE__{target: module() | Jido.Flow.t(), kind: :action | :flow, params: map()}
   @enforce_keys [:target, :kind, :params]
   defstruct [:target, :kind, :params]
 
-  @doc "Validates a successor target and its input without running Action work."
+  @doc false
   @spec new(term(), term(), [atom()]) :: {:ok, t()} | {:error, Exception.t()}
-  def new(target, params, capabilities \\ [:handoff]) do
-    if is_list(capabilities) and not List.improper?(capabilities) and
-         :handoff in capabilities and Enum.all?(capabilities, &(&1 == :handoff)) do
+  def new(target, params, capabilities) do
+    if :handoff in capabilities do
       with {:ok, instruction} <- Instruction.resolve(target, params),
+           :ok <- unbound_runtime(instruction),
            :ok <- Instruction.validate_resolved(instruction),
            {:ok, _workflow} <- Jido.Exec.compile(instruction),
            {:ok, params} <- Validation.input(instruction.target, instruction.params),
@@ -36,6 +28,18 @@ defmodule Jido.Exec.Handoff do
        })}
     end
   end
+
+  defp unbound_runtime(%Instruction{context: context, metadata: metadata})
+       when map_size(context) == 0 and map_size(metadata) == 0,
+       do: :ok
+
+  defp unbound_runtime(_instruction),
+    do:
+      {:error,
+       Jido.Action.Error.config_error(
+         "handoff target must not bind runtime context or metadata",
+         %{reason: :bound_handoff_runtime}
+       )}
 end
 
 defimpl Runic.Identity.Projectable, for: Jido.Exec.Handoff do
@@ -43,9 +47,12 @@ defimpl Runic.Identity.Projectable, for: Jido.Exec.Handoff do
     %{
       kind: :jido_handoff,
       version: 1,
-      target: request.target,
+      target: target_identity(request.target),
       target_kind: request.kind,
       params: request.params
     }
   end
+
+  defp target_identity(%Jido.Flow{} = flow), do: Jido.Flow.Identity.semantic_digest(flow)
+  defp target_identity(module), do: module
 end

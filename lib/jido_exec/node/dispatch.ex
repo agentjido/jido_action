@@ -154,7 +154,11 @@ defmodule Jido.Exec.Node.Dispatch do
   end
 
   @doc false
-  @spec finish(term()) :: {:ok, term()} | {:continue, term()}
+  @spec finish(term()) :: {:ok, term()} | {:continue, term()} | {:handoff, term()}
+  def finish({:jido_dispatch_handoff, frame, component, request, effects}) do
+    {:handoff, Frame.put_result(frame, component, request, effects)}
+  end
+
   def finish({:jido_dispatch_finish, frame, component, output, effects}) do
     {:ok, Frame.put_result(frame, component, output, effects)}
   end
@@ -292,6 +296,9 @@ defimpl Runic.Workflow.Invokable, for: Jido.Exec.Node.Dispatch do
       {:ok, value} ->
         complete(runnable, node, fact, value, context, [])
 
+      {:handoff, value} ->
+        complete(runnable, node, fact, value, context, [], %{jido: %{control: :handoff}})
+
       {:continue, {:jido_dispatch_continue, frame, component, input, target, effects}} ->
         frame = Frame.put_result(frame, component, nil, effects)
         {value, apply_fn} = Dispatch.expansion(node, target, input, frame)
@@ -303,8 +310,9 @@ defimpl Runic.Workflow.Invokable, for: Jido.Exec.Node.Dispatch do
     kind, reason -> Runnable.fail(runnable, {kind, reason})
   end
 
-  defp complete(runnable, node, fact, value, context, apply_fns) do
-    result = Jido.Exec.Fact.child(fact, value: value, ancestry: {node.hash, fact.hash})
+  defp complete(runnable, node, fact, value, context, apply_fns, meta \\ %{}) do
+    result =
+      Jido.Exec.Fact.child(fact, value: value, meta: meta, ancestry: {node.hash, fact.hash})
 
     Runnable.complete(
       runnable,

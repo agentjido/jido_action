@@ -140,8 +140,8 @@ applies its output schema. Decision and expander Actions can return an optional
 third element with a proper list of effect requests. Flow collects decision
 effects before expander effects.
 
-When the expander returns a continuation, the selected executable owns final
-output validation and the final output. Earlier effects remain in the same
+When the expander returns a continuation, the selected executable validates
+its output. The current Flow then applies its own output schema to that result. Earlier effects remain in the same
 list, before the next executable's effects. Failure anywhere in the chain
 returns no executable effects. See [Outputs And Effects](action-effects.livemd).
 
@@ -203,12 +203,16 @@ Dispatch selects one more target; it does not loop. Use an
 A terminal Dispatch expander can return `{:handoff, input, target}`. The host
 must pass `host_capabilities: [:handoff]` to `Jido.Exec.run/4` or
 `Jido.Exec.start/6`, and again to `Jido.Exec.resume/4`. Exec validates the
-successor target and input and returns `{:handoff, %Jido.Exec.Handoff{}, effects}`.
+successor target and input and returns `{:handoff, %Jido.Instruction{}, effects}`.
 It does not run the successor or add its graph to the predecessor. An ordinary
 `{:continue, input, target}` still expands the current graph.
 
 The successor input must be portable and pass its target schema. A root
 Action, an ordinary Step, or a nested Flow cannot end a Turn with a handoff.
+The returned Instruction has empty context and metadata. A bound target with
+context or metadata is rejected; the new Turn receives fresh host context.
+Ordinary Instruction values in input or output cannot grant handoff authority.
+The Flow stop telemetry event reports `outcome: :handoff` and the effect count.
 A handoff is a control outcome, so it does not pass through the predecessor's
 normal output schema. It retains the successful predecessor effects. An error
 returns no executable effect batch. DSL, map definitions, and Codec use the

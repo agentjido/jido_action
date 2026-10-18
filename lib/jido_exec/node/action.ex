@@ -247,7 +247,7 @@ defmodule Jido.Exec.Node.Action do
                    input,
                    Map.get(run_context, :__jido_host_capabilities__, [])
                  ) do
-            {:ok, {:jido_dispatch_finish, frame, component, handoff, effects}, []}
+            {:ok, {:jido_dispatch_handoff, frame, component, handoff, effects}, []}
           end
 
         {:continue, input, target} ->
@@ -305,25 +305,9 @@ defmodule Jido.Exec.Node.Action do
     case Validation.apply(
            action,
            :run,
-           [params, Map.delete(context, :__jido_host_capabilities__)],
+           [params, Jido.Exec.Runtime.user_context(context)],
            :run
          ) do
-      {:ok, {:ok, %Jido.Exec.Handoff{}}} ->
-        {:error,
-         Error.execution_error("handoff requires a terminal Dispatch return", %{
-           action: action,
-           phase: :run,
-           reason: :unsupported_handoff
-         })}
-
-      {:ok, {:ok, %Jido.Exec.Handoff{}, _effects}} ->
-        {:error,
-         Error.execution_error("handoff requires a terminal Dispatch return", %{
-           action: action,
-           phase: :run,
-           reason: :unsupported_handoff
-         })}
-
       {:ok, {:ok, output}} ->
         {:ok, output, []}
 

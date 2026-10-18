@@ -41,9 +41,12 @@ defmodule Jido.Exec.Node.Output do
   @doc false
   @spec run(t(), term(), Context.t()) :: Result.t()
   def run(%__MODULE__{} = node, input, %Context{} = context) do
-    case resolve(node, Jido.Exec.Fact.unwrap(input), context.runtime) do
+    handoff? = get_in(context.input_metadata, [:jido, :control]) == :handoff
+
+    case resolve(node, Jido.Exec.Fact.unwrap(input), context.runtime, handoff?) do
       {:ok, value, effects} ->
-        Jido.Exec.Fact.result(input, context, value, %{jido: %{effects: effects}})
+        meta = if handoff?, do: %{effects: effects, control: :handoff}, else: %{effects: effects}
+        Jido.Exec.Fact.result(input, context, value, %{jido: meta})
 
       {:error, error} ->
         phase = if is_nil(node.parent_component), do: :flow_output, else: :subflow_output
@@ -91,26 +94,28 @@ defmodule Jido.Exec.Node.Output do
 
   @doc false
   @spec resolve(t(), term(), map()) :: {:ok, term(), [term()]} | {:error, Exception.t()}
-  def resolve(%__MODULE__{} = node, input, context) do
+  def resolve(%__MODULE__{} = node, input, context), do: resolve(node, input, context, false)
+
+  defp resolve(node, input, context, handoff?) do
     with {:ok, frame} <- Frame.merge(input),
          {:ok, output} <- ValueResolver.resolve(node.output, Frame.resolver_state(frame, context)),
-         {:ok, output} <- validate_output(node, output) do
+         {:ok, output} <- validate_output(node, output, handoff?) do
       effects = Frame.effects(frame, node.effect_order)
       complete_output(node, frame, output, effects)
     end
   end
 
-  defp validate_output(%{parent_component: nil}, %Jido.Exec.Handoff{} = handoff),
+  defp validate_output(%{parent_component: nil}, %Jido.Exec.Handoff{} = handoff, true),
     do: {:ok, handoff}
 
-  defp validate_output(_node, %Jido.Exec.Handoff{}),
+  defp validate_output(_node, %Jido.Exec.Handoff{}, true),
     do:
       {:error,
        Jido.Action.Error.config_error("handoff must finish the root Flow", %{
          reason: :nested_handoff
        })}
 
-  defp validate_output(node, output), do: Validation.output(node.validator, output)
+  defp validate_output(node, output, _handoff?), do: Validation.output(node.validator, output)
 
   defp complete_output(%__MODULE__{parent_component: nil}, _frame, output, effects),
     do: {:ok, output, effects}
