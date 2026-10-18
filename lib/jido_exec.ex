@@ -104,11 +104,7 @@ defmodule Jido.Exec do
 
   defp span(%Instruction{}, work), do: work.()
 
-  defp reject_waits(workflow) do
-    if Enum.any?(Multigraph.vertices(workflow.graph), &is_struct(&1, Jido.Exec.Node.Wait)),
-      do: {:error, Jido.Exec.Node.Wait.unsupported()},
-      else: :ok
-  end
+  defp reject_waits(workflow), do: Jido.Exec.Node.Wait.validate_host(workflow)
 
   defp do_run_instruction(instruction, opts) do
     with {:ok, instruction} <- validate_flow_input(instruction),

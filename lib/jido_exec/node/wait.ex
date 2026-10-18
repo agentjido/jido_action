@@ -40,6 +40,7 @@ defmodule Jido.Exec.Node.Wait do
                resolve_options(node.options, Frame.resolver_state(frame, runtime), now) do
           request = %{
             type: :jido_wait_request,
+            version: 1,
             id: to_string(runnable.activation_id),
             execution_id: execution_id,
             node_hash: node.hash,
@@ -105,6 +106,15 @@ defmodule Jido.Exec.Node.Wait do
     else
       {:error, error} -> Result.failure(error)
     end
+  end
+
+  @doc false
+  @spec validate_host(Runic.Workflow.t(), map()) :: :ok | {:error, Exception.t()}
+  def validate_host(workflow, runtime \\ %{}) do
+    if not Map.has_key?(runtime, :__jido_wait_host__) and
+         Enum.any?(Multigraph.vertices(workflow.graph), &is_struct(&1, __MODULE__)),
+       do: {:error, unsupported()},
+       else: :ok
   end
 
   @doc false

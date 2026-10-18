@@ -1,4 +1,4 @@
-# Flow Waits
+# Proposed Flow Waits
 
 ```elixir
 defmodule ApprovalFlow do
@@ -15,97 +15,86 @@ defmodule ApprovalFlow do
   end
 end
 
-{:ok, workflow} =
-  Jido.Exec.Waits.start("turn-1", ApprovalFlow, %{order_id: "order-1"}, %{}, now: 100)
-
-{:waiting, [request]} = Jido.Exec.Waits.status(workflow)
-input = %{id: "approval-1", wait_id: request.id, event: "order.approved",
-          payload: %{order_id: "order-1", approved: true}}
-{:ok, completed} = Jido.Exec.Waits.accept(workflow, input, %{}, now: 200)
-{:complete, {:ok, %{selected: "approved", value: %{approved: true}}}} =
-  Jido.Exec.Waits.status(completed)
+{:ok, _validated} = Jido.Flow.validate(ApprovalFlow.flow())
+{:ok, _workflow} = Jido.Exec.compile(ApprovalFlow)
+{:error, %{details: %{reason: :unsupported_host, capability: :waits}}} =
+  Jido.Exec.run(ApprovalFlow, %{order_id: "order-1"})
 ```
 
-## Definitions And Results
+The definitions and compiler are available for evaluation. A supported wait
+execution host is not implemented. Normal `Jido.Exec.run/4` and `start/6`
+reject static waits before Action work. Dispatch checks a selected Flow before
+any Action in that child graph runs. Its decision and expander have already run
+to select the target. Do not use the test driver as an AgentServer runtime.
 
-A `timer "delay", after_ms: 100` returns `%{fired_at: absolute_deadline}`.
-An `await "approval", event: "approved", match: %{id: input(:id)}` returns
-the accepted payload map. A Selection with multiple options returns a map
-with `selected`, `value`, `accepted_at`, and `input_id` (nil for a timer).
-A one-option Selection is equivalent to its sole timer or event.
+## One Wait Model
 
-Map definitions use `kind: :timer`, `:await`, or `:selection`. A Selection
-has `options`, a list of named timer and await definitions. They all lower
-to one canonical `:wait` component. The DSL, data definitions, and Codec
-share validation, dependencies, identity, and output. Match maps use exact
-key/value comparisons against the payload. References create dependencies;
-source order does not. Waits have no Action body and Selection does not race
-Actions. Delays are non-negative integers with no 32-bit timer limit.
+The DSL, map definitions, and Codec produce one canonical `:wait` component.
+Map definitions use `kind: :timer`, `:await`, or `:selection`. A Selection has
+a list of named timer and event options. Each authoring kind requires its own
+fields. Keep explicit dependencies and output. Match references create data
+dependencies. Source order does not create dependencies.
 
-## Host Contract
+Timers use non-negative millisecond delays without a 32-bit timer limit.
+Events match exact payload key/value pairs. A Selection contains timers and
+events. It does not race Actions.
 
-`Jido.Exec.Waits` performs synchronous snapshot transitions with the native
-Runic graph. Runic still owns readiness and Action execution. The returned
-workflow has no active work while it waits. Keep or store the workflow, then
-release the execution resources. Use `advance(workflow, context, now: ms)`
-when a deadline is due. No running Action is needed for a 90-day wait.
+The proposed timer result is `%{fired_at: absolute_deadline}`. An event result
+is its accepted payload. A multi-option Selection returns `selected`, `value`,
+`accepted_at`, and `input_id` (nil for a timer). A one-option Selection has the
+same result as its sole wait. Tests establish these rules in the proof driver.
 
-The host supplies absolute wall-clock milliseconds and must not move time
-backwards. Activation saves each deadline once. Restore does not recalculate
-it. Supply runtime context again after restore. Context is absent from native
-Runic snapshots. Params, context, input payloads, Action outputs, and effects
-must be portable. Static waits fail at `Jido.Exec.run/4` and `start/6` before
-work starts. Compile and validation remain inert.
+## Recovery Proof
 
-Serialize transitions for each execution. Save the returned Runic snapshot
-before acknowledging accepted input or completion. `Jido.Exec.WaitStore`
-defines compare-and-swap and idempotent recovery from a lost save reply:
+The [test driver](https://github.com/agentjido/jido_action/blob/feat/302-flow-waits/test/support/wait_host.ex)
+and its ETS Store are test support. They are excluded from the library build.
+They provide a controlled clock and synchronous native snapshot transitions
+for the package tests. They do not establish a second public Exec lifecycle.
+Action work uses the same protected task boundary as immediate Exec.
 
-```elixir
-store = Jido.Exec.WaitStore.Memory.new()
-{:ok, 1} = Jido.Exec.WaitStore.Memory.save("turn-1", 0, workflow, store)
-{:ok, 1} = Jido.Exec.WaitStore.Memory.save("turn-1", 0, workflow, store)
-{:ok, 1, restored} = Jido.Exec.WaitStore.Memory.load("turn-1", store)
-{:waiting, [_]} = Jido.Exec.Waits.status(restored)
-Jido.Exec.WaitStore.Memory.close(store)
-```
+The tests establish the following evidence:
 
-The ETS owner must outlive host workers. Memory survives those worker restarts,
-and is lost at owner or VM exit. A persistent host supplies another adapter.
-The adapter stores Runic's native snapshot, not a second checkpoint format.
-Reload after an uncertain save reply. Never retry external Action work merely
-because a save reply was lost. Prior I/O cannot be undone by this contract.
+- A 90-day timer stores one absolute deadline. No worker, timer, or Action
+  task remains active while that snapshot waits. Restore retains the deadline.
+- Input uses a stable non-empty ID and an active occurrence ID, or an early
+  static path that has not opened. Equal retries are inert. Conflicting IDs,
+  stale occurrences, and expired input fail.
+- Unmatched active input is rejected. Useful early input has a bounded buffer.
+  A full early buffer cannot prevent an active matching event from resolving.
+- The earliest accepted input or timer deadline wins. Timers win exact-time
+  ties. Receipt order and then option order break remaining ties. One saved
+  result closes the losing options.
+- Cancel closes descendant waits. A stored cancellation rejects later input
+  and clock advancement. It cannot undo previous Action I/O.
+- Native snapshots and event replay retain pending requests, accepted input,
+  and results. Runtime context must be supplied again. Effective bound input,
+  validated Flow input, context, and metadata receive portability checks.
+- ETS compare-and-swap selects one stored revision. Equal save retries recover
+  a lost reply. This does not prove that competing computation performed no I/O.
 
-## Input, Selection, And Cancellation
+Equal clock advances do not append state. The proof still retains input and
+transition history in the graph. It has no supported compaction or byte limit.
+A bounded input buffer does not bound that history. Do not infer bounded state
+for a long-lived production execution from the 90-day deadline test.
 
-Active input must use the full `wait_id`. That ID includes the native
-activation and input occurrence. A foreign or closed wait ID is stale. Early
-input can use `path: ["approval"]` for a statically declared component that
-has not opened before. That form never addresses a later repeated occurrence.
-Unknown dynamic paths are rejected. Input remains scoped to its execution.
+## Required Runtime Work
 
-Input IDs must be non-empty strings. Retrying identical input is inert, even
-after completion. A different input with the same ID fails. Optional
-`expires_at` is an absolute deadline; input at or after it expires. Buffered
-input defaults to a limit of 128; set `max_buffered_inputs:` at start. Expired
-and closed-target input does not occupy buffer capacity. Saved receipts retain
-accepted time and order for deduplication. The host owns total history retention.
+Runic must own pending activation, suspension, completion, execution policy,
+and recovery. The host must own the inbox, clock delivery, serialization,
+retention, and an atomic save of its state and the native workflow. It must save
+accepted input before acknowledgement and resolve uncertain save replies before
+retrying work. The test Store does not provide this host transaction.
 
-The earliest accepted matching input or timer deadline wins. Timers win an
-exact-time tie. Accepted input order breaks input ties; declaration order
-breaks remaining ties. Save one selected result and consumed input ID. Losing
-options close together. They create no independent running timers to cancel.
+Native Runner suspension, managed retry and concurrency policy across waits,
+AgentServer activation and restart, and bounded history remain unproved.
+A probe with parallel waits at different dependency depths records both results
+but fails to produce the final joined result. The proof does not establish
+support for that graph shape. Native suspension and join recovery must resolve
+this gap before a public wait runtime is added. This
+package adds no public wait driver, Store behavior, Signal transport, or second
+scheduler. Map and Iterate waiting Flow bodies remain unsupported.
 
-`cancel/1` closes all descendant waits and is idempotent. Save cancellation
-with the same compare-and-swap rule. An input/cancel race has one accepted
-revision. Cancellation prevents later input and deadline advancement. It does
-not reverse completed Actions or prior external I/O. Waiting, completion,
-failure, and cancellation are distinct statuses. Effects are available only
-from a successful final result, not from waiting or failed snapshots.
-
-The execution host owns persistence, event transport, activation, and recovery.
-This package has no Signal dependency or background delivery policy. A request
-needed by a wait in the same Turn must use an explicit host interaction before
-the wait. Post-commit effect requests cannot issue that request, because the
-Turn has not committed while waiting. The host must test this integration;
-AgentServer support is not established by these snapshot tests.
+A request needed by a wait in the same Turn must reach the host before the
+wait. Deferred post-commit effects cannot issue that request from an unfinished
+Turn. A real host integration must establish this rule and the complete recovery
+contract before wait execution becomes a supported public feature.

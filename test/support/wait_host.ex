@@ -1,13 +1,7 @@
-defmodule Jido.Exec.Waits do
-  @moduledoc """
-  Snapshot operations for an execution host that supports Flow waits.
+defmodule Jido.Exec.Test.WaitHost do
+  @moduledoc false
 
-  Runic owns the graph and ready work. This module accepts host time and input
-  at Flow boundaries. It starts no timer, task, worker, or delivery process.
-  Save the returned Runic workflow before acknowledging an input. Serialize
-  operations per execution. See [Flow Waits](flow-waits.md).
-  """
-  alias Jido.Exec.{Frame, Portable, Validation}
+  alias Jido.Exec.{Frame, Portable, Runtime}
   alias Jido.Exec.Node.Wait
   alias Runic.Workflow
   alias Runic.Workflow.{CausalContext, Fact, Runnable, SingleOutput}
@@ -32,15 +26,23 @@ defmodule Jido.Exec.Waits do
   @doc "Starts a portable execution with a stable host ID and an explicit `now:` in milliseconds."
   @spec start(term(), term(), map(), map(), keyword()) :: {:ok, Workflow.t()} | {:error, term()}
   def start(execution_id, target, params \\ %{}, context \\ %{}, opts \\ []) do
+    protect(fn -> do_start(execution_id, target, params, context, opts) end)
+  end
+
+  defp do_start(execution_id, target, params, context, opts) do
     with {:ok, now} <- clock(opts),
+         {:ok, capabilities, opts} <- Runtime.options(opts),
          :ok <- options(opts, [:now, :max_buffered_inputs]),
          true <- is_map(context),
          limit = Keyword.get(opts, :max_buffered_inputs, 128),
          true <- is_integer(limit) and limit > 0,
-         :ok <- Portable.validate({execution_id, params, context}, :wait_input),
+         :ok <- Portable.validate(execution_id, :execution_id),
          {:ok, instruction} <- Jido.Instruction.resolve(target, params, context),
-         {:ok, params} <- Validation.input(instruction.target, instruction.params),
+         {:ok, instruction} <- Runtime.flow_input(instruction),
+         :ok <- Runtime.portable(instruction),
          {:ok, workflow} <- Jido.Exec.compile(%{instruction | context: %{}}) do
+      context = instruction.context
+
       state = %{
         type: :jido_wait_host,
         execution_id: execution_id,
@@ -50,7 +52,7 @@ defmodule Jido.Exec.Waits do
         cancelled?: false
       }
 
-      input = if instruction.kind == :flow, do: Frame.new(params), else: params
+      input = if instruction.kind == :flow, do: Frame.new(instruction.params), else: %{}
 
       fact =
         Fact.new(
@@ -66,10 +68,10 @@ defmodule Jido.Exec.Waits do
         workflow
         |> Workflow.enable_event_emission()
         |> record(state)
-        |> runtime(context, state)
+        |> runtime(context, state, capabilities)
         |> Workflow.react_until_satisfied(fact)
 
-      {:ok, settle(workflow, context, state)}
+      {:ok, settle(workflow, context, state, capabilities)}
     else
       false -> error(:invalid_buffer_limit)
       {:error, _} = error -> error
@@ -95,13 +97,17 @@ defmodule Jido.Exec.Waits do
   @doc "Accepts one addressed event. Equal retries are inert; conflicting IDs fail."
   @spec accept(Workflow.t(), input(), map(), keyword()) :: {:ok, Workflow.t()} | {:error, term()}
   def accept(workflow, input, context \\ %{}, opts \\ []) do
-    with {:ok, state} <- prepare(workflow, context, opts),
+    protect(fn -> do_accept(workflow, input, context, opts) end)
+  end
+
+  defp do_accept(workflow, input, context, opts) do
+    with {:ok, state, capabilities} <- prepare(workflow, context, opts),
          :ok <- validate_input(input),
          :ok <- Portable.validate(input, :wait_event) do
       case Enum.find(records(workflow, :jido_wait_input), &(&1.input.id == input.id)) do
         %{input: ^input} -> {:ok, workflow}
         %{} -> error(:conflicting_input_id)
-        nil -> accept_new(workflow, input, context, state)
+        nil -> accept_new(workflow, input, context, state, capabilities)
       end
     end
   end
@@ -109,9 +115,15 @@ defmodule Jido.Exec.Waits do
   @doc "Resolves deadlines and buffered inputs using an explicit host clock."
   @spec advance(Workflow.t(), map(), keyword()) :: {:ok, Workflow.t()} | {:error, term()}
   def advance(workflow, context \\ %{}, opts \\ []) do
-    with {:ok, state} <- prepare(workflow, context, opts),
+    protect(fn -> do_advance(workflow, context, opts) end)
+  end
+
+  defp do_advance(workflow, context, opts) do
+    with {:ok, state, capabilities} <- prepare(workflow, context, opts),
          false <- state.cancelled? do
-      {:ok, workflow |> record(state) |> settle(context, state)}
+      if state.now == state(workflow).now,
+        do: {:ok, workflow},
+        else: {:ok, workflow |> record(state) |> settle(context, state, capabilities)}
     else
       true -> error(:cancelled)
       {:error, _} = error -> error
@@ -134,7 +146,7 @@ defmodule Jido.Exec.Waits do
     end
   end
 
-  defp accept_new(workflow, input, context, state) do
+  defp accept_new(workflow, input, context, state, capabilities) do
     cond do
       state.cancelled? ->
         error(:cancelled)
@@ -148,7 +160,10 @@ defmodule Jido.Exec.Waits do
       not addressable?(workflow, input) ->
         error(:stale_target)
 
-      length(buffered(workflow, state.now)) >= state.limit ->
+      not useful_input?(workflow, input) ->
+        error(:unmatched_input)
+
+      Map.has_key?(input, :path) and length(buffered(workflow, state.now)) >= state.limit ->
         error(:buffer_full)
 
       true ->
@@ -159,19 +174,21 @@ defmodule Jido.Exec.Waits do
           order: state.revision
         }
 
-        {:ok, workflow |> record(state) |> record(receipt) |> settle(context, state)}
+        {:ok,
+         workflow |> record(state) |> record(receipt) |> settle(context, state, capabilities)}
     end
   end
 
   defp prepare(workflow, context, opts) do
     with {:ok, now} <- clock(opts),
+         {:ok, capabilities, opts} <- Runtime.options(opts),
          :ok <- options(opts, [:now]),
          :ok <- Portable.validate(context, :context),
          true <- is_map(context) do
       state = state(workflow)
 
       if now >= state.now,
-        do: {:ok, %{state | now: now, revision: state.revision + 1}},
+        do: {:ok, %{state | now: now, revision: state.revision + 1}, capabilities},
         else: error(:clock_moved_backwards)
     else
       false -> error(:invalid_context)
@@ -179,14 +196,16 @@ defmodule Jido.Exec.Waits do
     end
   end
 
-  defp settle(workflow, context, state) do
-    workflow = runtime(workflow, context, state)
+  defp settle(workflow, context, state, capabilities) do
+    workflow = runtime(workflow, context, state, capabilities)
 
     requests = if failure?(workflow), do: [], else: pending(workflow)
 
+    inputs = buffered(workflow, state.now)
+
     choices =
       for request <- requests,
-          choice = choose(request, buffered(workflow, state.now), state.now),
+          choice = choose(request, inputs, state.now),
           not is_nil(choice),
           do: {request, choice}
 
@@ -200,7 +219,7 @@ defmodule Jido.Exec.Waits do
             complete(current, request, choice)
           end)
 
-        workflow |> Workflow.react_until_satisfied() |> settle(context, state)
+        workflow |> Workflow.react_until_satisfied() |> settle(context, state, capabilities)
     end
   end
 
@@ -331,6 +350,8 @@ defmodule Jido.Exec.Waits do
   end
 
   defp record(workflow, value) do
+    value = Map.put(value, :version, 1)
+
     fact =
       Fact.new(
         value: value,
@@ -346,12 +367,25 @@ defmodule Jido.Exec.Waits do
     Workflow.apply_runnable(workflow, runnable)
   end
 
-  defp runtime(workflow, context, state),
+  defp protect(work), do: Runtime.run(Jido.Exec.TaskSupervisor, Process.group_leader(), work)
+
+  defp runtime(workflow, context, state, capabilities),
     do:
       Workflow.put_run_context(workflow, %{
         _global:
-          context |> Map.put(:__jido_exec_durable__, true) |> Map.put(:__jido_wait_host__, state)
+          context |> Runtime.context(capabilities, true) |> Map.put(:__jido_wait_host__, state)
       })
+
+  defp useful_input?(_workflow, %{path: _path}), do: true
+
+  defp useful_input?(workflow, input) do
+    Enum.any?(pending(workflow), fn request ->
+      addressed?(input, request) and
+        Enum.any?(request.options, fn option ->
+          option.event == input.event and matches?(input.payload, option.match)
+        end)
+    end)
+  end
 
   defp failure?(workflow),
     do:

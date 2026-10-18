@@ -96,34 +96,23 @@ defmodule Jido.Flow.Component do
   @doc false
   @spec authoring(map()) :: map() | FieldError.t()
   def authoring(%{kind: kind} = attrs) when kind in [:timer, :await] do
-    option =
-      attrs
-      |> Map.take([:name, :event, :match, :after_ms])
-      |> Map.put_new(:event, nil)
-      |> Map.put_new(:match, %{})
-      |> Map.put_new(:after_ms, nil)
+    case wait_option(Map.take(attrs, [:kind, :name, :event, :match, :after_ms])) do
+      %FieldError{} = error ->
+        error
 
-    attrs
-    |> Map.drop([:event, :match, :after_ms])
-    |> Map.put(:kind, :wait)
-    |> Map.put(:options, [option])
+      option ->
+        attrs
+        |> Map.drop([:event, :match, :after_ms])
+        |> Map.put(:kind, :wait)
+        |> Map.put(:options, [option])
+    end
   end
 
-  def authoring(%{kind: :selection, options: options} = attrs) when is_list(options) do
+  def authoring(%{kind: :selection, options: options} = attrs) do
     options =
-      Enum.map(options, fn option ->
-        case option do
-          %{kind: kind} when kind in [:timer, :await] ->
-            option
-            |> Map.delete(:kind)
-            |> Map.put_new(:event, nil)
-            |> Map.put_new(:match, %{})
-            |> Map.put_new(:after_ms, nil)
-
-          other ->
-            other
-        end
-      end)
+      if is_list(options) and not List.improper?(options),
+        do: Enum.map(options, &wait_option/1),
+        else: options
 
     attrs |> Map.put(:kind, :wait) |> Map.put(:options, options)
   end
@@ -180,6 +169,33 @@ defmodule Jido.Flow.Component do
   end
 
   def authoring(attrs), do: attrs
+
+  defp wait_option(%{kind: kind} = attrs) when kind in [:timer, :await] do
+    valid? =
+      case kind do
+        :timer ->
+          Map.has_key?(attrs, :after_ms) and not Map.has_key?(attrs, :event) and
+            not Map.has_key?(attrs, :match)
+
+        :await ->
+          Map.has_key?(attrs, :event) and not Map.has_key?(attrs, :after_ms)
+      end
+
+    if valid?,
+      do:
+        attrs
+        |> Map.delete(:kind)
+        |> Map.put_new(:event, nil)
+        |> Map.put_new(:match, %{})
+        |> Map.put_new(:after_ms, nil),
+      else: %FieldError{
+        errors: [
+          Error.validation_error("wait fields do not match the declared kind", %{kind: kind})
+        ]
+      }
+  end
+
+  defp wait_option(other), do: other
 
   defp authoring_call(%{call: _}), do: unknown_call_field()
 

@@ -1,12 +1,7 @@
-defmodule Jido.Exec.WaitStore.Memory do
-  @moduledoc """
-  An ETS implementation of `Jido.Exec.WaitStore` for tests and local hosts.
+defmodule Jido.Exec.Test.WaitStore.Memory do
+  @moduledoc false
 
-  The calling process owns the table. Data survives a host worker restart while
-  that owner lives, and is lost when the owner or VM exits. This is not a disk
-  persistence adapter. Runic supplies the snapshot encoding.
-  """
-  @behaviour Jido.Exec.WaitStore
+  @behaviour Jido.Exec.Test.WaitStore
   @typedoc "An ETS table owned by the process that called `new/0`."
   @type t :: :ets.tid()
 

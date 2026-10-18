@@ -1,7 +1,7 @@
 defmodule Jido.Exec.WaitsTest do
   use ExUnit.Case, async: true
   @moduletag capture_log: true
-  alias Jido.Exec.Waits
+  alias Jido.Exec.Test.WaitHost, as: Waits
   alias Jido.Flow
   alias Jido.Flow.Ref
 

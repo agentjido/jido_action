@@ -1,6 +1,7 @@
-defmodule Jido.Exec.WaitStoreTest do
+defmodule Jido.Exec.Test.WaitStoreTest do
   use ExUnit.Case, async: true
-  alias Jido.Exec.{Waits, WaitStore.Memory}
+  alias Jido.Exec.Test.WaitHost, as: Waits
+  alias Jido.Exec.Test.WaitStore.Memory
 
   defmodule SelectionFlow do
     use Jido.Flow, name: "stored_selection"

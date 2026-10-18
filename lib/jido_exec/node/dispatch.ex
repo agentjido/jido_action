@@ -130,15 +130,15 @@ defmodule Jido.Exec.Node.Dispatch do
   end
 
   @doc false
-  @spec expansion(t(), term(), term(), term()) ::
+  @spec expansion(t(), term(), term(), term(), map()) ::
           {term(), (Workflow.t() -> Workflow.t())} | no_return()
-  def expansion(node, target, input, frame) do
+  def expansion(node, target, input, frame, runtime \\ %{}) do
     case Instruction.resolve(target) do
       {:ok, %Instruction{kind: :action} = instruction} ->
         action_target(node, instruction, input, frame)
 
       {:ok, %Instruction{kind: :flow} = instruction} ->
-        {frame, flow_target(node, instruction, input)}
+        {frame, flow_target(node, instruction, input, runtime)}
 
       {:error, %{details: details} = error} when is_map(details) ->
         raise %{
@@ -219,7 +219,7 @@ defmodule Jido.Exec.Node.Dispatch do
     {request, apply_fn}
   end
 
-  defp flow_target(node, instruction, input) do
+  defp flow_target(node, instruction, input, runtime) do
     target_id = target_id(node, instruction.target)
     target_key = target_component_key(node)
 
@@ -233,6 +233,11 @@ defmodule Jido.Exec.Node.Dispatch do
         input_params: input,
         boundary_location: node.location
       )
+
+    case Jido.Exec.Node.Wait.validate_host(target, runtime) do
+      :ok -> :ok
+      {:error, error} -> raise error
+    end
 
     finish = Finish.new(node, target_id)
 
@@ -285,6 +290,7 @@ defimpl Runic.Workflow.Invokable, for: Jido.Exec.Node.Dispatch do
       CausalContext.new(
         node_hash: node.hash,
         input_fact: fact,
+        run_context: Workflow.get_run_context(workflow, node.name),
         ancestry_depth: Workflow.ancestry_depth(workflow, fact)
       )
 
@@ -301,7 +307,7 @@ defimpl Runic.Workflow.Invokable, for: Jido.Exec.Node.Dispatch do
 
       {:continue, {:jido_dispatch_continue, frame, component, input, target, effects}} ->
         frame = Frame.put_result(frame, component, nil, effects)
-        {value, apply_fn} = Dispatch.expansion(node, target, input, frame)
+        {value, apply_fn} = Dispatch.expansion(node, target, input, frame, context.run_context)
         complete(runnable, node, fact, value, context, [apply_fn])
     end
   rescue

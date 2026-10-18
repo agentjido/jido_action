@@ -253,17 +253,13 @@ API to use. See the guides on HexDocs for explanations and examples.
   queues, distributed coordination, effect delivery) in other packages.
 
 
-## Host-Driven Flow Waits
+## Proposed Flow Waits
 
-- Use `timer`, `await`, or `selection` for named Flow waits. Keep explicit
-  dependencies and output. A Selection contains timers and events only.
-- Use `Jido.Exec.Waits.start/5`, `accept/4`, `advance/3`, `status/1`, and
-  `cancel/1` from a serialized execution host. Supply an absolute `now:` in
-  milliseconds. No host timer or delivery service is started by this package.
-- Save each returned native Runic workflow before acknowledging input.
-  Use `Jido.Exec.WaitStore` for compare-and-swap and lost-reply handling.
-  The Memory adapter uses ETS and is not durable across owner or VM exit.
-- Address active input to its full wait ID. Early input needs a declared
-  component path that has not opened before. Keep IDs stable on retries.
-- `Jido.Exec.run/4` and `start/6` reject static waits before Action work.
-  Read `guides/flow-waits.md` for supported forms and host responsibilities.
+- Use `timer`, `await`, or `selection` to evaluate named wait definitions.
+  Keep explicit dependencies and output. A Selection contains timers and events only.
+- Compile and validate these definitions without executing them. Normal Exec
+  rejects waits because the published runtime has no supported suspension contract.
+  A Dispatch-selected waiting Flow is rejected before child Action work.
+- Treat the driver and ETS Store in `test/support` as recovery proof code.
+  They are not shipped APIs. Native pending activation and AgentServer integration
+  remain required. Read `guides/flow-waits.md` for evidence and limits.
