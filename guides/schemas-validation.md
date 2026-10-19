@@ -58,6 +58,11 @@ Zoi.object(%{
 })
 ```
 
+For complete native Signal values, see
+[Typed Signals In Actions And Flow](typed-signals.livemd). The runnable example
+checks exact definitions at both Action boundaries and constructs a new request
+from a previous Flow result. It also states the current JSON Schema export limit.
+
 ## String-Keyed Input
 
 JSON decoders and Phoenix params produce maps with string keys. A

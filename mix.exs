@@ -101,6 +101,7 @@ defmodule JidoAction.MixProject do
         Actions: [
           "guides/actions.md",
           "guides/schemas-validation.md",
+          "guides/typed-signals.livemd",
           "guides/action-effects.livemd",
           "guides/instructions.md"
         ],
@@ -154,6 +155,7 @@ defmodule JidoAction.MixProject do
         # Actions
         {"guides/actions.md", title: "Actions"},
         {"guides/schemas-validation.md", title: "Schemas And Validation"},
+        {"guides/typed-signals.livemd", title: "Typed Signals In Actions And Flow"},
         {"guides/action-effects.livemd", title: "Outputs And Effects"},
         {"guides/instructions.md", title: "Instructions"},
         # Author Flows
