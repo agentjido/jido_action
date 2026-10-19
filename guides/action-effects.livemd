@@ -22,7 +22,7 @@ No email or audit service is needed.
 Run the cells from top to bottom. No local checkout is required.
 
 ```elixir
-Mix.install([{:jido_action, "~> 3.0.0-beta.20"}])
+Mix.install([{:jido_action, "~> 3.0.0-beta.21"}])
 ```
 
 ## Return A Map With An Optional Request
