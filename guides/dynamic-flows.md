@@ -140,8 +140,8 @@ applies its output schema. Decision and expander Actions can return an optional
 third element with a proper list of effect requests. Flow collects decision
 effects before expander effects.
 
-When the expander returns a continuation, the selected executable owns final
-output validation and the final output. Earlier effects remain in the same
+When the expander returns a continuation, the selected executable validates
+its output. The current Flow then applies its own output schema to that result. Earlier effects remain in the same
 list, before the next executable's effects. Failure anywhere in the chain
 returns no executable effects. See [Outputs And Effects](action-effects.livemd).
 
@@ -196,3 +196,46 @@ Registry when stored JSON defines the Flow.
 
 Dispatch selects one more target; it does not loop. Use an
 [`iterate`](flow-iterate-state.livemd) component for bounded repetition.
+
+
+## Terminal Handoff To A New Turn
+
+A terminal Dispatch expander can return `{:handoff, input, target}`. Exec
+validates the successor target and input and returns
+`{:handoff, %Jido.Instruction{}, effects}`. Handoff is a standard Exec result.
+Every execution host must handle it. No option is required for immediate or
+managed execution, including resume.
+It does not run the successor or add its graph to the predecessor. An ordinary
+`{:continue, input, target}` still expands the current graph.
+
+The successor input must be portable and pass its target schema. A root
+Action, an ordinary Step, or a nested Flow cannot end a Turn with a handoff.
+The returned Instruction has empty context and metadata. A bound target with
+context or metadata is rejected; the new Turn receives fresh host context.
+Ordinary Instruction values in input or output cannot grant handoff authority.
+The Flow stop telemetry event reports `outcome: :handoff` and the effect count.
+A handoff is a control outcome, so it does not pass through the predecessor's
+normal output schema. It retains the successful predecessor effects. An error
+returns no executable effect batch. DSL, map definitions, and Codec use the
+same Dispatch definition; no new definition field is needed.
+
+The execution host must implement and test these rules:
+
+- Commit Agent state, predecessor completion, successor ID, acceptance order,
+  and chain link atomically. Resolve a lost save reply before another acceptance.
+- Put the successor at the queue tail when accepted. Read current state at
+  successor start. Preserve accepted successor order during recovery.
+- Keep one stable chain ID and use a new Turn ID and fresh Runic graph per
+  successor. A predecessor receipt records continuation. Keep the original
+  logical request pending until final success, failure, or chain cancellation.
+- Serialize chain cancellation with handoff acceptance. Cancel the pending or
+  active member and prevent later successors. Caller timeout or disconnect
+  does not cancel the chain. Support stable chain lookup for reconnect.
+- Give the successor a new Turn timeout. Preserve an optional absolute chain
+  deadline through queue time. Reject input addressed to an earlier Turn or wait.
+- Apply normal post-commit effect rules per Turn. Do not transfer wait input
+  automatically or claim effect replay or exactly-once delivery.
+
+These are host responsibilities. This package implements the portable terminal
+contract and successor validation. It does not implement an Agent queue,
+chain database, caller connection, scheduler, or effect delivery service.

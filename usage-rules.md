@@ -150,6 +150,9 @@ API to use. See the guides on HexDocs for explanations and examples.
   targets. Inline bodies are supported only in `step`.
 - Use at most one `dispatch`. It must be the sole graph terminal, and `output`
   must be its complete result. Source order does not determine the terminal.
+- Every execution host must handle the standard terminal Dispatch result
+  `{:handoff, %Jido.Instruction{}, effects}` as predecessor completion
+  and atomic successor acceptance. See `guides/dynamic-flows.md` for host rules.
 - Return `{:continue, input, target}` only from a Dispatch expander. Every
   other Action, including a root Action, fails with
   `reason: :unsupported_continuation`.
@@ -248,3 +251,15 @@ API to use. See the guides on HexDocs for explanations and examples.
 
 - Keep domain Actions, adapters, and higher-level runtime policy (durable
   queues, distributed coordination, effect delivery) in other packages.
+
+## Flow Waits
+
+- Use `timer`, `await`, or `selection` to define named waits.
+  Keep explicit dependencies and output. A Selection contains timers and events only.
+- Use `Jido.Flow.validate/1` and `Jido.Exec.compile/2` to check wait definitions
+  without executing them. Normal Exec rejects waits because a supported wait
+  execution host is not implemented.
+  A Dispatch-selected waiting Flow is rejected before child Action work.
+- Use the driver and ETS Store in `test/support` only for package tests.
+  They are not shipped APIs. Native wait suspension and AgentServer integration
+  are not implemented. Read `guides/flow-waits.md` for tested behavior and limits.

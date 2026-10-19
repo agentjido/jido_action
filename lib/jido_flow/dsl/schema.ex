@@ -8,6 +8,9 @@ defmodule Jido.Flow.DSL.Schema do
     describe: "Declares a Jido Flow graph.",
     entities: [
       Step.entity(),
+      Jido.Flow.DSL.Timer.entity(),
+      Jido.Flow.DSL.Await.entity(),
+      Jido.Flow.DSL.Selection.entity(),
       Choice.entity(),
       MapNode.entity(),
       Reduce.entity(),

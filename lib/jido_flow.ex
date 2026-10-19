@@ -196,7 +196,7 @@ defmodule Jido.Flow do
   Builds and validates one canonical Flow value from a data definition.
 
   Components use a `kind` of `:step`, `:subflow`, `:choice`, `:map`, `:reduce`,
-  `:iterate`, or `:dispatch`. Action targets use `action` and `params`; Subflow
+  `:iterate`, `:dispatch`, `:timer`, `:await`, or `:selection`. Action targets use `action` and `params`; Subflow
   targets use `flow` and `params`. Dispatch uses module targets in `decision`
   and `expander`, with `params` for the decision. Validation is inert.
   See the [data guide](flow-data.md) for component fields.

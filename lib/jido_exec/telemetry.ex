@@ -75,6 +75,9 @@ defmodule Jido.Exec.Telemetry do
     %{outcome: :ok, effect_count: length(effects)}
   end
 
+  def result_metadata(:flow, {:handoff, _instruction, effects}),
+    do: %{outcome: :handoff, effect_count: length(effects)}
+
   def result_metadata(kind, {:error, error}) do
     error = error_metadata(kind, error)
 

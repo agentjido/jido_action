@@ -61,6 +61,9 @@ defmodule Jido.Flow.Codec.Writer do
 
   defp field({:target, _}, target, registry), do: target(target, registry)
 
+  defp field(:wait_options, options, registry),
+    do: sequence(options, &record(&1, Component.wait_option_fields(), registry))
+
   defp field(:options, options, registry),
     do: sequence(options, &record(&1, Component.option_fields(), registry))
 

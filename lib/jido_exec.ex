@@ -7,7 +7,9 @@ defmodule Jido.Exec do
   graph updates, and checkpoints.
 
   Use `run/4` for immediate execution. It returns `{:ok, output}`,
-  `{:ok, output, effects}`, or `{:error, error}`. Effects are returned to the
+  `{:ok, output, effects}`, or `{:error, error}`. A terminal
+  Dispatch can return `{:handoff, successor_instruction, effects}`.
+  Effects are returned to the
   caller without dispatch. See [Execution](execution.md).
 
   Use `start/6` with a supervised `Runic.Runner` for managed execution,
@@ -16,7 +18,7 @@ defmodule Jido.Exec do
   See [Managed Execution](managed-execution.md).
   """
 
-  alias Jido.Exec.{Compiler, Frame, Portable, Telemetry, Validation}
+  alias Jido.Exec.{Compiler, Frame, Portable, Telemetry}
   alias Jido.Instruction
   alias Runic.Workflow
 
@@ -37,6 +39,7 @@ defmodule Jido.Exec do
   @type exec_result ::
           {:ok, term()}
           | {:ok, term(), [term()]}
+          | {:handoff, Instruction.t(), [term()]}
           | {:error, Exception.t() | term()}
 
   @type step_result ::
@@ -82,7 +85,7 @@ defmodule Jido.Exec do
     with {:ok, task_supervisor, execution_opts} <- run_options(opts),
          {:ok, instruction} <- resolve(target, params, context) do
       span(instruction, fn ->
-        run_supervised(task_supervisor, group_leader, fn ->
+        Jido.Exec.Runtime.run(task_supervisor, group_leader, fn ->
           do_run_instruction(instruction, execution_opts)
         end)
       end)
@@ -101,9 +104,12 @@ defmodule Jido.Exec do
 
   defp span(%Instruction{}, work), do: work.()
 
+  defp reject_waits(workflow), do: Jido.Exec.Node.Wait.validate_host(workflow)
+
   defp do_run_instruction(instruction, opts) do
     with {:ok, instruction} <- validate_flow_input(instruction),
          {:ok, workflow} <- compile(instruction),
+         :ok <- reject_waits(workflow),
          {:ok, workflow, observation} <-
            run_workflow(workflow, execution_input(instruction), instruction.context, opts) do
       result(workflow, observation)
@@ -126,6 +132,7 @@ defmodule Jido.Exec do
          {:ok, instruction} <- validate_flow_input(instruction),
          :ok <- validate_durable_instruction(instruction),
          {:ok, workflow} <- compile(%{instruction | context: %{}}),
+         :ok <- reject_waits(workflow),
          {:ok, policy, worker_opts} <- managed_options(runner, execution_id, opts),
          {:ok, pid} <-
            Runic.Runner.start_workflow(runner, execution_id, workflow, worker_opts) do
@@ -263,6 +270,8 @@ defmodule Jido.Exec do
 
   defp run_workflow(workflow, input, context, opts) do
     with {:ok, policy, react_opts} <- execution_options(opts) do
+      context = Jido.Exec.Runtime.context(context)
+
       {workflow, observation} =
         workflow
         |> Workflow.enable_event_emission()
@@ -355,7 +364,16 @@ defmodule Jido.Exec do
   defp project(%Fact{meta: meta} = fact) do
     value = Jido.Exec.Fact.value(fact)
     effects = get_in(meta, [:jido, :effects]) || []
-    if effects == [], do: {:ok, value}, else: {:ok, value, effects}
+
+    case {get_in(meta, [:jido, :control]), value} do
+      {:handoff, %Jido.Exec.Handoff{} = request} ->
+        {:handoff,
+         %Instruction{target: request.target, kind: request.kind, params: request.params},
+         effects}
+
+      _ ->
+        if effects == [], do: {:ok, value}, else: {:ok, value, effects}
+    end
   end
 
   defp project(_missing),
@@ -544,57 +562,6 @@ defmodule Jido.Exec do
      })}
   end
 
-  defp run_supervised(task_supervisor, group_leader, work) do
-    caller = self()
-
-    task =
-      Task.Supervisor.async_nolink(task_supervisor, fn ->
-        Process.group_leader(self(), group_leader)
-        watcher = watch_caller(caller, self())
-        result = work.()
-        stop_watcher(watcher)
-        result
-      end)
-
-    case Task.yield(task, :infinity) do
-      {:ok, result} -> result
-      {:exit, reason} -> {:error, execution_task_error(reason)}
-    end
-  rescue
-    exception ->
-      {:error, execution_task_error(exception)}
-  catch
-    kind, reason ->
-      {:error, execution_task_error({kind, reason})}
-  end
-
-  # The execution task is not linked to the caller, so a killed Action cannot
-  # exit the caller. The linked watcher kills the task, and the processes
-  # linked to it, when the caller exits.
-  defp watch_caller(caller, task) do
-    spawn_link(fn ->
-      caller_monitor = Process.monitor(caller)
-      task_monitor = Process.monitor(task)
-
-      receive do
-        {:DOWN, ^caller_monitor, :process, ^caller, _reason} -> Process.exit(task, :kill)
-        {:DOWN, ^task_monitor, :process, ^task, _reason} -> :ok
-      end
-    end)
-  end
-
-  defp stop_watcher(watcher) do
-    Process.unlink(watcher)
-    Process.exit(watcher, :kill)
-  end
-
-  defp execution_task_error(reason) do
-    Jido.Action.Error.execution_error("Exec task exited", %{
-      phase: :execution_task,
-      reason: reason
-    })
-  end
-
   defp managed_options(_runner, _execution_id, opts) when is_list(opts) do
     policy_keys = [:timeout, :max_attempts, :backoff, :base_delay_ms, :max_delay_ms]
 
@@ -756,14 +723,11 @@ defmodule Jido.Exec do
   defp execution_input(%Instruction{kind: :action}), do: %{}
   defp execution_input(%Instruction{kind: :flow, params: params}), do: Frame.new(params)
 
-  defp validate_durable_instruction(%Instruction{} = instruction) do
-    with :ok <- Portable.validate(instruction.params, :params),
-         :ok <- Portable.validate(instruction.metadata, :metadata) do
-      Portable.validate(instruction.context, :context)
-    end
-  end
+  defp validate_durable_instruction(instruction), do: Jido.Exec.Runtime.portable(instruction)
 
-  defp durable_context(context), do: Map.put(context, :__jido_exec_durable__, true)
+  defp durable_context(context) do
+    Jido.Exec.Runtime.context(context, true)
+  end
 
   defp runtime_context(nil), do: {:ok, %{}}
   defp runtime_context(context) when is_map(context), do: {:ok, context}
@@ -785,12 +749,5 @@ defmodule Jido.Exec do
   defp normalize_start({:ok, pid}), do: {:ok, pid}
   defp normalize_start({:error, error}), do: {:error, normalize_runtime_error(error)}
 
-  defp validate_flow_input(%Instruction{kind: :action} = instruction), do: {:ok, instruction}
-
-  defp validate_flow_input(%Instruction{kind: :flow} = instruction) do
-    with {:ok, params} <-
-           Validation.input(instruction.target, instruction.params, %{phase: :flow_input}) do
-      {:ok, %{instruction | params: params}}
-    end
-  end
+  defp validate_flow_input(instruction), do: Jido.Exec.Runtime.flow_input(instruction)
 end

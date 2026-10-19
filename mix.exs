@@ -128,6 +128,7 @@ defmodule JidoAction.MixProject do
           "guides/execution.md",
           "guides/flow-execution.livemd",
           "guides/managed-execution.md",
+          "guides/flow-waits.md",
           "guides/errors.md",
           "guides/debugging-flows.md",
           "guides/testing.md",
@@ -177,6 +178,7 @@ defmodule JidoAction.MixProject do
         {"guides/execution.md", title: "Execution"},
         {"guides/flow-execution.livemd", title: "Executing Flows"},
         {"guides/managed-execution.md", title: "Managed Execution"},
+        {"guides/flow-waits.md", title: "Flow Waits"},
         {"guides/errors.md", title: "Errors"},
         {"guides/debugging-flows.md", title: "Debug Flows"},
         {"guides/testing.md", title: "Testing"},
@@ -220,7 +222,13 @@ defmodule JidoAction.MixProject do
           Jido.Flow.Registry
         ],
         Expressions: [Jido.Expr, Jido.Expr.Error],
-        Execution: [Jido.Exec, Jido.Exec.Telemetry],
+        Execution: [
+          Jido.Exec,
+          Jido.Exec.Telemetry,
+          Jido.Exec.Waits,
+          Jido.Exec.WaitStore,
+          Jido.Exec.WaitStore.Memory
+        ],
         "Action Errors": [
           Jido.Action.Error,
           Jido.Action.Error.InvalidInputError,

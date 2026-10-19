@@ -108,10 +108,14 @@ end
 {:ok, %{value: 4}, [added: 1, added: 2]} = Jido.Exec.result(MyApp.Runner, "add-1")
 ```
 
-`result(runner, execution_id)` returns the same success or error contract as
+`result(runner, execution_id)` returns the same success, handoff, or error contract as
 `run/4`. It uses the Runic observation for the input admitted by `start/6`.
 Active or ready work returns an error with `details.reason: :execution_active`.
 Later input occurrences do not replace this result.
+
+A terminal Dispatch returns `{:handoff, successor_instruction, effects}` through
+the same result API, including after resume. Every host must handle this result.
+See [Dynamic Flows](dynamic-flows.md#terminal-handoff-to-a-new-turn) for the host rules.
 
 Computation and Store acknowledgement are separate. Read
 `Runic.Runner.persistence_status/2` before treating a result as stored.
@@ -278,3 +282,38 @@ Managed execution emits Jido `[:jido, :action, ...]` spans for each Action
 attempt. It does not emit a `[:jido, :flow, ...]` span. Runic emits worker,
 dispatch, persistence, and recovery events under `[:runic, :runner, ...]`.
 Correlate the two by `runnable_id`. See [Execution](execution.md#telemetry).
+
+## Retry Recovery Limits
+
+These limits are tested with Runic `0.1.0-alpha.12`. This version keeps the retry
+loop inside one task.
+A failed attempt can enter backoff before its attempt events reach the Worker.
+A checkpoint at that point cannot save a retry budget or an absolute retry
+deadline. Restore can repeat that activation from attempt zero and grant it a
+new budget. Delayed backoff retains the task and its concurrency slot. The
+native API supplies no controlled retry clock or observable retry deadline.
+
+Use native `Runic.Runner.admission_status/2` and `persistence_status/2` to
+inspect current admission and Store acknowledgement. These are separate
+observations. They do not provide a saved retry count or deadline.
+Quiescence does not mean success; read `Jido.Exec.result/2` for the outcome.
+Read these native status APIs directly. A downstream project can select
+another Runic version, so it must verify these limits against its own
+dependency lock.
+
+Accepted completed work and terminal failures survive save/restore. A terminal
+retry-limit failure and a non-retryable failure are not new pending attempts.
+An unresolved task is a different boundary: it can run again after recovery.
+Cancellation stops a native task during backoff, but cancellation does not
+undo previous I/O. Checkpoint acknowledgement and a completed result remain
+separate facts.
+
+The recovery tests check attempt counts before and after restore. They also
+check that backoff retains a task and that cancellation stops it. The native
+API has no controlled retry clock for testing a saved absolute retry deadline.
+
+Hosts must not advertise durable retry budgets or resource-free delayed retry
+with this dependency. Durable retry support requires native Runic attempt
+acceptance, saved deadlines, and a controlled retry clock. Jido uses Runic
+retry policy and `max_attempts`; it provides no separate retry counter,
+backoff scheduler, checkpoint format, or retry API.

@@ -63,6 +63,27 @@ defmodule Jido.Flow.DSL.Lowerer do
     end
   end
 
+  defp lower_entity(%Jido.Flow.DSL.Timer{} = timer),
+    do: component(timer, :timer, after_ms: timer.after_ms)
+
+  defp lower_entity(%Jido.Flow.DSL.Await{} = wait) do
+    with {:ok, %{match: match}} <- ValueParser.parse_fields(wait, match: :value),
+         do: component(wait, :await, event: wait.event, match: match)
+  end
+
+  defp lower_entity(%Jido.Flow.DSL.Selection{} = selection) do
+    with {:ok, options} <-
+           Component.sequence(selection.options, fn
+             %Jido.Flow.DSL.TimerOption{} = timer ->
+               {:ok, %{kind: :timer, name: timer.name, after_ms: timer.after_ms}}
+
+             %Jido.Flow.DSL.AwaitOption{} = wait ->
+               with {:ok, %{match: match}} <- ValueParser.parse_fields(wait, match: :value),
+                    do: {:ok, %{kind: :await, name: wait.name, event: wait.event, match: match}}
+           end),
+         do: component(selection, :selection, options: options)
+  end
+
   defp lower_entity(%Step{} = step) do
     with {:ok, %{params: params}} <- ValueParser.parse_fields(step, params: :value) do
       step_component(step, params)

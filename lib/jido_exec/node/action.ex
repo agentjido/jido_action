@@ -240,6 +240,11 @@ defmodule Jido.Exec.Node.Action do
 
     with {:ok, params} <- Validation.callback(action, :validate_params, decision, :input) do
       case call_action(action, params, context, true) do
+        {:handoff, input, target} ->
+          with {:ok, handoff} <- Jido.Exec.Handoff.new(target, input) do
+            {:ok, {:jido_dispatch_handoff, frame, component, handoff, effects}, []}
+          end
+
         {:continue, input, target} ->
           {:ok, {:jido_dispatch_continue, frame, component, input, target, effects}, []}
 
@@ -292,7 +297,12 @@ defmodule Jido.Exec.Node.Action do
 
   # Only a Dispatch expander can select the next executable.
   defp call_action(action, params, context, continue? \\ false) do
-    case Validation.apply(action, :run, [params, context], :run) do
+    case Validation.apply(
+           action,
+           :run,
+           [params, Jido.Exec.Runtime.user_context(context)],
+           :run
+         ) do
       {:ok, {:ok, output}} ->
         {:ok, output, []}
 
@@ -311,6 +321,17 @@ defmodule Jido.Exec.Node.Action do
 
       {:ok, {:error, reason, _effects}} ->
         {:error, normalize_action_error(action, reason)}
+
+      {:ok, {:handoff, input, target}} when continue? ->
+        {:handoff, input, target}
+
+      {:ok, {:handoff, _input, _target}} ->
+        {:error,
+         Error.execution_error("only a Dispatch expander can hand off", %{
+           action: action,
+           phase: :run,
+           reason: :unsupported_handoff
+         })}
 
       {:ok, {:continue, input, target}} when continue? ->
         {:continue, input, target}

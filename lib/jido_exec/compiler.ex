@@ -405,6 +405,9 @@ defmodule Jido.Exec.Compiler do
     end)
   end
 
+  defp runtime_component(%{kind: :wait, options: options}, opts, _context),
+    do: {:ok, Jido.Exec.Node.Wait.new(opts ++ [options: options])}
+
   defp runtime_component(
          %{kind: :call, call: %{kind: :action} = call},
          opts,
