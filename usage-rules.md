@@ -252,13 +252,13 @@ API to use. See the guides on HexDocs for explanations and examples.
 - Keep domain Actions, adapters, and higher-level runtime policy (durable
   queues, distributed coordination, effect delivery) in other packages.
 
+## Flow Waits
 
-## Proposed Flow Waits
-
-- Use `timer`, `await`, or `selection` to evaluate named wait definitions.
+- Use `timer`, `await`, or `selection` to define named waits.
   Keep explicit dependencies and output. A Selection contains timers and events only.
-- Compile and validate these definitions without executing them. Normal Exec
-  rejects waits because the published runtime has no supported suspension contract.
+- Use `Jido.Flow.validate/1` and `Jido.Exec.compile/2` to check wait definitions
+  without executing them. Normal Exec rejects waits because a supported wait
+  execution host is not implemented.
   A Dispatch-selected waiting Flow is rejected before child Action work.
 - Treat the driver and ETS Store in `test/support` as recovery proof code.
   They are not shipped APIs. Native pending activation and AgentServer integration

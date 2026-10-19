@@ -1,4 +1,4 @@
-# Proposed Flow Waits
+# Flow Waits
 
 ```elixir
 defmodule ApprovalFlow do
@@ -21,7 +21,7 @@ end
   Jido.Exec.run(ApprovalFlow, %{order_id: "order-1"})
 ```
 
-The definitions and compiler are available for evaluation. A supported wait
+Wait definitions, validation, and compilation are implemented. A supported wait
 execution host is not implemented. Normal `Jido.Exec.run/4` and `start/6`
 reject static waits before Action work. Dispatch checks a selected Flow before
 any Action in that child graph runs. Its decision and expander have already run
@@ -39,7 +39,7 @@ Timers use non-negative millisecond delays without a 32-bit timer limit.
 Events match exact payload key/value pairs. A Selection contains timers and
 events. It does not race Actions.
 
-The proposed timer result is `%{fired_at: absolute_deadline}`. An event result
+The timer result is `%{fired_at: absolute_deadline}`. An event result
 is its accepted payload. A multi-option Selection returns `selected`, `value`,
 `accepted_at`, and `input_id` (nil for a timer). A one-option Selection has the
 same result as its sole wait. Tests establish these rules in the proof driver.
