@@ -11,6 +11,17 @@ entries return to the normal automated changelog process.
 
 <!-- changelog -->
 
+## [v3.0.0-beta.21](https://github.com/agentjido/jido_action/compare/v3.0.0-beta.20...v3.0.0-beta.21) (2026-10-19)
+
+
+
+
+### Features:
+
+* exec: expose generic Flow wait operations by mikehostetler
+
+* add Flow wait definitions, handoffs, and recovery tests (#306) by mikehostetler
+
 ## [v3.0.0-beta.20](https://github.com/agentjido/jido_action/compare/v3.0.0-beta.12...v3.0.0-beta.20) (2026-10-15)
 
 Beta 20 marks a major beta milestone for the version 3 API.
