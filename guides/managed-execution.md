@@ -285,7 +285,8 @@ Correlate the two by `runnable_id`. See [Execution](execution.md#telemetry).
 
 ## Retry Recovery Limits
 
-The audit uses Runic `0.1.0-alpha.12`. This dependency keeps the retry loop inside one task.
+These limits are tested with Runic `0.1.0-alpha.12`. This version keeps the retry
+loop inside one task.
 A failed attempt can enter backoff before its attempt events reach the Worker.
 A checkpoint at that point cannot save a retry budget or an absolute retry
 deadline. Restore can repeat that activation from attempt zero and grant it a
@@ -296,9 +297,9 @@ Use native `Runic.Runner.admission_status/2` and `persistence_status/2` to
 inspect current admission and Store acknowledgement. These are separate
 observations. They do not provide a saved retry count or deadline.
 Quiescence does not mean success; read `Jido.Exec.result/2` for the outcome.
-This audit adds no public capability map or status wrapper. A downstream
-project can select another Runic version, so it must verify these limits
-against its own dependency lock.
+Read these native status APIs directly. A downstream project can select
+another Runic version, so it must verify these limits against its own
+dependency lock.
 
 Accepted completed work and terminal failures survive save/restore. A terminal
 retry-limit failure and a non-retryable failure are not new pending attempts.
@@ -307,14 +308,12 @@ Cancellation stops a native task during backoff, but cancellation does not
 undo previous I/O. Checkpoint acknowledgement and a completed result remain
 separate facts.
 
-The audit tests stop at explicit attempt barriers and observe entry to native
-backoff through a task-local trace. They use no elapsed-time assertion. There
-is no supported clock seam with which to prove a persisted absolute retry
-deadline. The missing controlled-clock proof is reported as an unsupported
-capability, not replaced by a short sleep.
+The recovery tests check attempt counts before and after restore. They also
+check that backoff retains a task and that cancellation stops it. The native
+API has no controlled retry clock for testing a saved absolute retry deadline.
 
 Hosts must not advertise durable retry budgets or resource-free delayed retry
-with this dependency. Closing those gaps requires native Runic attempt
-acceptance, saved deadlines, and a clock seam. Jido adds no retry counter,
-backoff scheduler, checkpoint format, or retry API. Existing retry policy,
-authoring forms, and `max_attempts` behavior are unchanged.
+with this dependency. Durable retry support requires native Runic attempt
+acceptance, saved deadlines, and a controlled retry clock. Jido uses Runic
+retry policy and `max_attempts`; it provides no separate retry counter,
+backoff scheduler, checkpoint format, or retry API.

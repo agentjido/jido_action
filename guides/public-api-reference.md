@@ -7,9 +7,10 @@ record the evidence for the public promises.
 For a first example, use [Getting Started](getting-started.livemd) or
 [Build Your First Flow](build-your-first-flow.livemd). This document gives the
 exact boundaries needed to write callers, tests, tools, and stored data.
-The [contract review](https://github.com/agentjido/jido_action/blob/release/v3/guides/public-api-contract-review.md) selects 15 proposed
-behavior obligations and maps all 36 register entries and 42 original
-obligations. It also records defects, documentation conflicts, and checks.
+The [contract review](https://github.com/agentjido/jido_action/blob/release/v3/guides/public-api-contract-review.md)
+records 15 behavior obligations selected for verification and maps all 36
+register entries and 42 original obligations. It also records defects,
+documentation conflicts, and checks.
 
 The terms have distinct meanings here:
 
@@ -18,8 +19,7 @@ The terms have distinct meanings here:
 - **Internal export:** callable implementation code with hidden documentation.
   Being exported does not make it an independent application API.
 - **Observed behavior:** source behavior supported by cited tests or a stated
-  probe. A missing test is called out; a proposed promise is not presented as
-  a completed test result.
+  probe. Missing tests and runtime limits are stated explicitly.
 - **Inert:** does not run Action work. Trusted compile-time builders, schema
   callbacks, module loading, and metadata functions can still execute host
   code where the corresponding API permits them.

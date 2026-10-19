@@ -260,6 +260,6 @@ API to use. See the guides on HexDocs for explanations and examples.
   without executing them. Normal Exec rejects waits because a supported wait
   execution host is not implemented.
   A Dispatch-selected waiting Flow is rejected before child Action work.
-- Treat the driver and ETS Store in `test/support` as recovery proof code.
-  They are not shipped APIs. Native pending activation and AgentServer integration
-  remain required. Read `guides/flow-waits.md` for evidence and limits.
+- Use the driver and ETS Store in `test/support` only for package tests.
+  They are not shipped APIs. Native wait suspension and AgentServer integration
+  are not implemented. Read `guides/flow-waits.md` for tested behavior and limits.
