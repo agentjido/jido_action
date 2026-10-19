@@ -1,10 +1,10 @@
 defmodule Jido.Exec.Test.WaitHost do
   @moduledoc false
 
-  alias Jido.Exec.{Frame, Portable, Runtime}
+  alias Jido.Exec.{Frame, Portable, Runtime, Waits}
   alias Jido.Exec.Node.Wait
   alias Runic.Workflow
-  alias Runic.Workflow.{CausalContext, Fact, Runnable, SingleOutput}
+  alias Runic.Workflow.{CausalContext, Fact, Runnable}
   alias Runic.Workflow.Events.FactProduced
 
   @typedoc "A host input with a stable ID, event name, payload, and wait ID or early path."
@@ -200,95 +200,20 @@ defmodule Jido.Exec.Test.WaitHost do
 
     inputs = buffered(workflow, state.now)
 
-    choices =
-      for request <- requests,
-          choice = choose(request, inputs, state.now),
-          not is_nil(choice),
-          do: {request, choice}
+    resolved =
+      Enum.reduce(requests, workflow, fn request, current ->
+        candidates = Enum.filter(inputs, &addressed?(&1.input, request))
+        {:ok, next} = Waits.resolve(current, request.id, candidates, state.now)
+        next
+      end)
 
-    case choices do
-      [] ->
-        workflow
-
-      _ ->
-        workflow =
-          Enum.reduce(choices, workflow, fn {request, choice}, current ->
-            complete(current, request, choice)
-          end)
-
-        workflow |> Workflow.react_until_satisfied() |> settle(context, state)
-    end
-  end
-
-  defp choose(request, inputs, now) do
-    request.options
-    |> Enum.with_index()
-    |> Enum.flat_map(fn {option, index} ->
-      if is_integer(option.deadline) do
-        if option.deadline <= now,
-          do: [%{option: option, at: option.deadline, order: {0, index}, input: nil}],
-          else: []
-      else
-        for receipt <- inputs,
-            addressed?(receipt.input, request),
-            receipt.input.event == option.event,
-            matches?(receipt.input.payload, option.match),
-            do: %{
-              option: option,
-              at: receipt.accepted_at,
-              order: {1, receipt.order, index},
-              input: receipt.input
-            }
-      end
-    end)
-    |> Enum.min_by(&{&1.at, &1.order}, fn -> nil end)
-  end
-
-  defp complete(workflow, request, choice) do
-    node = Map.fetch!(workflow.graph.vertices, request.node_hash)
-    fact = Map.fetch!(workflow.graph.vertices, request.input_id)
-    value = if choice.input, do: choice.input.payload, else: %{fired_at: choice.at}
-
-    value =
-      if length(request.options) == 1,
-        do: value,
-        else: %{
-          selected: choice.option.name,
-          value: value,
-          accepted_at: choice.at,
-          input_id: if(choice.input, do: choice.input.id)
-        }
-
-    {:ok, runnable} = SingleOutput.prepare(node, workflow, fact)
-
-    context = %{
-      runnable.context
-      | run_context: Map.put(runnable.context.run_context, :__jido_wait_result__, value)
-    }
-
-    executed = SingleOutput.execute(node, %{runnable | context: context})
-
-    workflow
-    |> Workflow.apply_runnable(executed)
-    |> record(%{
-      type: :jido_wait_resolution,
-      wait_id: request.id,
-      path: request.path,
-      selected: choice.option.name,
-      accepted_at: choice.at,
-      input_id: if(choice.input, do: choice.input.id)
-    })
+    if resolved == workflow,
+      do: workflow,
+      else: resolved |> Workflow.react_until_satisfied() |> settle(context, state)
   end
 
   defp pending(workflow) do
-    resolved = records(workflow, :jido_wait_resolution) |> MapSet.new(& &1.wait_id)
-
-    if state(workflow).cancelled?,
-      do: [],
-      else:
-        records(workflow, :jido_wait_request)
-        |> Enum.reject(&MapSet.member?(resolved, &1.id))
-        |> Enum.sort_by(&{&1.path, &1.id})
+    if state(workflow).cancelled?, do: [], else: Waits.pending(workflow)
   end
 
   defp buffered(workflow, now) do
@@ -328,9 +253,6 @@ defmodule Jido.Exec.Test.WaitHost do
   defp addressed?(%{wait_id: id}, request), do: id == request.id
   defp addressed?(%{path: path}, request), do: path == request.path
 
-  defp matches?(payload, match),
-    do: Enum.all?(match, fn {key, value} -> Map.fetch(payload, key) == {:ok, value} end)
-
   defp state(workflow), do: records(workflow, :jido_wait_host) |> Enum.max_by(& &1.revision)
 
   defp records(workflow, type) do
@@ -369,7 +291,7 @@ defmodule Jido.Exec.Test.WaitHost do
   defp runtime(workflow, context, state),
     do:
       Workflow.put_run_context(workflow, %{
-        _global: context |> Runtime.context(true) |> Map.put(:__jido_wait_host__, state)
+        _global: context |> Runtime.context(true) |> Waits.context(state.execution_id, state.now)
       })
 
   defp useful_input?(_workflow, %{path: _path}), do: true
@@ -377,9 +299,7 @@ defmodule Jido.Exec.Test.WaitHost do
   defp useful_input?(workflow, input) do
     Enum.any?(pending(workflow), fn request ->
       addressed?(input, request) and
-        Enum.any?(request.options, fn option ->
-          option.event == input.event and matches?(input.payload, option.match)
-        end)
+        Waits.matches?(request, input.event, input.payload)
     end)
   end
 

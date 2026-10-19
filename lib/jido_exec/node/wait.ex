@@ -3,7 +3,6 @@ defmodule Jido.Exec.Node.Wait do
   alias Jido.Exec.{Frame, ValueResolver}
   alias Runic.Workflow.{Fact, Runnable}
   alias Runic.Workflow.Events.{ActivationConsumed, FactProduced}
-  alias Runic.Workflow.SingleOutput.{Context, Result}
 
   @enforce_keys [:id, :name, :hash, :component, :options, :node_path]
   defstruct [:id, :name, :hash, :component, :options, :node_path, :location]
@@ -34,14 +33,18 @@ defmodule Jido.Exec.Node.Wait do
     runtime = runnable.context.run_context
 
     case Map.get(runtime, :__jido_wait_host__) do
-      %{execution_id: execution_id, now: now} ->
-        with {:ok, frame} <- Frame.merge(Jido.Exec.Fact.value(runnable.input_fact)),
+      %{execution_id: execution_id, clock: clock} ->
+        with {:ok, now} <- read_clock(clock),
+             {:ok, frame} <- Frame.merge(Jido.Exec.Fact.value(runnable.input_fact)),
              {:ok, options} <-
                resolve_options(node.options, Frame.resolver_state(frame, runtime), now) do
           request = %{
             type: :jido_wait_request,
             version: 1,
-            id: to_string(runnable.activation_id),
+            id:
+              to_string(
+                Runic.Identity.derive(:activation, [execution_id, runnable.activation_id])
+              ),
             execution_id: execution_id,
             node_hash: node.hash,
             input_id: runnable.input_fact.hash,
@@ -98,17 +101,11 @@ defmodule Jido.Exec.Node.Wait do
     end)
   end
 
-  @doc false
-  @spec run(t(), term(), Context.t()) :: Result.t()
-  def run(node, input, context) do
-    value = Map.fetch!(context.runtime, :__jido_wait_result__)
+  defp read_clock(clock) when is_function(clock, 0), do: read_clock(clock.())
+  defp read_clock(now) when is_integer(now) and now >= 0, do: {:ok, now}
 
-    with {:ok, frame} <- Frame.merge(Jido.Exec.Fact.unwrap(input)) do
-      Jido.Exec.Fact.result(input, context, Frame.put_result(frame, node.component, value, []))
-    else
-      {:error, error} -> Result.failure(error)
-    end
-  end
+  defp read_clock(_),
+    do: {:error, Jido.Action.Error.config_error("invalid wait clock", %{reason: :invalid_clock})}
 
   @doc false
   @spec validate_host(Runic.Workflow.t(), map()) :: :ok | {:error, Exception.t()}

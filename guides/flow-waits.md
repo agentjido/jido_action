@@ -21,10 +21,11 @@ end
   Jido.Exec.run(ApprovalFlow, %{order_id: "order-1"})
 ```
 
-Wait definitions, validation, and compilation are implemented. A supported wait
-execution host is not implemented. Normal `Jido.Exec.run/4` and `start/6`
-reject static waits before Action work. Dispatch checks a selected Flow before
-any Action in that child graph runs. Its decision and expander have already run
+Wait definitions, validation, and compilation are implemented.
+`Jido.Exec.Waits` provides shared wait operations for execution hosts.
+Normal `Jido.Exec.run/4` and `start/6` reject static waits before Action work.
+Dispatch checks a selected Flow before any Action in that child graph runs.
+Its decision and expander have already run
 to select the target. Do not use the test driver as an AgentServer runtime.
 
 ## One Wait Model
@@ -42,12 +43,12 @@ events. It does not race Actions.
 The timer result is `%{fired_at: absolute_deadline}`. An event result
 is its accepted payload. A multi-option Selection returns `selected`, `value`,
 `accepted_at`, and `input_id` (nil for a timer). A one-option Selection has the
-same result as its sole wait. These result shapes are implemented and tested
-in the test driver. They are not available through normal Exec wait execution.
+same result as its sole wait. The shared wait operations define these result
+shapes for all hosts. Normal Exec still rejects waits.
 
 ## Tested Recovery Behavior
 
-The [test driver](https://github.com/agentjido/jido_action/blob/feat/303-dispatch-handoff/test/support/wait_host.ex)
+The [test driver](https://github.com/agentjido/jido_action/blob/release/v3/test/support/wait_host.ex)
 and its ETS Store are test support. They are excluded from the library build.
 They provide a controlled clock and synchronous native snapshot transitions
 for the package tests. They do not establish a second public Exec lifecycle.
@@ -90,15 +91,18 @@ retention, and an atomic save of its state and the native workflow. It must save
 accepted input before acknowledgement and resolve uncertain save replies before
 retrying work. The test Store does not provide this host transaction.
 
-The package has no supported native Runner suspension or managed retry and
-concurrency policy across waits. AgentServer wait activation and restart are
-not integrated. Saved history has no compaction or byte limit.
+The wait operations run no Actions or hooks and do not implement a scheduler.
+A host can stop a quiescent Runner Worker, save transitions, then resume it with fresh
+runtime context and policy. The companion Jido package integrates this path
+with durable AgentServer Turns. Ordinary managed Exec still rejects waits.
+Saved history has no compaction or byte limit.
 
 Opening a wait preserves earlier input at downstream joins. The wait records
 its request without producing output or suppressing other branches. The test
 host later resolves the saved request. This behavior does not provide native
-Runner suspension. The package provides no public wait driver, Store API, or
-Signal transport. Map and Iterate waiting Flow bodies remain unsupported.
+Runner suspension. `Jido.Exec.Waits` provides request inspection, matching,
+and resolution. It provides no inbox, Store API, or Signal transport.
+Map and Iterate waiting Flow bodies remain unsupported.
 
 A request needed by a wait in the same Turn must reach the host before the
 wait. Deferred post-commit effects cannot issue that request from an unfinished
@@ -126,13 +130,48 @@ execution cannot release a new occurrence. Early path input is limited to the
 first static occurrence; it cannot address a future Dispatch target.
 
 The tests in `test/jido_exec/composed_waits_test.exs` cover these graph shapes
-with the test driver. AgentServer integration still requires end-to-end tests
-for event acceptance, atomic state save, worker release and activation,
-cancellation, and restart. Nested Flow tests do not establish Map or Iterate
-wait support.
+with the test driver. The companion Jido package owns AgentServer tests
+for saved event acceptance, worker release, cancellation, and restart.
+Nested Flow tests do not establish Map or Iterate wait support.
 
 The wait-to-handoff test saves and restores the waiting graph, accepts input,
 retries an equal save and duplicate input, and checks cancellation before the
 Dispatch. It returns a successor Instruction without running it. This covers
 package result composition. Atomic Agent state and successor acceptance,
 queue order, and caller-chain completion require AgentServer integration tests.
+
+## Host Extension Points
+
+`Jido.Exec.Waits` works on native Runic workflows. It does not provide a host
+lifecycle. The host supplies `context(context, execution_id, clock)` before
+Runic executes a wait node. The clock is a UTC millisecond value or a zero-arity
+function read at each opening. The context function does not enable durable
+validation. The host chooses that policy and supplies fresh runtime context
+after restore. Runtime clock functions are not stored in the workflow.
+
+`pending(workflow)` returns open requests with opaque execution-scoped IDs,
+paths, resolved options, and opening times. Native node and Fact coordinates
+remain internal. `next_deadline(workflow)` returns the earliest open timer
+deadline, or nil. `matches?(request, event, payload)` checks event options.
+
+After it stops the quiescent Worker, the host selects the accepted candidates
+for one occurrence and calls `resolve(workflow, wait_id, candidates, now)`.
+Each candidate contains `input: %{id: id, event: event, payload: payload}`,
+`accepted_at`, and a unique `order` assigned by the host. Other input metadata
+is ignored. Candidate times and orders are non-negative integers. Candidates
+accepted after `now` are ignored. Earliest acceptance or deadline wins; timers
+win exact-time ties, then receipt order and option order break other ties.
+
+The host must save the returned graph before resuming Runic. Resolution
+applies native result and completion events without calling Actions or hooks.
+A pending resolution with no eligible candidate or timer leaves the graph
+unchanged. Repeating a closed resolution is inert. An unknown occurrence or
+malformed candidate returns a structured error.
+
+The host owns duplicate IDs, input receipts, early-input policy, portability,
+clock correction, retention limits, cancellation, and terminal receipts. It
+must save accepted input before acknowledgement and save resolution before
+running more work. Serialize writes with compare-and-swap and resolve uncertain
+write outcomes through authoritative storage. Do not modify a running graph.
+The companion Jido package owns these policies for durable AgentServer Turns.
+Both the package test host and AgentServer use the same wait operations.

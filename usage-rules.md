@@ -257,9 +257,12 @@ API to use. See the guides on HexDocs for explanations and examples.
 - Use `timer`, `await`, or `selection` to define named waits.
   Keep explicit dependencies and output. A Selection contains timers and events only.
 - Use `Jido.Flow.validate/1` and `Jido.Exec.compile/2` to check wait definitions
-  without executing them. Normal Exec rejects waits because a supported wait
-  execution host is not implemented.
+  without executing them. Normal Exec rejects waits. Use a durable host with
+  `Jido.Exec.Waits` operations and native Runic execution instead.
   A Dispatch-selected waiting Flow is rejected before child Action work.
 - Use the driver and ETS Store in `test/support` only for package tests.
-  They are not shipped APIs. Native wait suspension and AgentServer integration
-  are not implemented. Read `guides/flow-waits.md` for tested behavior and limits.
+  They are not shipped APIs. `Jido.Exec.Waits` supplies request inspection,
+  matching, and resolution without Action or hook execution. The host owns
+  input receipts, clock policy, limits, and storage. Save accepted input before
+  acknowledgement and resolution before resuming Runic.
+  Read `guides/flow-waits.md` for the host contract.
