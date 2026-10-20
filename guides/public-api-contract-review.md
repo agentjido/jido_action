@@ -48,7 +48,7 @@ a passing tag alone does not establish the entire group or matrix.
 | P07. Component meaning | Choice, Map, Reduce, Iterate, nested Flow, and Dispatch keep their declared value, selection, state, and failure rules. | A separate case family for each component, including empty collections, duplicate items, fail-fast/collect-errors, serial folds/iterations, state validation/exhaustion, nested boundaries, direct/continued Dispatch. The Choice `"fallback"` collision is repaired with distinct internal routes and a regression test for matching and nonmatching conditions in serial and concurrent execution. |
 | P08. Authoring equivalence | DSL, data definitions, and stored documents express the same supported Flow meaning. Inline Steps act as ordinary Actions with owner scope. Extensions lower to supported declarations. | Equivalent graphs with refs/expressions/schema transforms/all components; Inline lexical scope, lookup, reuse and build deployment; extension versus direct declarations; rejected declarations. Equal meaning does not require identical generated module names or AST. |
 | P09. Expressions | Fixed operations keep their documented Elixir results and short-circuit rules. Parsing, host callbacks, validation, and evaluation keep a closed grammar and apply their stated resource limits. | Every operator/arity, term ordering, strict membership, right-value Boolean returns, skipped operands, parser rejection, pins/host values, callback failures/paths, cumulative depth/node/binary/integer bounds. `new/2` checks operator and arity only. A constructor example cannot establish bounded evaluation. |
-| P10. Stored documents | Version 1 encoding preserves Flow meaning and deterministic stored-map representation. Typed Registry lookup uses only host-supplied values and creates no atoms. Invalid/oversized documents return useful errors. | Every field/component/value tag; aliases/kind mismatch; unknown ID atom safety; map-key ordering/duplicates; round trips; safety limits; independent diagnostics and phase order. JSON byte order, generated-ID stability across changed registries, and deployed code snapshots are excluded. |
+| P10. Stored documents | Portable authoring primitives provide owner-neutral resource limits, a closed value grammar, and typed host identifiers. Version 1 encoding preserves Flow meaning and deterministic stored-map representation. Registry lookup creates no atoms. Invalid or oversized documents return useful errors. | Shared Registry, Value, Document, and second-owner composition; every Flow field/component/value tag; aliases/kind mismatch; unknown ID atom safety; map-key ordering/duplicates; round trips; safety limits; independent diagnostics and phase order. JSON byte order, generated-ID stability across changed registries, and deployed code snapshots are excluded. |
 | P11. Inert inspection and identity | Flow validation, inspection, and Exec compilation do not run Action work. Diagnostics retain useful locations. Semantic identity reflects canonical graph data and distinguishes refs/expressions from literals. | validate/dependencies/explain/identity/compile; target-contract check versus inert structural check; identity sensitivity and exclusions; Codec round trip; DSL source paths. Trusted metadata/schema/Flow builders may run during compilation. Identity does not identify deployed Action code. |
 | P12. Execution policy | Timeout is per attempt. Only eligible errors retry. Failure stops new admission while admitted work can finish. Concurrency preserves defined result, effect, and failure order. | Serial and concurrent runs; nested and collection work; each retry policy; non-retryable failures; timeout zero/finite/infinite; failure ordering after active work drains; malformed options. Runtime scheduling and admission are Runic-owned. |
 | P13. Process ownership | Immediate work cannot crash its live caller and is stopped when that caller dies. Owned tasks are released on completion and termination. Managed work follows Runner ownership. | Caller normal/abnormal exit; timed and untimed work; group leaders; injected and partitioned supervisors; task crash; managed stop/cancel/worker death; failed persistent stop. Custom executors and unlinked user processes need their own contracts. |
@@ -85,7 +85,7 @@ All IDs below have the `jido_action.` prefix.
 | P07 | Component meaning | `execution.I17, boundary.I7–I9` |
 | P08 | Authoring equivalence | `flow.I7, flow.I11, inline.I1–I3` |
 | P09 | Expressions | `expression.I1–I4` |
-| P10 | Stored documents | `codec.I5–I7` |
+| P10 | Stored documents | `authoring.I1–I3, codec.I5–I7` |
 | P11 | Inspection and identity | `flow.I9–I10, boundary.I5` |
 | P12 | Execution policy | `execution.I18, boundary.I6` |
 | P13 | Process ownership | `execution.I20` |
@@ -277,7 +277,7 @@ ERL_FLAGS='+S 4:4' mix test test/jido_action/action_test.exs \
   test/jido_action/open_validation_contract_test.exs \
   test/jido_action/output_test.exs test/jido_instruction/target_test.exs \
   test/jido_expr/elixir_conformance_test.exs test/jido_flow/codec_test.exs \
-  test/jido_flow/registry_test.exs test/jido_flow/graph_identity_test.exs \
+  test/jido_flow/generated_registry_test.exs test/jido_flow/graph_identity_test.exs \
   test/jido_exec/validation_contract_test.exs --seed 0
 ```
 

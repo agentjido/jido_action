@@ -5,7 +5,8 @@ defmodule JidoActionTest.Authoring.BoundariesTest do
   use ExUnit.Case, async: false
   @moduletag :authoring
   alias Jido.{Exec, Expr, Flow}
-  alias Jido.Flow.{Codec, Ref, Registry}
+  alias Jido.Authoring.Registry
+  alias Jido.Flow.{Codec, Ref}
   alias JidoActionTest.Authoring.Boundaries
   alias JidoActionTest.Authoring.Components.Echo
 

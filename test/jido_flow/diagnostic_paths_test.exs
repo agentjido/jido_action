@@ -2,7 +2,8 @@ defmodule Jido.Flow.DiagnosticPathsTest do
   use ExUnit.Case, async: true
 
   alias Jido.Flow
-  alias Jido.Flow.{Codec, Registry}
+  alias Jido.Authoring.Registry
+  alias Jido.Flow.Codec
   alias JidoActionTest.Fixtures.Actions.EchoParamsAction
 
   @empty %{"$type" => "map", "entries" => []}

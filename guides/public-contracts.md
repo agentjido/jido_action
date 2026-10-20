@@ -52,6 +52,9 @@ Covenant remains optional and does not run in default CI.
 | STORE-001 | The JSON document version preserves canonical Flow meaning and deterministic stored-map encoding. | `jido_action.codec.I5` | `test/property/storage/codec_contract_test.exs`, `test/jido_flow/codec_test.exs` |
 | STORE-002 | Stored identifiers resolve through a trusted Registry without creating atoms from unknown identifiers. | `jido_action.codec.I6` | `test/property/storage/codec_contract_test.exs`, `test/jido_flow/codec_test.exs` |
 | STORE-003 | Malformed or oversized stored documents return structured errors. | `jido_action.codec.I7` | `test/property/storage/codec_contract_test.exs`, `test/jido_flow/codec_test.exs` |
+| AUTHORING-001 | A trusted Registry provides bounded typed IDs, direct read aliases, and one canonical write ID without creating atoms or running work. | `jido_action.authoring.I1` | `test/jido_authoring/registry_test.exs`, `test/jido_authoring/portable_document_test.exs` |
+| AUTHORING-002 | Portable values use a closed bounded grammar, and every successful decode can be encoded again with the same Registry. | `jido_action.authoring.I2` | `test/jido_authoring/value_test.exs`, `test/jido_authoring/portable_document_test.exs` |
+| AUTHORING-003 | Complete document checks apply resource limits before owner decoding without taking ownership of envelope or value semantics. | `jido_action.authoring.I3` | `test/jido_authoring/document_test.exs`, `test/jido_authoring/portable_document_test.exs` |
 
 ## Execution And Effects
 
@@ -81,7 +84,7 @@ Covenant remains optional and does not run in default CI.
 
 | ID | Public promise | Covenant obligation | Main evidence |
 | --- | --- | --- | --- |
-| SECURITY-001 | Codec Registry lookup is the stored identifier-to-module boundary. | `jido_action.codec.I6` | `test/jido_flow/codec_test.exs` |
+| SECURITY-001 | Authoring Registry lookup is the stored identifier-to-host-value boundary. | `jido_action.authoring.I1` | `test/jido_authoring/registry_test.exs`, `test/jido_flow/codec_test.exs` |
 | SECURITY-002 | Managed execution rejects process-local params and context before start. | `jido_action.boundary.I10` | `test/jido_exec/portable_test.exs`, `test/property/execution/runner_fuzz_test.exs` |
 | SECURITY-003 | Malformed options and unsupported executable values return structured errors. | `jido_action.boundary.I6` | Exec and authoring rejection tests |
 

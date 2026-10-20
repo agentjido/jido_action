@@ -111,7 +111,7 @@ defmodule Jido.Flow do
   compiler keeps source locations outside the canonical Flow value.
 
   Use `Jido.Flow.Codec.encode/2` and `Jido.Flow.Codec.decode/2` with a trusted
-  `Jido.Flow.Registry` for database or transport storage.
+  `Jido.Authoring.Registry` for database or transport storage.
 
   A Flow module returns one stable canonical value from `flow/0` for the life
   of the loaded module version. Each validation, compilation, or execution

@@ -307,7 +307,7 @@ body code, anonymous functions, or MFA targets.
 An Elixir data definition contains trusted modules and references. Do not
 build one from untrusted input. For JSON from storage, another service, or an
 AI model, use `Jido.Flow.Codec.decode/2` with a host-owned
-`Jido.Flow.Registry`. The Registry maps approved identifiers to modules,
+`Jido.Authoring.Registry`. The Registry maps approved identifiers to modules,
 schemas, and atoms; input strings never create atoms or module names. See
 [Store Flows As JSON](flow-storage.md).
 

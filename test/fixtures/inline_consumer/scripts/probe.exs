@@ -28,8 +28,8 @@ end
 
 for owner <- owners, do: false = :code.is_loaded(owner)
 step = Enum.find(targets, &(&1.name() in ["first", "renamed"]))
-registry = Jido.Flow.Registry.new!(%{"actions/step/v1" => {:action, step}})
-{:ok, ^step} = Jido.Flow.Registry.resolve(registry, "actions/step/v1", :action)
+registry = Jido.Authoring.Registry.new!(%{"actions/step/v1" => {:action, step}})
+{:ok, ^step} = Jido.Authoring.Registry.resolve(registry, "actions/step/v1", :action)
 false = :code.is_loaded(Steps)
 {:ok, %{value: value}} = Jido.Exec.run(step, %{value: 2})
 true = value == 2 + offset

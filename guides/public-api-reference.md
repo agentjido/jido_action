@@ -1294,7 +1294,7 @@ Source: [facade](https://github.com/agentjido/jido_action/blob/v3.0.0-beta.21/li
 [limits](https://github.com/agentjido/jido_action/blob/v3.0.0-beta.21/lib/jido_flow/codec/limits.ex), and
 [path conversion](https://github.com/agentjido/jido_action/blob/v3.0.0-beta.21/lib/jido_flow/codec/paths.ex).
 Evidence: [Codec tests](https://github.com/agentjido/jido_action/blob/v3.0.0-beta.21/test/jido_flow/codec_test.exs),
-[Registry tests](https://github.com/agentjido/jido_action/blob/v3.0.0-beta.21/test/jido_flow/registry_test.exs), and
+[generated Registry tests](https://github.com/agentjido/jido_action/blob/v3.0.0-beta.21/test/jido_flow/generated_registry_test.exs), and
 [storage properties](https://github.com/agentjido/jido_action/blob/v3.0.0-beta.21/test/property/storage/codec_contract_test.exs).
 
 ### Entry points
@@ -1302,7 +1302,7 @@ Evidence: [Codec tests](https://github.com/agentjido/jido_action/blob/v3.0.0-bet
 | Entry point | Result and checks |
 | --- | --- |
 | `encode(flow)` (`/1`) | Validates a canonical `%Jido.Flow{}`. Returns `{:ok, document, generated_registry}` or `{:error, exception}`. The caller must retain the registry. |
-| `encode(flow, registry)` (`/2`) | Takes a canonical Flow and `%Jido.Flow.Registry{}`. Returns `{:ok, document}` or `{:error, exception}`. Validates the Flow before encoding. Requires a write ID for every target, schema, and non-Boolean/non-nil data atom. |
+| `encode(flow, registry)` (`/2`) | Takes a canonical Flow and `%Jido.Authoring.Registry{}`. Returns `{:ok, document}` or `{:error, exception}`. Validates the Flow before encoding. Requires a write ID for every target, schema, and non-Boolean/non-nil data atom. |
 | `decode(document, registry)` (`/2`) | Returns `{:ok, canonical_flow}` or `{:error, first_error}` from diagnosis. |
 | `diagnose(document, registry)` (`/2`) | Returns `{:ok, canonical_flow}` or `{:error, %Jido.Flow.Error.Invalid{errors: errors}}`. Collects the independent failures found in the current phase. Never returns a partial Flow. |
 
@@ -1442,100 +1442,92 @@ establish that a target exports the Action or Flow contract. Use
 identity is a code snapshot. Retain the application release and Registry
 version needed to execute it.
 
-## Trusted stored identifiers: `Jido.Flow.Registry`
+## Portable authoring documents
 
-A Registry is caller-owned data. It is not an OTP Registry or a running
-service. It starts no process, loads no modules, and runs no Action work.
-The caller supplies all values. Stored identifiers do not create atoms or
-produce a module name from string text.
+`Jido.Authoring.Registry`, `Jido.Authoring.Value`, and
+`Jido.Authoring.Document` are the shared storage foundation. A document owner
+still owns its envelope, version, fields, reference kinds, and final semantic
+validation. `Jido.Flow.Codec` owns those rules for Flow documents.
 
-Source: [Registry](https://github.com/agentjido/jido_action/blob/v3.0.0-beta.21/lib/jido_flow/registry.ex).
-Evidence: [Registry tests](https://github.com/agentjido/jido_action/blob/v3.0.0-beta.21/test/jido_flow/registry_test.exs),
+### Trusted identifiers: `Jido.Authoring.Registry`
+
+`new/1` and `new!/1` validate bounded IDs, direct read aliases, and one write
+ID for each exact `{kind, value}` pair. `resolve/3` reads an ID of one required
+kind. `identifier/3` returns the canonical write ID for one typed value.
+
+The Registry is caller-owned data. It starts no process, loads no module, and
+runs no Action. Stored strings do not create atoms or produce module names.
+The Registry accepts owner-defined atom kinds, so one Registry can contain
+entries for more than one document format. Each document owner validates the
+meaning of the values that it resolves.
+
+Each ID is 1 through 255 ASCII bytes. It starts with a letter or digit. The
+remaining characters are letters, digits, `.`, `_`, `/`, `:`, `@`, or `-`.
+There can be at most 10,000 entries, including aliases. An alias must point
+directly to a typed write entry. The same `{kind, value}` cannot have two
+write IDs.
+
+### Portable values: `Jido.Authoring.Value`
+
+`encode/2` and `decode/2` support these values:
+
+- JSON scalar values with valid UTF-8 strings;
+- proper lists;
+- plain maps with valid UTF-8 string keys, non-negative integer keys, or
+  registered atom keys; and
+- atoms that resolve through `:atom` Registry entries.
+
+The value format rejects structs, tuples, processes, invalid UTF-8, improper
+lists, duplicate decoded map keys, unsupported map keys, and an atom tag that
+does not resolve to an atom. An accepted decoded value can be encoded again
+with the same Registry.
+
+Portable values have a maximum nesting depth of 100 and a maximum of 10,000
+items in one list or map. Limit errors include `maximum_depth` or
+`maximum_size`, together with the value path.
+
+### Complete document limits: `Jido.Authoring.Document`
+
+`check/1` limits one complete document to depth 100, 10,000 entries in one
+collection, and 100,000 total nodes. It also rejects improper lists. It does
+not validate the owner's envelope, fields, or portable value tags. Limit
+errors include the active `maximum_depth`, `maximum_size`, or `maximum_nodes`
+in their details.
+
+A document owner must apply checks in this order:
+
+1. Apply transport-byte and JSON-parser limits outside the codec.
+2. Call `Document.check/1` on the complete decoded document.
+3. Validate the document envelope, version, and exact fields.
+4. Decode portable fields with `Value.decode/2` and resolve other typed IDs.
+5. Run the owner's canonical semantic validation.
+
+The shared errors are `Jido.Authoring.Registry.Error`,
+`Jido.Authoring.Value.Error`, and `Jido.Authoring.Document.Error`. An owner can
+translate them to its public error type. `Jido.Flow.Codec` keeps Flow error
+messages, detail keys, and JSON paths when it performs this translation.
+
+`Jido.Flow.Codec.encode/1` generates temporary IDs for one exact Flow and
+returns the generated Registry. These IDs are repeatable for the same
+collected values, but they are not durable names or content hashes. Use
+application-owned IDs and an application version policy for durable records.
+
+Source: [Registry](https://github.com/agentjido/jido_action/blob/v3.0.0-beta.21/lib/jido_authoring/registry.ex),
+[portable values](https://github.com/agentjido/jido_action/blob/v3.0.0-beta.21/lib/jido_authoring/value.ex), and
+[document limits](https://github.com/agentjido/jido_action/blob/v3.0.0-beta.21/lib/jido_authoring/document.ex).
+Evidence: [shared authoring tests](https://github.com/agentjido/jido_action/tree/v3.0.0-beta.21/test/jido_authoring),
 [Codec tests](https://github.com/agentjido/jido_action/blob/v3.0.0-beta.21/test/jido_flow/codec_test.exs), and
 [storage properties](https://github.com/agentjido/jido_action/blob/v3.0.0-beta.21/test/property/storage/codec_contract_test.exs).
 
-### Entry points and data
-
-| Entry point | Input and result |
-| --- | --- |
-| `new(entries_or_registry)` (`/1`) | Accepts an entry map or Registry. Revalidates entries and rebuilds the write index. Returns `{:ok, registry}` or `{:error, %Jido.Flow.Error.InvalidDefinitionError{}}`. |
-| `new!(entries_or_registry)` (`/1`) | Returns a Registry or raises the validation error. |
-| `from_flow(flow)` (`/1`) | Validates canonical Flow structure, collects its targets, schemas, and data atoms, then returns `{:ok, generated_registry}` or `{:error, exception}`. Does not check executable target contracts. |
-| `resolve(registry, identifier, kind)` (`/3`) | Returns `{:ok, registered_value}` or `{:error, exception}`. Accepts kinds `:action`, `:flow`, `:schema`, `:atom`; follows at most one read alias. |
-| `identifier(registry, kind, value)` (`/3`) | Returns `{:ok, canonical_write_id}` or `{:error, exception}`. Uses the exact `{kind, value}` key. Never returns an alias. |
-
-`%Jido.Flow.Registry{entries: map, write_ids: map}` requires both fields.
-Use the constructor to keep its indexes consistent. `stable_id/0` is a
-string. `kind/0` is the four-kind union. `write_entry/0` is
-`{:action, module} | {:flow, module} | {:schema, term} | {:atom, atom}`.
-`alias_entry/0` is `{:alias, stable_id}`. `entry/0` is their union.
-`write_key/0` is `{kind, term}`. `t/0` describes the Registry struct.
-
-Each ID is 1 through 255 ASCII bytes. It starts with a letter or digit.
-The remaining characters are letters, digits, `.`, `_`, `/`, `:`, `@`, or
-`-`. There can be at most 10,000 entries, including aliases. An alias must
-point directly to a typed write entry. Alias chains and missing alias
-targets fail. The same `{kind, value}` cannot have two write IDs. The same
-value can have separate IDs for different kinds.
-
-The constructor checks that Action and Flow values are non-nil atoms. It
-does not load them or establish that they are module names. In particular,
-the implementation does not exclude Boolean atoms at this stage. The later
-Flow target validator does exclude them. A schema entry can contain any
-term at Registry construction; canonical Flow validation checks static,
-map-shaped schema requirements when the schema is used. An atom entry can
-contain any existing atom, including nil or a Boolean.
-
-`resolve/3` and `identifier/3` require a Registry struct and a supported
-kind. There are no fallback clauses for arbitrary first arguments or kinds;
-do not claim structured error containment for those out-of-contract calls.
-A forged Registry can also contain shapes the constructor would reject.
-
-Generated IDs use `actions/generated-N`, `flows/generated-N`,
-`schemas/generated-N`, and `atoms/generated-N`, starting at one for each
-kind. Values are deduplicated. Targets and atoms are sorted by their atom
-text; schemas are sorted by their Erlang term binary. Collection includes
-root input/output schemas, Iterate state schemas, component targets,
-component metadata, value fields, output, map-key atoms, and reference-path
-atoms. It does not copy a child Flow's deployed code into the Registry.
-
-Generated IDs are repeatable for the same collected values. They are not
-durable names or content hashes. Adding a value that sorts earlier can
-renumber later IDs. A target body can change without changing its atom or
-ID. Store the returned Registry with temporary documents. Use application
-IDs and an application version policy for durable documents.
-
-### Registry errors and internal storage exports
-
-Registry failures use the messages below. Details identify the failed kind
-or ID without copying an oversized identifier into the error:
-
-- `"flow registry must be a map"`;
-- `"flow registry exceeds its entry limit"`, with `entries` and
-  `maximum_entries`;
-- `"invalid flow registry identifier"`, with a bounded `identifier`;
-- `"invalid flow registry entry"`, with the entry's type;
-- `"flow registry alias must refer directly to a write identifier"`;
-- `"flow registry alias refers to an unknown write identifier"`;
-- `"flow registry has multiple write identifiers for the same value"`,
-  with `kind` and the two sorted `identifiers`;
-- `"unknown flow registry identifier"`, with `identifier` and `kind`;
-- `"flow registry identifier has the wrong entry kind"`, with `identifier`,
-  `expected`, and `actual`;
-- `"flow registry has no identifier for the required value"`, with `kind`.
-
-These are internal exports: Jido.Flow.Registry.entries/1;
-`Codec.Writer.encode/2`; `Codec.Reader.decode/2`;
-`Codec.Value.encode_expression/3`, `encode_data/3`, `decode/4`, `decode/5`;
-`Codec.Limits.depth/1`, `size/1`, `check/1`;
-`Codec.Paths.translate/2`, `error/2`, and its `t/0` type.
-They have hidden documentation and implement the public Codec and Registry
-contracts. They do not need one Covenant obligation each.
+The generated-Registry helper, writer, reader, value adapter, limit adapter,
+and path adapter are internal. They implement the public Flow Codec contract.
 
 ### Storage and expression evidence limits
 
-`Jido.Flow.Codec` and `Jido.Flow.Registry` are public. Codec helper modules
-and Registry.entries/1 are internal. Contributor rules now make this clear.
+`Jido.Authoring.Document`, `Jido.Authoring.Registry`,
+`Jido.Authoring.Value`, and `Jido.Flow.Codec` are public. Flow Codec helper
+modules are internal.
+Contributor rules now make this clear.
 
 `Jido.Expr.new/2` checks operator and arity. Parser leaves and macro pins
 need complete validation at the host boundary. Flow construction performs

@@ -1,8 +1,8 @@
 defmodule Jido.Flow.Codec.Reader do
   @moduledoc false
 
-  alias Jido.Flow.{Component, Error, FieldError, Registry}
-  alias Jido.Flow.Codec.{Limits, Paths, Value}
+  alias Jido.Flow.{Component, Error, FieldError}
+  alias Jido.Flow.Codec.{Limits, Paths, Registry, Value}
 
   @root [
     name: :name,
@@ -16,7 +16,8 @@ defmodule Jido.Flow.Codec.Reader do
   @on_error %{"fail_fast" => :fail_fast, "collect_errors" => :collect_errors}
 
   @doc false
-  @spec decode(term(), Registry.t()) :: {:ok, map(), Paths.t()} | {:error, [Exception.t()]}
+  @spec decode(term(), Jido.Authoring.Registry.t()) ::
+          {:ok, map(), Paths.t()} | {:error, [Exception.t()]}
   def decode(%{} = document, registry) when not is_struct(document) do
     with :ok <- Limits.check(document),
          :ok <- envelope(document) do
@@ -87,11 +88,9 @@ defmodule Jido.Flow.Codec.Reader do
     if errors == [], do: :ok, else: {:error, errors}
   end
 
-  defp field({:value, _}, value, registry, stored, canonical),
-    do: Value.decode(value, registry, stored, canonical)
-
-  defp field({:condition, _}, value, registry, stored, canonical),
-    do: Value.decode(value, registry, stored, canonical)
+  defp field({type, _}, value, registry, stored, canonical)
+       when type in [:value, :condition],
+       do: Value.decode(value, registry, stored, canonical)
 
   defp field(:meta, value, registry, stored, canonical),
     do: Value.decode(value, registry, stored, canonical, :data)
@@ -108,23 +107,8 @@ defmodule Jido.Flow.Codec.Reader do
   defp field(:state, value, registry, stored, canonical),
     do: record(value, Component.state_fields(), registry, stored, canonical)
 
-  defp field(:wait_options, values, registry, stored, canonical),
-    do:
-      sequence(
-        values,
-        &record(&1, Component.wait_option_fields(), registry, &2, &3),
-        stored,
-        canonical
-      )
-
-  defp field(:options, values, registry, stored, canonical),
-    do:
-      sequence(
-        values,
-        &record(&1, Component.option_fields(), registry, &2, &3),
-        stored,
-        canonical
-      )
+  defp field(type, values, registry, stored, canonical) when type in [:wait_options, :options],
+    do: sequence(values, &record(&1, option_fields(type), registry, &2, &3), stored, canonical)
 
   defp field(:components, values, registry, stored, canonical),
     do: sequence(values, &component/4, stored, canonical, registry)
@@ -139,6 +123,9 @@ defmodule Jido.Flow.Codec.Reader do
     do: {:ok, FieldError.new([]), %{canonical => stored}}
 
   defp field(_type, value, _registry, stored, canonical), do: {:ok, value, %{canonical => stored}}
+
+  defp option_fields(:wait_options), do: Component.wait_option_fields()
+  defp option_fields(:options), do: Component.option_fields()
 
   defp component(%{"kind" => kind} = value, registry, stored, canonical) do
     kind =

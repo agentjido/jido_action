@@ -119,7 +119,7 @@ validation rules.
 Only the module DSL supports inline bodies and
 [extensions](flow-modules.md#add-authoring-macros). Data definitions and
 JSON reference existing Action modules. JSON names them through a
-`Jido.Flow.Registry` that your application owns, so stored data cannot load
+`Jido.Authoring.Registry` that your application owns, so stored data cannot load
 arbitrary modules or create atoms.
 
 ## Validate And Inspect

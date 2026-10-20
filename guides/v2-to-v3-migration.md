@@ -534,7 +534,7 @@ Version 3 removes these version 2 parts:
 - The version 2 JSON Schema bridge
 
 Move Action discovery, search, visibility, and policy to the application or to
-the package that owns the integration. `Jido.Flow.Registry` is not an Action
+the package that owns the integration. `Jido.Authoring.Registry` is not an Action
 Catalog and must not be used as one.
 
 Move bundled tool use to application Actions or to the integration package.

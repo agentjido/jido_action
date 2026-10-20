@@ -1,7 +1,8 @@
 defmodule Jido.Flow.AccumulationTest do
   use ExUnit.Case, async: true
 
-  alias Jido.Flow.{Codec, Definition, Error, Registry}
+  alias Jido.Authoring.Registry
+  alias Jido.Flow.{Codec, Definition, Error}
 
   defp document do
     registry = Registry.new!(%{"action" => {:action, UnloadedAction}, "schema" => {:schema, []}})

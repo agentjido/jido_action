@@ -6,7 +6,6 @@ modules:
   - Jido.Flow.Codec.Reader
   - Jido.Flow.Codec.Value
   - Jido.Flow.Codec.Writer
-  - Jido.Flow.Registry
 ---
 # Codec public promise obligations
 
@@ -21,8 +20,8 @@ Check focused facets of the [reviewed public promises](../../../guides/public-ap
 - **status:** active
 
 ### jido_action.codec.I6 — Stored identifiers use the trusted Registry
-- **scope:** `Jido.Flow.Registry, Jido.Flow.Codec.decode/2`
-- **must:** Stored identifiers resolve only typed host Registry entries of the required kind. Reading accepts direct aliases; writing uses the unique canonical identifier. Reject unknown or wrong-kind identifiers without creating atoms or deriving module names. Registry lookup does not execute Action work.
+- **scope:** `Jido.Flow.Codec.encode/1, Jido.Flow.Codec.encode/2, Jido.Flow.Codec.decode/2`
+- **must:** Resolve stored Flow target, schema, and atom identifiers only through trusted typed host Registry entries of the required kind. Reading accepts direct aliases; writing uses the canonical identifier. Reject unknown or wrong-kind identifiers without running Action work. Generated identifiers are temporary and belong only to the exact encoded Flow.
 - **kind:** security
 - **status:** active
 

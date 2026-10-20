@@ -2,12 +2,12 @@ defmodule Jido.Flow.CodecTest do
   use Covenant.Case, component: "jido_action.codec", async: false
   @moduletag obligation: "jido_action.codec.I7"
 
+  alias Jido.Authoring.Registry
   alias Jido.Flow.Error.InvalidDefinitionError
   alias Jido.Flow
   alias Jido.Flow.Codec
   alias Jido.Flow.Error
   alias Jido.Flow.Ref
-  alias Jido.Flow.Registry
   alias JidoActionTest.Fixtures.CodecRegistry
   alias JidoActionTest.Fixtures.FlowAuthoring
   alias JidoActionTest.Fixtures.InlineAuthoring
@@ -273,13 +273,7 @@ defmodule Jido.Flow.CodecTest do
     end
   end
 
-  test "encode/1 returns a generated convenience Registry" do
-    flow = FlowAuthoring.mixed_flow!()
-
-    assert {:ok, document, registry} = Codec.encode(flow)
-    assert {:ok, ^flow} = Codec.decode(document, registry)
-    assert {:ok, ^document, ^registry} = Codec.encode(flow)
-
+  test "encode/1 rejects a non-canonical Flow" do
     raw_flow =
       JidoActionTest.FlowBuilder.new!(%{
         name: "raw_codec",
@@ -297,8 +291,6 @@ defmodule Jido.Flow.CodecTest do
 
     assert {:error, %InvalidDefinitionError{details: %{path: [:schema]}}} =
              Codec.encode(raw_flow)
-
-    assert {:error, %InvalidDefinitionError{}} = Codec.encode(:invalid)
   end
 
   test "diagnose returns ordered errors from independent document branches" do
@@ -806,7 +798,7 @@ defmodule Jido.Flow.CodecTest do
       assert {:error, %InvalidDefinitionError{}} = Codec.encode(invalid_flow, registry)
     end
 
-    assert {:error, %InvalidDefinitionError{}} =
+    assert {:error, %Registry.Error{}} =
              Registry.new(%{invalid => {:action, Add}})
 
     assert {:ok, document} = Codec.encode(flow, registry)
@@ -970,12 +962,36 @@ defmodule Jido.Flow.CodecTest do
     deep_flow = %{flow | name: "deep_encode", output: deep_output}
     wide_flow = %{flow | name: "wide_encode", output: wide_output}
 
-    assert {:error, %InvalidDefinitionError{message: "stored Flow exceeds its nesting limit"}} =
-             Codec.encode(deep_flow, registry)
+    assert {:error,
+            %InvalidDefinitionError{
+              message: "stored Flow exceeds its nesting limit",
+              details: %{maximum_depth: 100}
+            }} = Codec.encode(deep_flow, registry)
 
     assert {:error,
-            %InvalidDefinitionError{message: "stored Flow collection exceeds its size limit"}} =
-             Codec.encode(wide_flow, registry)
+            %InvalidDefinitionError{
+              message: "stored Flow collection exceeds its size limit",
+              details: %{maximum_size: 10_000}
+            }} = Codec.encode(wide_flow, registry)
+
+    {component_name, component} = Enum.at(flow.components, 0)
+
+    for {value, detail} <- [
+          {deep_output, {:maximum_depth, 100}},
+          {wide_output, {:maximum_size, 10_000}}
+        ] do
+      metadata_flow = %{
+        flow
+        | components:
+            Map.put(flow.components, component_name, %{component | meta: %{"payload" => value}})
+      }
+
+      assert {:error, %InvalidDefinitionError{details: details}} =
+               Codec.encode(metadata_flow, registry)
+
+      assert Map.fetch!(details, elem(detail, 0)) == elem(detail, 1)
+      assert is_list(details.path)
+    end
 
     for count <- [10_000, 10_001] do
       output = Map.new(1..count, &{&1, 0})

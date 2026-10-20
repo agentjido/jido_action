@@ -126,7 +126,7 @@ API to use. See the guides on HexDocs for explanations and examples.
 - Use `Jido.Flow.validate/1` for canonical Flow structure and graph rules.
 - Use `Jido.Exec.compile/2` to also check all Flow target contracts.
 - Use `Jido.Flow.Codec.encode/2` and `Jido.Flow.Codec.decode/2` with a trusted
-  `Jido.Flow.Registry` for stored JSON data.
+  `Jido.Authoring.Registry` for stored JSON data.
 - Use `Jido.Flow.Codec.diagnose/2` when an editor needs all independent stored
   document and graph errors.
 
@@ -209,7 +209,7 @@ API to use. See the guides on HexDocs for explanations and examples.
 - Store all current features with document version 1. Other versions are
   rejected. Data and JSON use the same validation error order.
 - Use `Jido.Flow.Codec.encode/2` and `decode/2` with an application-owned
-  `Jido.Flow.Registry` for stored or transported Flows. Keep Registry
+  `Jido.Authoring.Registry` for stored or transported Flows. Keep Registry
   identifiers stable.
 - Use `Jido.Flow.Codec.encode/1` only for temporary storage within one
   application version. Keep the Registry it returns.

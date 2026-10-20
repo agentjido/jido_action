@@ -50,16 +50,17 @@ Read these files before a change that affects their subject:
 - `lib/jido_flow.ex` is the public Flow facade.
 - `lib/jido_flow/dsl/` contains compile-time authoring and lowering.
 - `lib/jido_flow/definition.ex` normalizes map-based component definitions.
-- `lib/jido_flow/codec.ex` and `lib/jido_flow/registry.ex` contain the
-  versioned stored-JSON boundary.
+- `lib/jido_flow/codec.ex` contains the versioned stored-JSON boundary.
+- `lib/jido_authoring/` contains the shared Registry, portable value grammar,
+  and complete-document limits.
 - `lib/jido_exec/compiler.ex` converts canonical Flow data to a Runic workflow.
 - `lib/jido_exec.ex` is the public execution facade.
 - `lib/jido_exec/node/` contains the executable Runic components. Runner
   integration is in `lib/jido_exec/runner/`.
 - `test/support/` contains shared Actions and Flow fixtures.
 
-Compiler, Codec helper, node, and runner modules are internal.
-`Jido.Flow.Codec` and `Jido.Flow.Registry` are public storage APIs.
+Compiler, Flow Codec helper, node, and runner modules are internal.
+`Jido.Flow.Codec` and the `Jido.Authoring` modules are public storage APIs.
 Do not make an internal module public only to make a test easy. Test through a
 public boundary unless the internal rule itself needs a focused unit test.
 
@@ -174,7 +175,7 @@ for validation, return normalization, and error behavior.
   Put metadata in output. Failed, timed-out, or cancelled
   executions return no executable effect batch. Exec never dispatches effects.
 - Stored-map encoding must be deterministic and versioned. Decoding must use
-  `Jido.Flow.Registry` and must return structured validation errors.
+  `Jido.Authoring.Registry` and must return structured validation errors.
 - Do not create atoms from runtime Flow input. Registry lookups must resolve
   only the host values that already exist.
 - `Jido.Flow.validate/1` is inert. `Jido.Exec.compile/2` also checks target

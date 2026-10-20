@@ -11,6 +11,19 @@ entries return to the normal automated changelog process.
 
 <!-- changelog -->
 
+## Unreleased
+
+### Breaking Changes:
+
+- Replace `Jido.Flow.Registry` with the owner-neutral
+  `Jido.Authoring.Registry`. Use `Jido.Flow.Codec.encode/1` when temporary
+  generated identifiers are sufficient.
+
+### Features:
+
+- Add shared portable value encoding and complete-document limits for Flow,
+  Agent, and other authoring document owners.
+
 ## [v3.0.0-beta.21](https://github.com/agentjido/jido_action/compare/v3.0.0-beta.20...v3.0.0-beta.21) (2026-10-19)
 
 

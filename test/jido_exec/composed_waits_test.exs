@@ -464,7 +464,7 @@ defmodule Jido.Exec.ComposedWaitsTest do
     assert definition == DispatchFlow.flow()
 
     registry =
-      Jido.Flow.Registry.new!(%{
+      Jido.Authoring.Registry.new!(%{
         "none" => {:schema, []},
         "decide" => {:action, Decide},
         "expand" => {:action, Expand},
@@ -531,7 +531,7 @@ defmodule Jido.Exec.ComposedWaitsTest do
       })
 
     registry =
-      Jido.Flow.Registry.new!(%{
+      Jido.Authoring.Registry.new!(%{
         "none" => {:schema, []},
         "child" => {:action, Child},
         "record" => {:action, Record},

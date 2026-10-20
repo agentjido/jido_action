@@ -24,14 +24,14 @@ mix covenant.check --static --contracts test/contracts --test-path 'test/**/*_te
 
 The components cover Actions, errors, Instructions, Action execution boundaries,
 Output, shared validation, inline Actions, Expressions, Flow definitions,
-storage, and immediate and managed execution.
+portable authoring, Flow storage, and immediate and managed execution.
 The configured test path selects tests across the package.
 `mix test.contracts` includes properties with seed zero and keeps fuzz and
 other optional suites excluded. Normal tests with obligation tags still run
 in their usual suites. Covenant reports and mutation checks run only when
 requested; default CI and release preflight do not run them.
 
-The active inventory has **48 focused obligations in 15 public promise groups**.
+The active inventory has **51 focused obligations in 15 public promise groups**.
 The [contract review](../../guides/public-api-contract-review.md#active-covenant-mapping)
 maps the groups to facets. The register points to shared evidence; it does not
 create a second obligation for each entry. Tests for private helpers and
@@ -56,6 +56,7 @@ mix covenant.mutate jido_action.inline --macros \
   --recompile test/support/fixtures/flow/inline.ex --seed 0 --jobs 1 --max-mutants-per-worker 50 --max-runtime 4500000
 mix covenant.mutate jido_action.expression --macros --seed 0 --jobs 1 --max-mutants-per-worker 50 --max-runtime 4500000
 mix covenant.mutate jido_action.flow --module Jido.Flow.GraphValidation --seed 0 --jobs 1 --max-mutants-per-worker 50 --max-runtime 4500000
+mix covenant.mutate jido_action.authoring --seed 0 --jobs 1 --max-mutants-per-worker 50 --max-runtime 4500000
 mix covenant.mutate jido_action.codec --module Jido.Flow.Codec.Reader --seed 0 --jobs 1 --max-mutants-per-worker 50 --max-runtime 4500000
 mix covenant.mutate jido_action.execution --module Jido.Exec.Node.Choice --seed 0 --jobs 1 --max-mutants-per-worker 50 --max-runtime 4500000
 mix covenant.mutate jido_action.inline --seed 0 --jobs 1 --max-mutants-per-worker 50 --max-runtime 4500000 \

@@ -4,7 +4,7 @@
 document and back. It is the only supported way to store a Flow.
 
 A stored document never contains module names, schemas, or atoms. It contains
-string identifiers. A `Jido.Flow.Registry` that your application owns maps each
+string identifiers. A `Jido.Authoring.Registry` that your application owns maps each
 identifier to a trusted Action, Flow, schema, or atom.
 
 ## Define A Flow To Store
@@ -46,7 +46,7 @@ key).
 
 ```elixir
 registry =
-  Jido.Flow.Registry.new!(%{
+  Jido.Authoring.Registry.new!(%{
     "actions/create-greeting" => {:action, MyApp.Actions.CreateGreeting},
     "schemas/greeting-input" => {:schema, MyApp.Flows.Greeting.schema()},
     "schemas/none" => {:schema, []},
@@ -63,8 +63,9 @@ The Registry rejects two write identifiers for the same value.
 
 Registry rules:
 
-- Entry types are `{:action, module}`, `{:flow, module}`, `{:schema, schema}`,
-  `{:atom, atom}`, and `{:alias, identifier}`.
+- Flow documents use `{:action, module}`, `{:flow, module}`,
+  `{:schema, schema}`, `{:atom, atom}`, and `{:alias, identifier}` entries.
+  Other document owners can use their own atom kinds in the same Registry.
 - An identifier starts with a letter or digit and contains up to 255
   letters, digits, and `. _ / : @ -` characters.
 - A Registry holds at most 10,000 entries.
@@ -189,7 +190,7 @@ defmodule MyApp.Flows.InlineGreeting do
 end
 
 inline_registry =
-  Jido.Flow.Registry.new!(%{
+  Jido.Authoring.Registry.new!(%{
     "actions/greeting/normalize/v1" =>
       {:action, MyApp.Flows.InlineGreeting.step_action("normalize")},
     "actions/greeting/greet/v1" => {:action, MyApp.Flows.InlineGreeting.step_action("greet")},
@@ -245,17 +246,17 @@ release and Registry version that can run stored work. See
 
 | Function | Use |
 | --- | --- |
-| `Jido.Flow.Registry.new/1`, `new!/1` | Build and validate a Registry from a map. |
-| `Jido.Flow.Registry.from_flow/1` | Build a generated Registry for one Flow. |
-| `Jido.Flow.Registry.resolve/3` | Resolve an identifier of a given kind, following aliases. |
-| `Jido.Flow.Registry.identifier/3` | Find the write identifier for a value. |
+| `Jido.Authoring.Registry.new/1`, `new!/1` | Build and validate a Registry from a map. |
+| `Jido.Flow.Codec.encode/1` | Build a document and a temporary generated Registry for one Flow. |
+| `Jido.Authoring.Registry.resolve/3` | Resolve an identifier of a given kind, following aliases. |
+| `Jido.Authoring.Registry.identifier/3` | Find the write identifier for a value. |
 
 ```elixir
 {:ok, MyApp.Actions.CreateGreeting} =
-  Jido.Flow.Registry.resolve(registry, "actions/old-greeting", :action)
+  Jido.Authoring.Registry.resolve(registry, "actions/old-greeting", :action)
 
 {:ok, "actions/create-greeting"} =
-  Jido.Flow.Registry.identifier(registry, :action, MyApp.Actions.CreateGreeting)
+  Jido.Authoring.Registry.identifier(registry, :action, MyApp.Actions.CreateGreeting)
 ```
 
 ## Validation And Limits

@@ -143,7 +143,7 @@ expression grammar. Real work belongs in Actions.
 
 All three produce the same canonical `%Jido.Flow{}` value with the same
 validation rules. Stored JSON cannot name arbitrary modules or create atoms.
-A host-owned `Jido.Flow.Registry` maps stable identifiers to trusted modules.
+A host-owned `Jido.Authoring.Registry` maps stable identifiers to trusted modules.
 
 See [Flows](flows.md), [Flow Data Definitions](flow-data.md), and
 [Store Flows As JSON](flow-storage.md).
@@ -217,7 +217,7 @@ See [Outputs And Effects](action-effects.livemd) and [Errors](errors.md).
 | Pass a call around before running it | `Jido.Instruction.new!/1`, then `Jido.Exec.run/4` |
 | Compose several Actions in code | A Flow module with `use Jido.Flow` |
 | Build a graph from runtime data | `Jido.Flow.new/1` |
-| Store or load a Flow as JSON | `Jido.Flow.Codec` with a `Jido.Flow.Registry` |
+| Store or load a Flow as JSON | `Jido.Flow.Codec` with a `Jido.Authoring.Registry` |
 | Check a Flow without running it | `Jido.Flow.validate/1`, then `Jido.Exec.compile/2` |
 | Run work that survives restarts | `Jido.Exec.start/6` under a `Runic.Runner` |
 | Describe an Action to a tool or model | `MyAction.to_json/0` |

@@ -217,9 +217,11 @@ defmodule JidoAction.MixProject do
           Jido.Flow.Value,
           Jido.Flow.Extension
         ],
-        "Flow Storage": [
-          Jido.Flow.Codec,
-          Jido.Flow.Registry
+        "Portable Storage": [
+          Jido.Authoring.Document,
+          Jido.Authoring.Registry,
+          Jido.Authoring.Value,
+          Jido.Flow.Codec
         ],
         Expressions: [Jido.Expr, Jido.Expr.Error],
         Execution: [

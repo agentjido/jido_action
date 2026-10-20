@@ -1,11 +1,12 @@
 defmodule Jido.Flow.Codec.Writer do
   @moduledoc false
 
-  alias Jido.Flow.{Component, Error, Graph, Registry}
-  alias Jido.Flow.Codec.{Limits, Value}
+  alias Jido.Flow.{Component, Error, Graph}
+  alias Jido.Flow.Codec.{Limits, Registry, Value}
 
   @doc false
-  @spec encode(Jido.Flow.t(), Registry.t()) :: {:ok, map()} | {:error, Exception.t()}
+  @spec encode(Jido.Flow.t(), Jido.Authoring.Registry.t()) ::
+          {:ok, map()} | {:error, Exception.t()}
   def encode(flow, registry) do
     with {:ok, schema} <- Registry.identifier(registry, :schema, flow.schema),
          {:ok, output_schema} <- Registry.identifier(registry, :schema, flow.output_schema),
@@ -47,8 +48,9 @@ defmodule Jido.Flow.Codec.Writer do
     end)
   end
 
-  defp field({:value, _}, value, registry), do: Value.encode_expression(value, registry, 0)
-  defp field({:condition, _}, value, registry), do: Value.encode_expression(value, registry, 0)
+  defp field({type, _}, value, registry) when type in [:value, :condition],
+    do: Value.encode_expression(value, registry, 0)
+
   defp field(:meta, value, registry), do: Value.encode_data(value, registry, 0)
   defp field(:schema, value, registry), do: Registry.identifier(registry, :schema, value)
 

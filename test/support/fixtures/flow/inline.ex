@@ -53,7 +53,7 @@ end
 
 defmodule JidoActionTest.Fixtures.InlineAuthoring do
   @moduledoc false
-  alias Jido.Flow.Registry
+  alias Jido.Authoring.Registry
   alias JidoActionTest.Fixtures.InlineParityFlow
 
   def direct_flow! do

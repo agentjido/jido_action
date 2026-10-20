@@ -99,7 +99,7 @@ defmodule Jido.Exec.WaitsTest do
       })
 
     assert data == SelectionFlow.flow()
-    registry = Jido.Flow.Registry.new!(%{"none" => {:schema, []}, "id" => {:atom, :id}})
+    registry = Jido.Authoring.Registry.new!(%{"none" => {:schema, []}, "id" => {:atom, :id}})
     assert {:ok, encoded} = Jido.Flow.Codec.encode(data, registry)
     assert {:ok, restored} = Jido.Flow.Codec.decode(encoded, registry)
     assert restored == data

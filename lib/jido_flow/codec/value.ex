@@ -1,11 +1,14 @@
 defmodule Jido.Flow.Codec.Value do
   @moduledoc false
+  alias Jido.Authoring.Registry.Error, as: AuthoringRegistryError
+  alias Jido.Authoring.Value, as: AuthoringValue
+  alias Jido.Authoring.Value.Error, as: AuthoringValueError
   alias Jido.Expr
-  alias Jido.Flow.{Error, Ref, Registry, Value}
+  alias Jido.Flow.{Error, Ref, Value}
   alias Jido.Flow.Codec.{Limits, Paths}
 
   @doc false
-  @spec encode_expression(term(), Registry.t(), non_neg_integer()) ::
+  @spec encode_expression(term(), Jido.Authoring.Registry.t(), non_neg_integer()) ::
           {:ok, term()} | {:error, Exception.t()}
   def encode_expression(%Expr{} = expression, registry, depth) do
     with :ok <- Limits.depth(depth),
@@ -41,30 +44,14 @@ defmodule Jido.Flow.Codec.Value do
   def encode_expression(value, registry, depth), do: encode_data(value, registry, depth)
 
   @doc false
-  @spec encode_data(term(), Registry.t(), non_neg_integer()) ::
+  @spec encode_data(term(), Jido.Authoring.Registry.t(), non_neg_integer()) ::
           {:ok, term()} | {:error, Exception.t()}
-  def encode_data(value, _registry, depth)
-      when is_nil(value) or is_boolean(value) or is_number(value) or is_binary(value) do
-    with :ok <- Limits.depth(depth), do: {:ok, value}
-  end
-
-  def encode_data(value, registry, depth) when is_atom(value) do
-    with :ok <- Limits.depth(depth),
-         {:ok, identifier} <- Registry.identifier(registry, :atom, value) do
-      {:ok, %{"$type" => "atom", "id" => identifier}}
+  def encode_data(value, %Jido.Authoring.Registry{} = registry, depth) do
+    with :ok <- Limits.depth(depth) do
+      value
+      |> AuthoringValue.encode(registry)
+      |> authoring_result()
     end
-  end
-
-  def encode_data(value, registry, depth) when is_list(value) do
-    encode_list(value, registry, depth, &encode_data/3)
-  end
-
-  def encode_data(value, registry, depth) when is_map(value) and not is_struct(value) do
-    encode_map(value, registry, depth, &encode_data/3)
-  end
-
-  def encode_data(value, _registry, _depth) do
-    {:error, Error.validation_error("flow data contains an unsupported value", %{value: value})}
   end
 
   defp encode_list(list, registry, depth, encoder) do
@@ -107,7 +94,7 @@ defmodule Jido.Flow.Codec.Value do
   end
 
   @doc false
-  @spec decode(term(), Registry.t(), list(), list(), :expression | :data) ::
+  @spec decode(term(), Jido.Authoring.Registry.t(), list(), list(), :expression | :data) ::
           {:ok, term(), Paths.t()} | {:error, [Exception.t()]}
   def decode(value, registry, stored, canonical, mode \\ :expression),
     do: decode(value, registry, stored, canonical, mode, 0)
@@ -136,7 +123,7 @@ defmodule Jido.Flow.Codec.Value do
   defp decode(%{"$type" => "atom"} = record, registry, stored, canonical, _mode, _depth) do
     errors = unknown(record, ["$type", "id"], stored)
 
-    case Registry.resolve(registry, Map.get(record, "id"), :atom) do
+    case AuthoringValue.decode(record, registry) |> authoring_result() do
       {:ok, atom} when errors == [] -> {:ok, atom, %{canonical => stored}}
       {:ok, _} -> {:error, errors}
       {:error, error} -> {:error, errors ++ [Error.prefix_path(error, stored ++ ["id"])]}
@@ -390,4 +377,27 @@ defmodule Jido.Flow.Codec.Value do
 
   defp reverse_ok({:ok, values}), do: {:ok, Enum.reverse(values)}
   defp reverse_ok(error), do: error
+
+  defp authoring_result({:error, %AuthoringRegistryError{} = exception}) do
+    message = String.replace(exception.message, "authoring Registry", "flow registry")
+    {:error, Error.validation_error(message, exception.details)}
+  end
+
+  defp authoring_result({:error, %AuthoringValueError{} = exception}) do
+    message =
+      case exception.reason do
+        :string -> "flow data strings must be valid UTF-8"
+        :list -> "flow data must contain proper lists"
+        :map_key -> "flow data contains an unsupported map key"
+        :value -> "flow data contains an unsupported value"
+        :depth -> "stored Flow exceeds its nesting limit"
+        :collection -> "stored Flow collection exceeds its size limit"
+        _ -> exception.message
+      end
+
+    details = Map.put(exception.details, :path, exception.path)
+    {:error, Error.validation_error(message, details)}
+  end
+
+  defp authoring_result(result), do: result
 end

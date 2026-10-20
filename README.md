@@ -179,13 +179,13 @@ alias Jido.Flow.Ref
 ```
 
 To store a Flow or accept one from a UI or an AI model, encode it with
-`Jido.Flow.Codec`. A `Jido.Flow.Registry` that your application owns maps
+`Jido.Flow.Codec`. A `Jido.Authoring.Registry` that your application owns maps
 stable string identifiers to trusted modules, so stored data can never name an
 arbitrary module or create atoms:
 
 ```elixir
 registry =
-  Jido.Flow.Registry.new!(%{
+  Jido.Authoring.Registry.new!(%{
     "actions/greet-user" => {:action, MyApp.Actions.GreetUser},
     "schemas/none" => {:schema, []},
     "atoms/name" => {:atom, :name}
@@ -212,7 +212,7 @@ Action module | Flow module | %Jido.Flow{} | %Jido.Instruction{}
 | `Jido.Action` | Defines one validated unit of work. |
 | `Jido.Instruction` | Holds one call (target, params, context, metadata) as data. |
 | `Jido.Flow` | Defines and validates a graph of Action calls. |
-| `Jido.Flow.Codec` and `Jido.Flow.Registry` | Store and load Flows as JSON-safe data. |
+| `Jido.Authoring.Registry` and `Jido.Flow.Codec` | Store and load Flows as JSON-safe data. |
 | `Jido.Expr` | Evaluates small, data-only expressions in Flow fields. |
 | `Jido.Exec` | Compiles and runs Actions and Flows. |
 

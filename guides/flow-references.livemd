@@ -131,5 +131,5 @@ Iterate State. Use a map such as `%{items: []}` for those values, or a
 `Jido.Action.Output` envelope for Flow output and Reduce accumulators.
 
 Stored JSON cannot create atoms. `Jido.Flow.Codec` maps each atom and atom key
-through a trusted `Jido.Flow.Registry`. See
+through a trusted `Jido.Authoring.Registry`. See
 [Store Flows As JSON](flow-storage.md).

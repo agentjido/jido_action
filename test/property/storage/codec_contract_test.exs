@@ -6,7 +6,8 @@ defmodule JidoActionTest.Property.Storage.CodecContractTest do
   @moduletag obligation: "jido_action.codec.I7"
   use ExUnitProperties
   alias Jido.{Expr, Flow}
-  alias Jido.Flow.{Codec, Ref, Registry}
+  alias Jido.Authoring.Registry
+  alias Jido.Flow.{Codec, Ref}
   alias JidoActionTest.Property.{Fuzz, Runtime}
 
   defmodule Child do
