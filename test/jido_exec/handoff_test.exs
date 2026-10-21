@@ -7,6 +7,7 @@ defmodule Jido.Exec.HandoffTest do
   alias Jido.Flow
   alias Jido.Authoring.Registry
   alias Jido.Flow.{Codec, Ref}
+  alias JidoActionTest.FlowCodec, as: Codec
   alias Jido.Instruction
 
   defmodule Echo do
@@ -205,10 +206,10 @@ defmodule Jido.Exec.HandoffTest do
 
     registry =
       Registry.new!(%{
-        "none" => {:schema, []},
-        "decide" => {:action, Decide},
-        "expand" => {:action, Expand},
-        "value" => {:atom, :value}
+        {"none", 1} => {:schema, []},
+        {"decide", 1} => {:action, Decide},
+        {"expand", 1} => {:action, Expand},
+        {"value", 1} => {:atom, :value}
       })
 
     assert {:ok, document} = Codec.encode(data, registry)

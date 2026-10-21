@@ -2,14 +2,27 @@ defmodule Jido.Flow.Codec.Writer do
   @moduledoc false
 
   alias Jido.Flow.{Component, Error, Graph}
-  alias Jido.Flow.Codec.{Limits, Registry, Value}
+  alias Jido.Authoring.Registry
+  alias Jido.Flow.Codec.{Limits, Value}
 
   @doc false
   @spec encode(Jido.Flow.t(), Jido.Authoring.Registry.t()) ::
           {:ok, map()} | {:error, Exception.t()}
   def encode(flow, registry) do
-    with {:ok, schema} <- Registry.identifier(registry, :schema, flow.schema),
-         {:ok, output_schema} <- Registry.identifier(registry, :schema, flow.output_schema),
+    case do_encode(flow, registry) do
+      {:error, %Registry.Error{} = error} ->
+        message = String.replace(error.message, "authoring Registry", "flow registry")
+        {:error, Error.validation_error(message, error.details)}
+
+      result ->
+        result
+    end
+  end
+
+  defp do_encode(flow, registry) do
+    with {:ok, schema} <- Registry.encode_reference(registry, :schema, flow.schema),
+         {:ok, output_schema} <-
+           Registry.encode_reference(registry, :schema, flow.output_schema),
          {:ok, components} <-
            sequence(Graph.canonical_components(flow.components), fn {name, node} ->
              record = Map.put(node, :name, name)
@@ -26,7 +39,7 @@ defmodule Jido.Flow.Codec.Writer do
          {:ok, output} <- Value.encode_expression(flow.output, registry, 0) do
       document = %{
         "type" => "jido.flow",
-        "version" => 1,
+        "vsn" => 1,
         "name" => flow.name,
         "description" => flow.description,
         "schema" => schema,
@@ -52,7 +65,10 @@ defmodule Jido.Flow.Codec.Writer do
     do: Value.encode_expression(value, registry, 0)
 
   defp field(:meta, value, registry), do: Value.encode_data(value, registry, 0)
-  defp field(:schema, value, registry), do: Registry.identifier(registry, :schema, value)
+
+  defp field(:schema, value, registry) do
+    Registry.encode_reference(registry, :schema, value)
+  end
 
   defp field({:call, _, _}, call, registry) do
     with {:ok, target} <- target(call, registry),
@@ -74,8 +90,8 @@ defmodule Jido.Flow.Codec.Writer do
   defp field(_type, value, _registry), do: {:ok, value}
 
   defp target(target, registry) do
-    with {:ok, id} <- Registry.identifier(registry, target.kind, target.target) do
-      {:ok, %{"kind" => Atom.to_string(target.kind), "target" => id}}
+    with {:ok, reference} <- Registry.encode_reference(registry, target.kind, target.target) do
+      {:ok, %{"kind" => Atom.to_string(target.kind), "target" => reference}}
     end
   end
 

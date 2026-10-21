@@ -189,7 +189,7 @@ All Flow authoring forms produce the same canonical Dispatch node.
   Jido.Exec.run(flow, %{mode: :continue, target: MyApp.Actions.Next, value: 3})
 ```
 
-Use `Jido.Flow.new/1` for map definitions. Use `Jido.Flow.Codec` and a trusted
+Use `Jido.Flow.new/1` for map definitions. Use `Jido.Authoring` and a trusted
 Registry when stored JSON defines the Flow.
 
 ## Loops

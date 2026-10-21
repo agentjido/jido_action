@@ -5,6 +5,7 @@ defmodule Jido.Flow.GraphValidationTest do
   alias Jido.Flow
   alias Jido.Authoring.Registry
   alias Jido.Flow.{Codec, Error, Ref}
+  alias JidoActionTest.FlowCodec, as: Codec
   alias JidoActionTest.Fixtures.NestedFlow
 
   defmodule ProbeAction do
@@ -17,20 +18,20 @@ defmodule Jido.Flow.GraphValidationTest do
 
   defp registry do
     Registry.new!(%{
-      "action" => {:action, ProbeAction},
-      "schema" => {:schema, []},
-      "flow" => {:flow, NestedFlow}
+      {"action", 1} => {:action, ProbeAction},
+      {"schema", 1} => {:schema, []},
+      {"flow", 1} => {:flow, NestedFlow}
     })
   end
 
   defp stored(components, output) do
     %{
       "type" => "jido.flow",
-      "version" => 1,
+      "vsn" => 1,
       "name" => "graph",
       "description" => nil,
-      "schema" => "schema",
-      "output_schema" => "schema",
+      "schema" => %{"id" => "schema", "vsn" => 1},
+      "output_schema" => %{"id" => "schema", "vsn" => 1},
       "components" => components,
       "output" => output
     }
@@ -44,7 +45,7 @@ defmodule Jido.Flow.GraphValidationTest do
       "kind" => "call",
       "call" => %{
         "kind" => "action",
-        "target" => "action",
+        "target" => %{"id" => "action", "vsn" => 1},
         "params" => %{"$type" => "map", "entries" => []}
       }
     }
@@ -510,7 +511,10 @@ end
     assert {:ok, ^flow} = Flow.validate(flow)
 
     registry =
-      Registry.new!(%{"unloaded" => {:action, NotLoadedAction}, "schema" => {:schema, []}})
+      Registry.new!(%{
+        {"unloaded", 1} => {:action, NotLoadedAction},
+        {"schema", 1} => {:schema, []}
+      })
 
     assert {:ok, document} = Codec.encode(flow, registry)
     assert {:ok, ^flow} = Codec.diagnose(document, registry)

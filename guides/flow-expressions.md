@@ -146,19 +146,31 @@ a replacement for Flow validation; it does not check Flow reference scopes.
 
 ## Stored JSON
 
-`Jido.Flow.Codec` stores each operation under a `$expr` tag. All current features use
-document version 1:
+`Jido.Authoring` stores each operation under a `$expr` tag. All current features use
+document `vsn` 1:
 
 ```elixir
-{:ok, document, registry} = Jido.Flow.Codec.encode(built)
-1 = document["version"]
+registry =
+  Jido.Authoring.Registry.new!(%{
+    {"schemas/none", 1} => {:schema, []},
+    {"actions/normalize", 1} =>
+      {:action, ExprGuide.Invoice.step_action("normalize")},
+    {"atoms/name", 1} => {:atom, :name},
+    {"atoms/price", 1} => {:atom, :price},
+    {"atoms/quantity", 1} => {:atom, :quantity},
+    {"atoms/total", 1} => {:atom, :total}
+  })
+
+opts = [registry: registry, codec: Jido.Flow.Codec]
+{:ok, document} = Jido.Authoring.encode(built, opts)
+1 = document["vsn"]
 json = JSON.encode!(document)
-{:ok, restored} = Jido.Flow.Codec.decode(JSON.decode!(json), registry)
+{:ok, restored} = Jido.Authoring.decode(JSON.decode!(json), opts)
 true = restored == built
 {:ok, %{total: 6}} = Jido.Exec.run(restored, %{name: "Ada", quantity: 2, price: 3})
 ```
 
-See [Store Flows As JSON](flow-storage.md) for the document version, tags,
+See [Store Flows As JSON](flow-storage.md) for the document `vsn`, tags,
 Registry identifiers, and storage limits.
 
 ## Errors And Limits

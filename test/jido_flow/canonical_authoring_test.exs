@@ -104,6 +104,7 @@ defmodule Jido.Flow.CanonicalAuthoringTest do
   @moduletag obligation: "jido_action.flow.I7"
   alias Jido.Flow
   alias Jido.Flow.Codec
+  alias JidoActionTest.FlowCodec, as: Codec
   alias Jido.Flow.Ref
   alias JidoActionTest.Fixtures.CodecRegistry
   alias JidoActionTest.Fixtures.FlowAuthoring
@@ -122,10 +123,10 @@ defmodule Jido.Flow.CanonicalAuthoringTest do
     assert {:ok, document} = Codec.encode(built, registry)
 
     assert Enum.map(document["components"], & &1["call"]["target"]) == [
-             "actions/demo/empty/v1",
-             "actions/demo/named/v1",
-             "actions/demo/multiple/v1",
-             "actions/demo/sole-map/v1"
+             %{"id" => "actions/demo/empty/v1", "vsn" => 1},
+             %{"id" => "actions/demo/named/v1", "vsn" => 1},
+             %{"id" => "actions/demo/multiple/v1", "vsn" => 1},
+             %{"id" => "actions/demo/sole-map/v1", "vsn" => 1}
            ]
 
     assert {:ok, decoded} =

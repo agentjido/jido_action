@@ -2,6 +2,7 @@ defmodule JidoActionTest.Flow.DSL.ExprFlowTest do
   use ExUnit.Case, async: true
   alias Jido.Expr
   alias Jido.Flow.{Codec, Ref}
+  alias JidoActionTest.FlowCodec, as: Codec
   alias JidoActionTest.Fixtures.Actions.EchoParamsAction
 
   defmodule Parity do

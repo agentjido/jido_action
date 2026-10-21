@@ -96,7 +96,7 @@ defmodule Jido.Exec.ApiTest do
 
   @tag obligation: "jido_action.boundary.I5"
   test "run/4 executes Actions whose schemas have no JSON Schema form" do
-    assert_raise ArgumentError, fn -> StructSchemaAction.to_json() end
+    assert_raise ArgumentError, fn -> StructSchemaAction.authoring_contract() end
 
     assert Exec.run(StructSchemaAction, %{id: 1}) == {:ok, %{id: 1}}
     assert Exec.run(AtomSchemaAction, %{mode: :fast}) == {:ok, %{mode: :fast}}

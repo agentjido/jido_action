@@ -16,7 +16,7 @@ defmodule Jido.Authoring.PortableDocumentTest do
 
     def encode(name, registry) do
       with {:ok, name} <- Value.encode(name, registry),
-           document = %{"type" => "example.definition", "version" => 1, "name" => name},
+           document = %{"type" => "example.definition", "vsn" => 1, "name" => name},
            :ok <- Document.check(document) do
         {:ok, document}
       end
@@ -24,7 +24,7 @@ defmodule Jido.Authoring.PortableDocumentTest do
 
     def decode(document, registry) do
       with :ok <- Document.check(document),
-           %{"type" => "example.definition", "version" => 1, "name" => encoded} <- document,
+           %{"type" => "example.definition", "vsn" => 1, "name" => encoded} <- document,
            {:ok, name} <- Value.decode(encoded, registry) do
         {:ok, name}
       else
@@ -37,18 +37,20 @@ defmodule Jido.Authoring.PortableDocumentTest do
   test "a second document owner composes the public Registry Document and Value APIs" do
     registry =
       Registry.new!(%{
-        "atoms/example" => {:atom, :example},
-        "atoms/kind" => {:atom, :kind},
-        "flows/foreign" => {:flow, __MODULE__}
+        {"atoms/example", 1} => {:atom, :example},
+        {"atoms/kind", 1} => {:atom, :kind},
+        {"flows/foreign", 1} => {:flow, __MODULE__}
       })
 
     assert {:ok, document} = ExampleCodec.encode(%{kind: :example}, registry)
     assert {:ok, %{kind: :example}} = ExampleCodec.decode(document, registry)
-    assert {:ok, __MODULE__} = Registry.resolve(registry, "flows/foreign", :flow)
+
+    assert {:ok, __MODULE__} =
+             Registry.resolve(registry, {"flows/foreign", 1}, :flow)
 
     oversized = %{
       "type" => "wrong.owner",
-      "version" => 99,
+      "vsn" => 99,
       "name" => List.duplicate(nil, 10_001)
     }
 

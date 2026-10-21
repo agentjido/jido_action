@@ -4,6 +4,7 @@ defmodule Jido.Flow.GeneratedRegistryTest do
 
   alias Jido.Authoring.Registry
   alias Jido.Flow.Codec
+  alias JidoActionTest.FlowCodec, as: Codec
   alias Jido.Flow.Error.InvalidDefinitionError
   alias Jido.Flow.Ref
   alias JidoActionTest.Fixtures.FlowAuthoring
@@ -17,14 +18,26 @@ defmodule Jido.Flow.GeneratedRegistryTest do
     assert {:ok, document, %Registry{} = registry} = Codec.encode(flow)
     assert {:ok, ^document, ^registry} = Codec.encode(flow)
 
-    assert {:ok, Add} = Registry.resolve(registry, "actions/generated-1", :action)
-    assert {:ok, Multiply} = Registry.resolve(registry, "actions/generated-2", :action)
-    assert {:ok, NestedFlow} = Registry.resolve(registry, "flows/generated-1", :flow)
-    assert {:ok, []} = Registry.resolve(registry, "schemas/generated-1", :schema)
+    assert {:ok, Add} =
+             Registry.resolve(registry, {"actions/generated-1", 1}, :action)
+
+    assert {:ok, Multiply} =
+             Registry.resolve(registry, {"actions/generated-2", 1}, :action)
+
+    assert {:ok, NestedFlow} =
+             Registry.resolve(registry, {"flows/generated-1", 1}, :flow)
+
+    assert {:ok, []} =
+             Registry.resolve(registry, {"schemas/generated-1", 1}, :schema)
 
     for {atom, index} <-
           Enum.with_index([:add, :amount, :count, :items, :kind, :owner, :value], 1) do
-      assert {:ok, ^atom} = Registry.resolve(registry, "atoms/generated-#{index}", :atom)
+      assert {:ok, ^atom} =
+               Registry.resolve(
+                 registry,
+                 {"atoms/generated-#{index}", 1},
+                 :atom
+               )
     end
 
     assert {:ok, ^flow} = Codec.decode(document, registry)
@@ -47,9 +60,9 @@ defmodule Jido.Flow.GeneratedRegistryTest do
       })
 
     assert {:ok, _subset_document, subset_registry} = Codec.encode(subset)
-    assert {:ok, original_id} = Registry.identifier(registry, :action, action)
-    assert {:ok, subset_id} = Registry.identifier(subset_registry, :action, action)
-    refute original_id == subset_id
+    assert {:ok, original_reference} = Registry.reference(registry, :action, action)
+    assert {:ok, subset_reference} = Registry.reference(subset_registry, :action, action)
+    refute original_reference == subset_reference
 
     assert {:error, %InvalidDefinitionError{}} = Codec.decode(document, subset_registry)
   end

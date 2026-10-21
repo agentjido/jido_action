@@ -9,6 +9,23 @@ defmodule Jido.Authoring.DocumentTest do
     assert :ok = Document.check(%{"items" => [nil, true, 1, 2.5, "value"]})
   end
 
+  test "checks exact JSON size and JSON compatibility" do
+    document = %{"value" => "content"}
+    size = document |> Jason.encode!() |> byte_size()
+
+    assert :ok = Document.check_json(document, size)
+
+    assert {:error, %Error{reason: :bytes, details: %{maximum_bytes: maximum}} = error} =
+             Document.check_json(document, size - 1)
+
+    assert maximum == size - 1
+    assert Jido.Authoring.Error.splode_error?(error)
+    assert {:error, %Error{reason: :json}} = Document.check_json(%{"value" => self()}, size)
+
+    assert {:error, %Error{reason: :json}} =
+             Document.check_json(%{value: "atom keys change during JSON decoding"}, 100)
+  end
+
   test "bounds terms without owning their value semantics" do
     assert :ok = Document.check(%{atom: self()})
 

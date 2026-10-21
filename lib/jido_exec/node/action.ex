@@ -392,8 +392,8 @@ defmodule Jido.Exec.Node.Action do
 
   # Port schemas are descriptive. A schema without a JSON form still executes.
   defp portable_schema(action, key) do
-    if function_exported?(action, :to_json, 0) do
-      action |> apply(:to_json, []) |> Map.get(key, %{})
+    if function_exported?(action, :authoring_contract, 0) do
+      action |> apply(:authoring_contract, []) |> Map.get(key, %{})
     else
       %{}
     end

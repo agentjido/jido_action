@@ -3,9 +3,14 @@ defmodule Jido.Flow.AccumulationTest do
 
   alias Jido.Authoring.Registry
   alias Jido.Flow.{Codec, Definition, Error}
+  alias JidoActionTest.FlowCodec, as: Codec
 
   defp document do
-    registry = Registry.new!(%{"action" => {:action, UnloadedAction}, "schema" => {:schema, []}})
+    registry =
+      Registry.new!(%{
+        {"action", 1} => {:action, UnloadedAction},
+        {"schema", 1} => {:schema, []}
+      })
 
     flow =
       JidoActionTest.FlowBuilder.new!(

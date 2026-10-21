@@ -6,6 +6,7 @@ defmodule Jido.Flow.CodecTest do
   alias Jido.Flow.Error.InvalidDefinitionError
   alias Jido.Flow
   alias Jido.Flow.Codec
+  alias JidoActionTest.FlowCodec, as: Codec
   alias Jido.Flow.Error
   alias Jido.Flow.Ref
   alias JidoActionTest.Fixtures.CodecRegistry
@@ -44,7 +45,7 @@ defmodule Jido.Flow.CodecTest do
 
   test "inline Steps use the exact version 1 stored call fields" do
     assert {:ok, document} = Codec.encode(InlineParityFlow.flow(), InlineAuthoring.registry())
-    assert document["version"] == 1
+    assert document["vsn"] == 1
 
     for step <- document["components"] do
       assert step["kind"] == "call"
@@ -54,7 +55,7 @@ defmodule Jido.Flow.CodecTest do
     [empty, named, multiple, sole_map] = document["components"]
     assert empty["call"]["params"] == %{"$type" => "map", "entries" => []}
 
-    assert [%{"key" => %{"$type" => "atom", "id" => "atoms/name"}}] =
+    assert [%{"key" => %{"$type" => "atom", "id" => "atoms/name", "vsn" => 1}}] =
              named["call"]["params"]["entries"]
 
     assert Enum.map(multiple["call"]["params"]["entries"], & &1["key"]["id"]) ==
@@ -64,9 +65,31 @@ defmodule Jido.Flow.CodecTest do
              "$ref" => %{
                "source" => "input",
                "component" => nil,
-               "path" => [%{"$type" => "atom", "id" => "atoms/payload"}]
+               "path" => [%{"$type" => "atom", "id" => "atoms/payload", "vsn" => 1}]
              }
            }
+  end
+
+  test "stored Registry references include and check vsn" do
+    registry = InlineAuthoring.registry()
+    assert {:ok, document} = Codec.encode(InlineParityFlow.flow(), registry)
+
+    assert %{"id" => _id, "vsn" => 1} = document["schema"]
+    assert %{"id" => _id, "vsn" => 1} = document["output_schema"]
+    [step | _rest] = document["components"]
+    assert %{"id" => _id, "vsn" => 1} = step["call"]["target"]
+
+    invalid = put_in(step, ["call", "target", "vsn"], 2)
+
+    assert {:error,
+            %InvalidDefinitionError{
+              message: "flow registry reference has unsupported vsn",
+              details: %{
+                vsn: 2,
+                supported_vsns: [1],
+                path: ["components", 0, "call", "target", "vsn"]
+              }
+            }} = Codec.decode(replace_component(document, 0, invalid), registry)
   end
 
   @tag :inline_probe
@@ -101,32 +124,36 @@ defmodule Jido.Flow.CodecTest do
     refute existing_atom?(unknown_action)
     refute existing_atom?(unknown_atom)
 
-    for {identifier, message} <- [
-          {unknown_action, "unknown flow registry identifier"},
-          {"flows/not-an-action", "flow registry identifier has the wrong entry kind"}
+    for {identifier, message, path} <- [
+          {unknown_action, "unknown flow registry reference",
+           ["components", 0, "call", "target", "id"]},
+          {"flows/not-an-action", "flow registry reference has the wrong entry kind",
+           ["components", 0, "call", "target", "id"]}
         ] do
       invalid =
         replace_component(
           document,
           0,
-          JidoActionTest.StoredFields.update(step, %{"action" => identifier})
+          JidoActionTest.StoredFields.update(step, %{
+            "action" => %{"id" => identifier, "vsn" => 1}
+          })
         )
 
       assert {:error,
               %InvalidDefinitionError{
                 message: ^message,
-                details: %{identifier: ^identifier, path: ["components", 0, "call", "target"]}
+                details: %{identifier: ^identifier, path: ^path}
               }} = Codec.decode(invalid, registry)
     end
 
-    missing_binding = Registry.new!(Map.delete(registry.entries, "atoms/marker"))
+    missing_binding = Registry.new!(Map.delete(registry.entries, {"atoms/marker", 1}))
 
     assert {:error, %InvalidDefinitionError{details: %{kind: :atom}}} =
              Codec.encode(flow, missing_binding)
 
     assert {:error,
             %InvalidDefinitionError{
-              message: "unknown flow registry identifier",
+              message: "unknown flow registry reference",
               details: %{
                 identifier: "atoms/marker",
                 path: ["components", 0, "call", "params", "entries", 0, "key", "id"]
@@ -134,12 +161,17 @@ defmodule Jido.Flow.CodecTest do
             }} = Codec.decode(document, missing_binding)
 
     [entry] = step["call"]["params"]["entries"]
-    untrusted_entry = %{entry | "key" => %{"$type" => "atom", "id" => unknown_atom}}
+
+    untrusted_entry = %{
+      entry
+      | "key" => %{"$type" => "atom", "id" => unknown_atom, "vsn" => 1}
+    }
+
     invalid = put_in(step, ["call", "params", "entries"], [untrusted_entry])
 
     assert {:error,
             %InvalidDefinitionError{
-              message: "unknown flow registry identifier",
+              message: "unknown flow registry reference",
               details: %{identifier: ^unknown_atom, kind: :atom}
             }} = Codec.decode(replace_component(document, 0, invalid), registry)
 
@@ -183,7 +215,7 @@ defmodule Jido.Flow.CodecTest do
     registry = CodecRegistry.mixed()
 
     assert {:ok, document} = Codec.encode(flow, registry)
-    assert document["version"] == 1
+    assert document["vsn"] == 1
 
     assert Enum.map(document["components"], & &1["kind"]) ==
              ["call", "iterate", "map", "call", "reduce", "choice"]
@@ -203,7 +235,7 @@ defmodule Jido.Flow.CodecTest do
 
     document = %{
       document
-      | "version" => 1,
+      | "vsn" => 1,
         "components" => [hd(document["components"])],
         "output" => %URI{path: "/flow"}
     }
@@ -217,7 +249,7 @@ defmodule Jido.Flow.CodecTest do
     registry = CodecRegistry.mixed()
     flow = all_component_flow!()
     assert {:ok, document} = Codec.encode(flow, registry)
-    assert document["version"] == 1
+    assert document["vsn"] == 1
 
     assert Enum.map(document["components"], & &1["kind"]) ==
              ["call", "choice", "iterate", "map", "reduce", "call", "dispatch"]
@@ -311,7 +343,12 @@ defmodule Jido.Flow.CodecTest do
       |> Map.put("condition", "invalid")
       |> JidoActionTest.StoredFields.target(42)
 
-    fallback = JidoActionTest.StoredFields.target(choice["fallback"], "actions/missing")
+    fallback =
+      JidoActionTest.StoredFields.target(
+        choice["fallback"],
+        %{"id" => "actions/missing", "vsn" => 1}
+      )
+
     choice = %{choice | "options" => [option], "fallback" => fallback}
 
     output = %{
@@ -342,7 +379,7 @@ defmodule Jido.Flow.CodecTest do
              ["components", step_index, "call", "target"],
              ["components", choice_index, "options", 0, "condition"],
              ["components", choice_index, "options", 0, "call", "target"],
-             ["components", choice_index, "fallback", "target"],
+             ["components", choice_index, "fallback", "target", "id"],
              ["output", "entries", 0, "value", "id"],
              ["output", "entries", 1, "value", "id"]
            ]
@@ -543,7 +580,7 @@ defmodule Jido.Flow.CodecTest do
     envelope_errors =
       document
       |> Map.delete("type")
-      |> Map.put("version", 99)
+      |> Map.put("vsn", 99)
       |> Map.put("extra", true)
 
     assert {:error, %Error.Invalid{errors: envelope}} =
@@ -584,20 +621,21 @@ defmodule Jido.Flow.CodecTest do
 
     bad_schema_registry =
       Registry.new!(%{
-        "actions/add" => {:action, Add},
-        "actions/multiply" => {:action, Multiply},
-        "flows/nested" => {:flow, NestedFlow},
-        "schemas/bad" => {:schema, fn -> :not_static end},
-        "atoms/add" => {:atom, :add},
-        "atoms/amount" => {:atom, :amount},
-        "atoms/count" => {:atom, :count},
-        "atoms/items" => {:atom, :items},
-        "atoms/kind" => {:atom, :kind},
-        "atoms/owner" => {:atom, :owner},
-        "atoms/value" => {:atom, :value}
+        {"actions/add", 1} => {:action, Add},
+        {"actions/multiply", 1} => {:action, Multiply},
+        {"flows/nested", 1} => {:flow, NestedFlow},
+        {"schemas/bad", 1} => {:schema, fn -> :not_static end},
+        {"atoms/add", 1} => {:atom, :add},
+        {"atoms/amount", 1} => {:atom, :amount},
+        {"atoms/count", 1} => {:atom, :count},
+        {"atoms/items", 1} => {:atom, :items},
+        {"atoms/kind", 1} => {:atom, :kind},
+        {"atoms/owner", 1} => {:atom, :owner},
+        {"atoms/value", 1} => {:atom, :value}
       })
 
-    bad_schemas = %{document | "schema" => "schemas/bad", "output_schema" => "schemas/bad"}
+    bad_schema = %{"id" => "schemas/bad", "vsn" => 1}
+    bad_schemas = %{document | "schema" => bad_schema, "output_schema" => bad_schema}
 
     assert {:error, %Error.Invalid{errors: schema_errors}} =
              Codec.diagnose(bad_schemas, bad_schema_registry)
@@ -605,7 +643,7 @@ defmodule Jido.Flow.CodecTest do
     assert Enum.map(schema_errors, & &1.details.path) == [
              ["schema"],
              ["output_schema"],
-             ["components", component_index(document, "loop"), "state", "schema"]
+             ["components", component_index(document, "loop"), "state", "schema", "id"]
            ]
   end
 
@@ -731,6 +769,18 @@ defmodule Jido.Flow.CodecTest do
     assert length(entry_errors) == 4
   end
 
+  test "an atom record with an extra field reports only the extra field" do
+    registry = CodecRegistry.mixed()
+    assert {:ok, document} = Codec.encode(FlowAuthoring.mixed_flow!(), registry)
+
+    atom = %{"$type" => "atom", "id" => "atoms/go", "vsn" => 1, "extra" => true}
+
+    assert {:error, %Error.Invalid{errors: [error]}} =
+             Codec.diagnose(%{document | "output" => atom}, registry)
+
+    assert error.details.path == ["output", "extra"]
+  end
+
   test "diagnose distinguishes duplicate names and dependency cycles" do
     registry = CodecRegistry.mixed()
 
@@ -819,7 +869,7 @@ defmodule Jido.Flow.CodecTest do
     {:ok, document} = Codec.encode(FlowAuthoring.mixed_flow!(), CodecRegistry.mixed())
 
     assert {:error, %InvalidDefinitionError{}} =
-             Codec.decode(%{document | "version" => 99}, CodecRegistry.mixed())
+             Codec.decode(%{document | "vsn" => 99}, CodecRegistry.mixed())
 
     [first | rest] = document["components"]
     invalid = %{document | "components" => [Map.delete(first, "kind") | rest]}
@@ -851,19 +901,19 @@ defmodule Jido.Flow.CodecTest do
 
     wrong_registry =
       Registry.new!(%{
-        "targets/child" => {:action, NestedFlow},
-        "schemas/empty" => {:schema, []}
+        {"targets/child", 1} => {:action, NestedFlow},
+        {"schemas/empty", 1} => {:schema, []}
       })
 
     assert {:error, %InvalidDefinitionError{}} = Codec.encode(flow, wrong_registry)
 
     document = %{
       "type" => "jido.flow",
-      "version" => 1,
+      "vsn" => 1,
       "name" => "one_subflow",
       "description" => nil,
-      "schema" => "schemas/empty",
-      "output_schema" => "schemas/empty",
+      "schema" => %{"id" => "schemas/empty", "vsn" => 1},
+      "output_schema" => %{"id" => "schemas/empty", "vsn" => 1},
       "components" => [
         %{
           "name" => "child",
@@ -872,7 +922,7 @@ defmodule Jido.Flow.CodecTest do
           "kind" => "call",
           "call" => %{
             "kind" => "flow",
-            "target" => "targets/child",
+            "target" => %{"id" => "targets/child", "vsn" => 1},
             "params" => %{"$type" => "map", "entries" => []}
           }
         }
@@ -893,7 +943,10 @@ defmodule Jido.Flow.CodecTest do
     document = %{
       document
       | "components" => [
-          JidoActionTest.StoredFields.update(step, %{"action" => unknown_identifier}) | rest
+          JidoActionTest.StoredFields.update(step, %{
+            "action" => %{"id" => unknown_identifier, "vsn" => 1}
+          })
+          | rest
         ]
     }
 
@@ -937,6 +990,57 @@ defmodule Jido.Flow.CodecTest do
 
     assert decoded == flow
     assert {:ok, ^document} = Codec.encode(decoded, registry)
+  end
+
+  test "JSON bytes preserve Boolean map keys" do
+    registry = CodecRegistry.mixed()
+
+    flow = %{
+      FlowAuthoring.mixed_flow!()
+      | name: "stored_boolean_keys",
+        output: %{false => "no", true => "yes"}
+    }
+
+    assert {:ok, document} = Codec.encode(flow, registry)
+    assert {:ok, ^flow} = document |> Jason.encode!() |> Jason.decode!() |> Codec.decode(registry)
+  end
+
+  test "reference records reject extra fields and report the exact path" do
+    registry = CodecRegistry.mixed()
+    assert {:ok, document} = Codec.encode(FlowAuthoring.mixed_flow!(), registry)
+
+    schema = Map.put(document["schema"], "extra", true)
+    target_index = Enum.find_index(document["components"], &Map.has_key?(&1, "call"))
+
+    target =
+      document
+      |> get_in(["components", Access.at(target_index), "call", "target"])
+      |> Map.put("extra", true)
+
+    cases = [
+      {%{document | "schema" => schema}, ["schema", "extra"]},
+      {put_in(document, ["components", Access.at(target_index), "call", "target"], target),
+       ["components", target_index, "call", "target", "extra"]}
+    ]
+
+    for {invalid, path} <- cases do
+      assert {:error, %Error.Invalid{errors: [error]}} = Codec.diagnose(invalid, registry)
+      assert error.details.path == path
+    end
+  end
+
+  test "invalid reference versions report the vsn field" do
+    registry = CodecRegistry.mixed()
+    assert {:ok, document} = Codec.encode(FlowAuthoring.mixed_flow!(), registry)
+
+    for invalid_vsn <- [0, "1", nil] do
+      schema = Map.put(document["schema"], "vsn", invalid_vsn)
+
+      assert {:error, %Error.Invalid{errors: [error]}} =
+               Codec.diagnose(%{document | "schema" => schema}, registry)
+
+      assert error.details.path == ["schema", "vsn"]
+    end
   end
 
   test "Codec rejects values above its nesting and collection limits" do
@@ -990,7 +1094,6 @@ defmodule Jido.Flow.CodecTest do
                Codec.encode(metadata_flow, registry)
 
       assert Map.fetch!(details, elem(detail, 0)) == elem(detail, 1)
-      assert is_list(details.path)
     end
 
     for count <- [10_000, 10_001] do
@@ -1095,8 +1198,8 @@ defmodule Jido.Flow.CodecTest do
 
     registry =
       Registry.new!(%{
-        "actions/add" => {:action, Add},
-        "schemas/empty" => {:schema, []}
+        {"actions/add", 1} => {:action, Add},
+        {"schemas/empty", 1} => {:schema, []}
       })
 
     assert {:error, %InvalidDefinitionError{}} = Codec.encode(flow, registry)
@@ -1180,10 +1283,10 @@ defmodule Jido.Flow.CodecTest do
 
   defp inline_probe_registry do
     Registry.new!(%{
-      "actions/mark/v1" => {:action, InlineProbeFlow.step_action("mark")},
-      "flows/not-an-action" => {:flow, NestedFlow},
-      "atoms/marker" => {:atom, :marker},
-      "schemas/empty/v1" => {:schema, []}
+      {"actions/mark/v1", 1} => {:action, InlineProbeFlow.step_action("mark")},
+      {"flows/not-an-action", 1} => {:flow, NestedFlow},
+      {"atoms/marker", 1} => {:atom, :marker},
+      {"schemas/empty/v1", 1} => {:schema, []}
     })
   end
 

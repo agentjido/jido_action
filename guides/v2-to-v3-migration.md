@@ -211,13 +211,13 @@ Version 3 no longer generates these version 2 functions:
 Replace calls to `category/0`, `tags/0`, and `vsn/0` with application-owned
 metadata. Pass required invocation data in the Action context.
 
-Version 3 `to_json/0` is a smaller provider-neutral description. It contains
+Version 3 `authoring_contract/0` is a smaller provider-neutral description. It contains
 the Action name, description, input JSON Schema, and output JSON Schema. It
 does not restore version 2 categories, tags, versions, execution policy, or
 tool data.
 
 Move AI tool conversion to the package that owns the AI integration. That
-adapter can read `to_json/0`, then call `Jido.Exec.run/4`. ReqLLM owns the
+adapter can read `authoring_contract/0`, then call `Jido.Exec.run/4`. ReqLLM owns the
 generic Tool type and provider-specific tool formats. Jido AI owns the adapter
 from a Jido Action to a ReqLLM Tool and owns execution of the selected Action.
 
@@ -550,12 +550,12 @@ Add an application data migration when old records must remain usable. Decode
 the old format with versioned application code, resolve each trusted target,
 and build a new Instruction or Flow.
 
-Do not send version 2 data directly to `Jido.Flow.Codec.decode/2`. Add a format
+Do not send version 2 data directly to `Jido.Authoring.decode/2`. Add a format
 version to application-owned stored data and test the migration through real
 JSON bytes.
 
 For durable execution, store two values: the Flow definition through
-`Jido.Flow.Codec`, and runtime progress through a Runic Store. Do not store a
+`Jido.Authoring`, and runtime progress through a Runic Store. Do not store a
 compiled workflow or add checkpoint fields to Instructions.
 
 ## Upgrading From Earlier v3 Betas

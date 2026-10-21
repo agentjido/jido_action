@@ -3,6 +3,7 @@ defmodule Jido.Flow.ModelRefactorTest do
 
   alias Jido.{Exec, Expr, Flow}
   alias Jido.Flow.{Codec, Definition, Ref}
+  alias JidoActionTest.FlowCodec, as: Codec
   alias JidoActionTest.Fixtures.Actions.{Add, EchoParamsAction}
 
   test "compact data authoring produces an internal call record" do
@@ -45,13 +46,13 @@ defmodule Jido.Flow.ModelRefactorTest do
       })
 
     assert {:ok, document, registry} = Codec.encode(flow)
-    assert document["version"] == 1
+    assert document["vsn"] == 1
 
     assert [%{"kind" => "call", "call" => %{"kind" => "action", "target" => _, "params" => _}}] =
              document["components"]
 
     assert Codec.decode(document, registry) == {:ok, flow}
-    assert {:error, _} = Codec.decode(%{document | "version" => 2}, registry)
+    assert {:error, _} = Codec.decode(%{document | "vsn" => 2}, registry)
   end
 
   test "data and JSON use the same ordered graph diagnostics" do

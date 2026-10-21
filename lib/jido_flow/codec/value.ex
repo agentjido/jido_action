@@ -73,7 +73,11 @@ defmodule Jido.Flow.Codec.Value do
     with :ok <- Limits.depth(depth),
          :ok <- Limits.size(map),
          {:ok, entries} <- encode_entries(map, registry, depth, value_encoder) do
-      entries = Enum.sort_by(entries, fn %{"key" => key} -> :erlang.term_to_binary(key) end)
+      entries =
+        Enum.sort_by(entries, fn %{"key" => key} ->
+          AuthoringValue.encoded_key_sort_key(key)
+        end)
+
       {:ok, %{"$type" => "map", "entries" => entries}}
     end
   end
@@ -121,12 +125,23 @@ defmodule Jido.Flow.Codec.Value do
   end
 
   defp decode(%{"$type" => "atom"} = record, registry, stored, canonical, _mode, _depth) do
-    errors = unknown(record, ["$type", "id"], stored)
+    errors = unknown(record, ["$type", "id", "vsn"], stored)
+    atom_record = Map.take(record, ["$type", "id", "vsn"])
 
-    case AuthoringValue.decode(record, registry) |> authoring_result() do
-      {:ok, atom} when errors == [] -> {:ok, atom, %{canonical => stored}}
-      {:ok, _} -> {:error, errors}
-      {:error, error} -> {:error, errors ++ [Error.prefix_path(error, stored ++ ["id"])]}
+    case AuthoringValue.decode(atom_record, registry) |> authoring_result() do
+      {:ok, atom} when errors == [] ->
+        {:ok, atom, %{canonical => stored}}
+
+      {:ok, _} ->
+        {:error, errors}
+
+      {:error, error} ->
+        field =
+          if Map.has_key?(record, "vsn"),
+            do: reference_error_field(error),
+            else: "id"
+
+        {:error, errors ++ [Error.prefix_path(error, stored ++ [field])]}
     end
   end
 
@@ -377,6 +392,9 @@ defmodule Jido.Flow.Codec.Value do
 
   defp reverse_ok({:ok, values}), do: {:ok, Enum.reverse(values)}
   defp reverse_ok(error), do: error
+
+  defp reference_error_field(%{details: %{field: field}}) when is_binary(field), do: field
+  defp reference_error_field(_error), do: "id"
 
   defp authoring_result({:error, %AuthoringRegistryError{} = exception}) do
     message = String.replace(exception.message, "authoring Registry", "flow registry")

@@ -2,6 +2,7 @@ defmodule JidoActionTest.Flow.ExprBoundaryTest do
   use ExUnit.Case, async: true
   alias Jido.Expr
   alias Jido.Flow.{Codec, Ref}
+  alias JidoActionTest.FlowCodec, as: Codec
   alias Jido.Flow.DSL.ValueParser
   alias JidoActionTest.Fixtures.Actions.EchoParamsAction
 
@@ -89,7 +90,7 @@ defmodule JidoActionTest.Flow.ExprBoundaryTest do
       assert built == direct
       assert module_flow(Module.concat(__MODULE__, "Plain#{index}"), source) == direct
       assert {:ok, document, registry} = Codec.encode(direct)
-      assert document["version"] == 1
+      assert document["vsn"] == 1
       assert {:ok, ^direct} = Codec.decode(JSON.decode!(JSON.encode!(document)), registry)
       assert Jido.Exec.run(direct) == {:ok, value}
     end

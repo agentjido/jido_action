@@ -3,6 +3,7 @@ defmodule Jido.Flow.UnknownKeyValidationTest do
 
   alias Jido.Flow
   alias Jido.Flow.Codec
+  alias JidoActionTest.FlowCodec, as: Codec
   alias Jido.Flow.Definition
   alias Jido.Flow.Error.InvalidDefinitionError
   alias Jido.Authoring.Registry
@@ -129,7 +130,7 @@ defmodule Jido.Flow.UnknownKeyValidationTest do
         output: %{}
       })
 
-    registry = Registry.new!(%{"add" => {:action, Add}, "none" => {:schema, []}})
+    registry = Registry.new!(%{{"add", 1} => {:action, Add}, {"none", 1} => {:schema, []}})
     assert {:ok, document} = Codec.encode(flow, registry)
     assert {:ok, ^flow} = Codec.decode(document, registry)
 

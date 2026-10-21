@@ -2,9 +2,11 @@ defmodule Jido.Authoring.Config do
   @moduledoc false
 
   alias Jido.Action.Validation
+  alias Jido.Authoring.Registry
   alias Jido.Flow.Error
 
   @keys [:name, :description, :schema, :output_schema]
+  @module_keys [:id, :vsn | @keys]
   @max_action_name_bytes 256
 
   @doc false
@@ -58,8 +60,9 @@ defmodule Jido.Authoring.Config do
   end
 
   @doc false
-  @spec validate_static_data(term()) :: :ok | {:error, String.t()}
-  def validate_static_data(term), do: static_schema_data(term, [])
+  @spec validate_static_data(term()) ::
+          :ok | {:error, Jido.Authoring.Error.InvalidError.t()}
+  def validate_static_data(term), do: Jido.Authoring.validate_static(term)
 
   defp ensure_escapable_schema!(schema, option, env) do
     Macro.escape(schema)
@@ -78,7 +81,12 @@ defmodule Jido.Authoring.Config do
   @spec prepare!(Jido.Instruction.kind(), term(), Macro.Env.t()) ::
           map() | no_return()
   def prepare!(kind, raw_opts, env) do
-    case validate_config(kind, normalize_options(raw_opts)) do
+    opts =
+      raw_opts
+      |> normalize_options()
+      |> module_defaults(env.module)
+
+    case validate_config(kind, opts, @module_keys) do
       {:ok, opts} ->
         ensure_escapable_schema!(opts.schema, :schema, env)
         ensure_escapable_schema!(opts.output_schema, :output_schema, env)
@@ -101,9 +109,11 @@ defmodule Jido.Authoring.Config do
     end
   end
 
-  defp validate_config(kind, %{} = attrs) when not is_struct(attrs) do
+  defp validate_config(kind, attrs), do: validate_config(kind, attrs, @keys)
+
+  defp validate_config(kind, %{} = attrs, keys) when not is_struct(attrs) do
     {values, errors} =
-      Enum.reduce(@keys, {%{}, []}, fn field, {values, errors} ->
+      Enum.reduce(keys, {%{}, []}, fn field, {values, errors} ->
         case {kind, field, Map.fetch(attrs, field)} do
           {:action, :description, :error} ->
             {values, errors}
@@ -119,13 +129,30 @@ defmodule Jido.Authoring.Config do
         end
       end)
 
-    unknown = for key <- Map.keys(attrs), key not in @keys, do: {nil, {:unknown, key}}
+    unknown = for key <- Map.keys(attrs), key not in keys, do: {nil, {:unknown, key}}
     errors = if kind == :action, do: errors ++ unknown, else: unknown ++ errors
 
     if errors == [], do: {:ok, values}, else: {:error, errors}
   end
 
-  defp validate_config(_kind, _attrs), do: {:error, [{nil, :map}]}
+  defp validate_config(_kind, _attrs, _keys), do: {:error, [{nil, :map}]}
+
+  defp validate_field(_kind, :id, value) when is_binary(value) do
+    case Registry.validate_identifier(value) do
+      :ok -> {:ok, value}
+      {:error, _error} -> {:error, "must be a valid authoring identifier"}
+    end
+  end
+
+  defp validate_field(_kind, :id, _value),
+    do: {:error, "must be a valid authoring identifier"}
+
+  defp validate_field(_kind, :vsn, value) do
+    case Registry.validate_vsn(value) do
+      :ok -> {:ok, value}
+      {:error, _error} -> {:error, "must be a positive integer"}
+    end
+  end
 
   defp validate_field(_kind, :name, value) when is_binary(value) do
     case validate_name(value) do
@@ -176,7 +203,7 @@ defmodule Jido.Authoring.Config do
   defp static_schema(value) do
     case validate_static_data(value) do
       :ok -> :ok
-      {:error, message} -> {:error, {:static, message}}
+      {:error, error} -> {:error, {:static, Exception.message(error)}}
     end
   end
 
@@ -222,63 +249,11 @@ defmodule Jido.Authoring.Config do
 
   defp normalize_options(raw_opts), do: raw_opts
 
-  defp static_schema_data(%Zoi.Types.Lazy{}, path),
-    do: static_data_error("lazy schemas are not supported", path)
-
-  defp static_schema_data(term, path) when is_function(term),
-    do: static_data_error("anonymous functions are not supported", path)
-
-  defp static_schema_data(term, path)
-       when is_pid(term) or is_port(term) or is_reference(term),
-       do: static_data_error("runtime process values are not supported", path)
-
-  defp static_schema_data(term, path) when is_map(term) do
-    term
-    |> Map.to_list()
-    |> Enum.sort_by(fn {key, _value} -> :erlang.term_to_binary(key) end)
-    |> Enum.reduce_while(:ok, fn {key, value}, :ok ->
-      with :ok <- static_schema_data(key, path ++ [:key]),
-           :ok <- static_schema_data(value, path ++ [key]) do
-        {:cont, :ok}
-      else
-        {:error, reason} -> {:halt, {:error, reason}}
-      end
-    end)
+  defp module_defaults(%{} = opts, module) when not is_struct(opts) do
+    opts
+    |> Map.put_new(:id, Atom.to_string(module))
+    |> Map.put_new(:vsn, 1)
   end
 
-  defp static_schema_data(term, path) when is_list(term) do
-    static_schema_list_data(term, path, 0)
-  end
-
-  defp static_schema_data(term, path) when is_tuple(term) do
-    term
-    |> Tuple.to_list()
-    |> Enum.with_index()
-    |> Enum.reduce_while(:ok, fn {value, index}, :ok ->
-      case static_schema_data(value, path ++ [index]) do
-        :ok -> {:cont, :ok}
-        {:error, reason} -> {:halt, {:error, reason}}
-      end
-    end)
-  end
-
-  defp static_schema_data(_term, _path), do: :ok
-
-  defp static_schema_list_data([], _path, _index), do: :ok
-
-  defp static_schema_list_data([value | rest], path, index) when is_list(rest) do
-    case static_schema_data(value, path ++ [index]) do
-      :ok -> static_schema_list_data(rest, path, index + 1)
-      {:error, reason} -> {:error, reason}
-    end
-  end
-
-  defp static_schema_list_data([value | _tail], path, index) do
-    with :ok <- static_schema_data(value, path ++ [index]) do
-      static_data_error("improper list tails are not supported", path ++ [index + 1])
-    end
-  end
-
-  defp static_data_error(reason, []), do: {:error, reason}
-  defp static_data_error(reason, path), do: {:error, "#{reason} at #{inspect(path)}"}
+  defp module_defaults(opts, _module), do: opts
 end

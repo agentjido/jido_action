@@ -21,6 +21,7 @@ defmodule Jido.Flow.RefPathAuthoringTest do
   use ExUnit.Case, async: true
   alias Jido.Flow
   alias Jido.Flow.{Codec, Ref}
+  alias JidoActionTest.FlowCodec, as: Codec
   alias Jido.Flow.Error.InvalidDefinitionError
   alias JidoActionTest.Fixtures.Actions.EchoParamsAction
 

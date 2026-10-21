@@ -128,7 +128,7 @@ does not override the currently loaded module.
 
 An Instruction has no Flow structure and no runtime policy. It is not a
 storage format: module atoms and runtime Flow values have no portable JSON
-form. Store Flow definitions with `Jido.Flow.Codec`. If you must persist a
+form. Store Flow definitions with `Jido.Authoring`. If you must persist a
 call, choose an application-owned format with stable identifiers.
 
 ## Advanced: Templates

@@ -84,7 +84,7 @@ path, or a `nil` path argument, selects the complete value. `[nil]` is invalid.
 The `Ref` constructors build references without validating them.
 `Ref.select/2` validates its source reference before it appends a path, and
 raises `Jido.Flow.Error.InvalidDefinitionError` for an invalid source. The
-module DSL compiler, `Jido.Flow.new/1`, and `Jido.Flow.Codec` validate every
+module DSL compiler, `Jido.Flow.new/1`, and `Jido.Authoring` validate every
 reference and path before execution.
 
 At runtime, a path can select a present `nil` value. A missing key or an
@@ -130,6 +130,6 @@ A bare list is still not a valid normal Flow output, Reduce accumulator, or
 Iterate State. Use a map such as `%{items: []}` for those values, or a
 `Jido.Action.Output` envelope for Flow output and Reduce accumulators.
 
-Stored JSON cannot create atoms. `Jido.Flow.Codec` maps each atom and atom key
+Stored JSON cannot create atoms. `Jido.Authoring` maps each atom and atom key
 through a trusted `Jido.Authoring.Registry`. See
 [Store Flows As JSON](flow-storage.md).

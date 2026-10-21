@@ -139,7 +139,7 @@ expression grammar. Real work belongs in Actions.
 | --- | --- | --- |
 | Module DSL | You write the Flow in source code. This is the normal choice. | `use Jido.Flow` |
 | Data definition | Application code builds the graph at runtime. | `Jido.Flow.new/1` |
-| Stored JSON | A database, UI, or AI system supplies the Flow. | `Jido.Flow.Codec.decode/2` |
+| Stored JSON | A database, UI, or AI system supplies the Flow. | `Jido.Authoring.decode_json/2` |
 
 All three produce the same canonical `%Jido.Flow{}` value with the same
 validation rules. Stored JSON cannot name arbitrary modules or create atoms.
@@ -217,10 +217,10 @@ See [Outputs And Effects](action-effects.livemd) and [Errors](errors.md).
 | Pass a call around before running it | `Jido.Instruction.new!/1`, then `Jido.Exec.run/4` |
 | Compose several Actions in code | A Flow module with `use Jido.Flow` |
 | Build a graph from runtime data | `Jido.Flow.new/1` |
-| Store or load a Flow as JSON | `Jido.Flow.Codec` with a `Jido.Authoring.Registry` |
+| Store or load a Flow as JSON | `Jido.Authoring` with a `Jido.Authoring.Registry` |
 | Check a Flow without running it | `Jido.Flow.validate/1`, then `Jido.Exec.compile/2` |
 | Run work that survives restarts | `Jido.Exec.start/6` under a `Runic.Runner` |
-| Describe an Action to a tool or model | `MyAction.to_json/0` |
+| Describe an Action to a tool or model | `MyAction.authoring_contract/0` |
 | Add inline Actions to my own DSL | `Jido.Action.Inline` |
 
 ## Next

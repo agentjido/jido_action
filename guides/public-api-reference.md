@@ -60,8 +60,10 @@ options are evaluated once at the declaration site. The supported keys are:
 
 | Key | Accepted value and default |
 | --- | --- |
+| `id` | Stable authoring identifier. It defaults to the module name. |
+| `vsn` | Positive authoring version. It defaults to `1`. |
 | `name` | Required UTF-8 string. It must contain a non-space character and be at most 256 bytes. Punctuation and spaces are allowed. The value is kept; it is not trimmed or converted to an identifier. |
-| `description` | A binary when supplied. Omission gives `nil`. Explicit `nil` is rejected for an Action. Invalid UTF-8 currently passes compilation but prevents `to_json/0`. Flow configuration also accepts `nil` and checks UTF-8. |
+| `description` | A binary when supplied. Omission gives `nil`. Explicit `nil` is rejected for an Action. Invalid UTF-8 currently passes compilation but prevents `authoring_contract/0`. Flow configuration also accepts `nil` and checks UTF-8. |
 | `schema` | `[]`, `nil`, or a static Zoi schema that can accept map data. Omission and `nil` become `[]`. |
 | `output_schema` | The same configuration rules as `schema`; default `[]`. |
 
@@ -95,7 +97,7 @@ metadata generator; their `"kind"` is `"flow"`.
 | `name/0` | The declared string. |
 | `description/0` | The declared binary or `nil`. |
 | `schema/0`, `output_schema/0` | The retained Zoi value or `[]`. |
-| `to_json/0` | A map with exactly `"kind"`, `"name"`, `"description"`, `"input_schema"`, and `"output_schema"`. |
+| `authoring_contract/0` | A map with exactly `"id"`, `"vsn"`, `"kind"`, `"name"`, `"description"`, `"input_schema"`, and `"output_schema"`. |
 | `validate_params(params)` (`/1`) | Runs optional preparation, then the retained input schema. Normal success is `{:ok, map}`. |
 | `validate_output(output)` (`/1`) | Runs the retained output schema for a normal value, or validates an Output envelope. |
 | `run(params, context)` (`/2`) | The user callback. Both arguments are maps at the normal Exec boundary. |
@@ -114,14 +116,14 @@ requests), `effect_result/0` (`{:ok, map | Output.t(), effects}`), and
 
 ### Tool descriptions
 
-`to_json/0` gives descriptive data, not an executable tool and not a stored
+`authoring_contract/0` gives descriptive data, not an executable tool and not a stored
 Flow document. The two schema fields are `nil` for `[]`. Otherwise, Jido calls
 `Zoi.to_json_schema/1`, then a strict Jason encode/decode round trip. The
 successful value contains JSON string keys. Repeated calls return the
 compile-time projection.
 
 A Zoi schema can validate at runtime without a JSON Schema representation.
-Projection errors are retained during compilation. `to_json/0` then raises
+Projection errors are retained during compilation. `authoring_contract/0` then raises
 `ArgumentError`, including the affected `:schema` or `:output_schema` when
 schema projection fails. Invalid UTF-8 Action description has the same delayed
 failure. Thus, successful Action compilation does not prove a usable tool
@@ -165,7 +167,7 @@ Evidence: [Action tests](https://github.com/agentjido/jido_action/blob/v3.0.0-be
 [Action node tests](https://github.com/agentjido/jido_action/blob/v3.0.0-beta.21/test/jido_exec/node/action_test.exs),
 [Action boundary properties](https://github.com/agentjido/jido_action/blob/v3.0.0-beta.21/test/property/action/boundary_contract_test.exs).
 The test named “rejects Action metadata that is not valid JSON” checks a
-`to_json/0` failure, not a compile-time rejection.
+`authoring_contract/0` failure, not a compile-time rejection.
 
 ## Shared validation rules
 
@@ -647,8 +649,9 @@ Source: [Flow facade](https://github.com/agentjido/jido_action/blob/v3.0.0-beta.
 
 ### Configuration and generated API
 
-`use Jido.Flow` accepts `name`, `description`, `schema`, `output_schema`, and
-`extensions`. `name` is required and must be a non-blank UTF-8 string of at
+`use Jido.Flow` accepts `id`, `vsn`, `name`, `description`, `schema`,
+`output_schema`, and `extensions`. `id` defaults to the module name, and
+`vsn` defaults to `1`. `name` is required and must be a non-blank UTF-8 string of at
 most 256 bytes. Validation does not trim or rewrite the accepted name.
 `description` is a UTF-8 string or `nil`, with default `nil`. Both schemas
 default to `[]`; explicit `nil` also normalizes to `[]` in authoring.
@@ -667,7 +670,7 @@ A generated Flow module exposes:
 | Function | Behavior |
 | --- | --- |
 | `name/0`, `description/0`, `schema/0`, `output_schema/0` | Return the declared shared module metadata and schemas. |
-| `to_json/0` | Returns JSON-safe string-keyed metadata with `"kind" => "flow"`, `"name"`, `"description"`, `"input_schema"`, and `"output_schema"`. An absent schema becomes `nil`. A schema without a JSON Schema representation makes this function raise `ArgumentError`; the module can still validate and execute. This is a module description, not a stored graph. |
+| `authoring_contract/0` | Returns JSON-safe string-keyed metadata with `"id"`, `"vsn"`, `"kind" => "flow"`, `"name"`, `"description"`, `"input_schema"`, and `"output_schema"`. An absent schema becomes `nil`. A schema without a JSON Schema representation makes this function raise `ArgumentError`; the module can still validate and execute. This is a module description, not a stored graph. |
 | `validate_params/1`, `validate_output/1` | Use the shared Action validation rules. The input pre-validation callback is used when present. See the shared validation section for root key preservation, defaults, transformations, and envelopes. |
 | `flow/0` | Returns the compile-time canonical Flow for the loaded module version. |
 | `compiled/0` | Calls `Jido.Exec.compile!` with that Flow and its source map. Returns `Runic.Workflow.t()` or raises a compile error. It is a derived plan, not a cached runtime or durable execution. |
@@ -1279,15 +1282,60 @@ Keep parser representation, map iterator details, and membership cost reuse
 in normal tests. Keep closed grammar, operation results, host callback
 boundaries, safe error locations, and resource limits in public evidence.
 
-## Stored Flow documents: `Jido.Flow.Codec`
+## Runtime authoring: `Jido.Authoring` and `Jido.Discovery`
 
-Codec is the public stored-document boundary. It reads and writes decoded
-JSON-compatible maps. It does not parse JSON bytes, run Actions, load target
-contracts, start processes, or emit telemetry. Use a JSON library outside
-Codec. Apply transport-byte and JSON-parser limits before calling it.
-`Jido.Flow.to_map/1` output and an Instruction are not stored documents.
+`Jido.Discovery` scans configured application module lists and explicit
+modules. It builds one immutable `Jido.Authoring.Registry` and stores it in
+`:persistent_term`. Action and Flow modules publish a static manifest through
+`__jido_authoring__/0`. Vocabulary modules can publish trusted schema and atom
+entries.
 
-Source: [facade](https://github.com/agentjido/jido_action/blob/v3.0.0-beta.21/lib/jido_flow/codec.ex),
+`jido_action` starts one asynchronous Discovery child that scans all loaded
+OTP applications. It starts once whether `jido_action` runs alone or as a
+dependency of core `jido`. The Registry keeps
+`:action` and `:flow` as separate kinds.
+Document codec modules publish a type and `vsn` through
+`__jido_authoring_codec__/0`.
+
+Configure Discovery under the `:jido_action` application. Use an application
+allowlist when editor or network input can select discovered definitions.
+Discovery defines an inventory. It does not give permission to run a module.
+
+| Entry point | Result |
+| --- | --- |
+| `Jido.Discovery.ready?/0` | Returns true after the first Registry build succeeds. A failed initial scan stays not ready, and `registry/0` raises with its reason. |
+| `Jido.Discovery.refresh/1` | Builds and atomically installs a complete Registry. A failed build keeps the prior Registry. |
+| `Jido.Discovery.registry/0` | Returns the current Registry. Raises when startup did not install one. |
+| `Jido.Discovery.list/0`, `list/1` | Lists all entries or entries of one core kind. |
+| `Jido.Discovery.get/2` | Gets one entry by its stable identifier and exact `vsn`. |
+| `Jido.Discovery.get_by_target/2` | Gets one entry by its exact kind and trusted target. |
+| `Jido.Authoring.encode/2` | Encodes a canonical authoring value with its discovered codec, or with the explicit `:codec` option. It checks the envelope, JSON compatibility, and byte limit. |
+| `Jido.Authoring.encode_json/2` | Encodes a canonical authoring value as a bounded JSON string. |
+| `Jido.Authoring.decode_json/2` | Parses a bounded JSON string, selects a codec by type and `vsn`, and returns a canonical struct or ordered issues. |
+| `Jido.Authoring.decode/2` | Decodes JSON-compatible data through the same limits, Registry, and codec path. |
+
+The JSON byte limit defaults to 8 MiB. It reads
+`config :jido_action, Jido.Authoring, maximum_json_bytes: ...`. All four
+storage entry points accept a per-call `:maximum_json_bytes` override.
+
+Validation errors are ordered `%Jido.Authoring.Issue{}` values. Each issue has
+a stable atom code, a source JSON path, a message, and JSON-compatible details.
+The document envelope selects the decoder. Each owning package keeps control
+of its body format and canonical validation.
+
+Discovery and validation do not run Action work. They do not create atoms or
+module names from document strings. The Registry must contain every code,
+schema, and atom reference that a codec resolves.
+
+## Stored Flow documents: `Jido.Authoring`
+
+Authoring is the public stored-document boundary. It reads and writes decoded
+JSON-compatible maps and JSON strings. It does not run Actions, load target
+contracts, start processes, or emit telemetry. `Jido.Flow.to_map/1` output and
+an Instruction are not stored documents.
+
+Source: [public facade](https://github.com/agentjido/jido_action/blob/v3.0.0-beta.21/lib/jido_authoring.ex),
+[Flow codec](https://github.com/agentjido/jido_action/blob/v3.0.0-beta.21/lib/jido_flow/codec.ex),
 [writer](https://github.com/agentjido/jido_action/blob/v3.0.0-beta.21/lib/jido_flow/codec/writer.ex),
 [reader](https://github.com/agentjido/jido_action/blob/v3.0.0-beta.21/lib/jido_flow/codec/reader.ex),
 [value encoding](https://github.com/agentjido/jido_action/blob/v3.0.0-beta.21/lib/jido_flow/codec/value.ex),
@@ -1301,31 +1349,30 @@ Evidence: [Codec tests](https://github.com/agentjido/jido_action/blob/v3.0.0-bet
 
 | Entry point | Result and checks |
 | --- | --- |
-| `encode(flow)` (`/1`) | Validates a canonical `%Jido.Flow{}`. Returns `{:ok, document, generated_registry}` or `{:error, exception}`. The caller must retain the registry. |
-| `encode(flow, registry)` (`/2`) | Takes a canonical Flow and `%Jido.Authoring.Registry{}`. Returns `{:ok, document}` or `{:error, exception}`. Validates the Flow before encoding. Requires a write ID for every target, schema, and non-Boolean/non-nil data atom. |
-| `decode(document, registry)` (`/2`) | Returns `{:ok, canonical_flow}` or `{:error, first_error}` from diagnosis. |
-| `diagnose(document, registry)` (`/2`) | Returns `{:ok, canonical_flow}` or `{:error, %Jido.Flow.Error.Invalid{errors: errors}}`. Collects the independent failures found in the current phase. Never returns a partial Flow. |
+| `encode(value, opts \\ [])` | Returns `{:ok, document}` or `{:error, exception}`. It selects the codec from the Registry or the explicit `:codec` option. |
+| `encode_json(value, opts \\ [])` | Encodes the same document with Jason and returns a JSON string. |
+| `decode(document, opts \\ [])` | Returns `{:ok, canonical_value}` or ordered `Jido.Authoring.Issue` values. |
+| `decode_json(json, opts \\ [])` | Applies the byte limit, parses with Jason, and decodes the document. |
 
-`document/0` is `%{required(String.t()) => term()}`. This type is broad; the
-versioned fields and tags below define valid documents. There are no public
-Codec options. There are no raising Codec variants. Invalid subject and
-Registry arguments return Flow validation errors. Supply a Registry built
-with `new/1`; a manually forged Registry struct is not fully revalidated by
-Codec.
+Options are `:registry`, `:codec`, and `:maximum_json_bytes`. The default
+Registry comes from `Jido.Discovery`. An explicit codec is useful with a
+manually built Registry. There are no raising variants. Supply a Registry
+built with `Jido.Authoring.Registry.new/1`; a manually forged Registry struct
+is not fully revalidated.
 
-### Version 1 root and component records
+### `vsn` 1 root and component records
 
 The writer always emits all eight root fields. The reader accepts only the
-listed fields. It requires `"type": "jido.flow"` and integer `"version": 1`.
-Document format version 1 is separate from semantic identity versions.
+listed fields. It requires `"type": "jido.flow"` and integer `"vsn": 1`.
+Document `vsn` 1 is separate from semantic identity versions.
 
 | Root field | Stored form and read rule |
 | --- | --- |
 | `type` | Required string `"jido.flow"`. |
-| `version` | Required integer `1`. |
+| `vsn` | Required integer `1`. |
 | `name` | Required valid Flow name: non-blank UTF-8 string, at most 256 bytes. |
 | `description` | UTF-8 string or null. Defaults to nil when absent. |
-| `schema` | Registry schema ID when present. Defaults to `[]` when absent. An explicit null is an invalid Registry ID. |
+| `schema` | Registry schema reference when present. Defaults to `[]` when absent. An explicit null is invalid. |
 | `output_schema` | Same rule as `schema`. |
 | `components` | Required non-empty list of the component records below. |
 | `output` | Required non-nil encoded Flow value. |
@@ -1342,11 +1389,11 @@ No references or expressions are permitted in metadata.
 | `"choice"` | `options`: non-empty ordered list of option records; `fallback`: Action call record. Each option has `name`, `condition`, and `call`. Option names must be unique. Conditions must decode to a Boolean, reference, or expression. |
 | `"map"` | `collection`: encoded Flow value; `call`: Action call record; `on_error`: `"fail_fast"` or `"collect_errors"`. Omission defaults to `"fail_fast"`; explicit null fails. |
 | `"reduce"` | `collection`, `initial`: encoded Flow values; `call`: Action call record. |
-| `"iterate"` | `call`: Action call record; `state`: state record; `completion`: encoded Boolean/reference/expression; `max_iterations`: integer 1 through 10,000. State has `schema`, `initial`, and `update`. Its omitted schema defaults to `[]`; its present schema is a Registry ID. |
+| `"iterate"` | `call`: Action call record; `state`: state record; `completion`: encoded Boolean/reference/expression; `max_iterations`: integer 1 through 10,000. State has `schema`, `initial`, and `update`. Its omitted schema defaults to `[]`; its present schema is a Registry reference. |
 | `"dispatch"` | `decision`: Action call record; `expander`: Action target record without params. |
 
 A call record has `kind`, `target`, and `params`. The target is a Registry
-ID of the selected kind. Params use expression encoding. Missing or null
+reference with `id` and `vsn` for the selected kind. Params use expression encoding. Missing or null
 params become `%{}`. A target record has only `kind` and `target`. All other
 component, option, state, call, and target fields listed above are required
 unless a default is stated. Fields that hold values can contain nil where
@@ -1366,7 +1413,7 @@ scope, unique names, cycles, required output, and Dispatch placement.
 | --- | --- |
 | Plain JSON scalar | UTF-8 string, number, Boolean, or null. |
 | Plain JSON list | Each item uses the same encoding. Lists must be proper lists in the decoded Elixir data. |
-| `{"$type": "atom", "id": ID}` | Resolve `ID` as Registry kind `:atom`. Nil and Booleans normally use plain JSON scalar forms. |
+| `{"$type": "atom", "id": ID, "vsn": VSN}` | Resolve the versioned reference as Registry kind `:atom`. Nil and Booleans normally use plain JSON scalar forms. |
 | `{"$type": "map", "entries": [...]}` | Each entry is exactly `{"key": KEY, "value": VALUE}`. Keys use data encoding; values use the enclosing mode. Duplicate decoded keys fail. Valid keys are non-nil atoms, non-negative integers, or UTF-8 strings. |
 | `{"$ref": {"source": SOURCE, "component": COMPONENT, "path": PATH}}` | `SOURCE` is one of the ten fixed strings below. `COMPONENT` is string or null, then checked for the source. `PATH` is a list of data-encoded segments, then checked by `Jido.Flow.Ref`. The component field may be omitted when nil is valid for the source. |
 | `{"$expr": {"operator": OPERATOR, "operands": [...]}}` | `OPERATOR` is a fixed expression spelling. Operands use expression encoding. Complete expression validation checks arity, value forms, and budgets. |
@@ -1381,15 +1428,15 @@ rejects those tags. Literal maps always use the map tag, so a literal map
 whose key is `"$expr"` is not treated as an operation. Tagged objects and
 their inner records reject extra fields.
 
-Map entries are sorted by the Erlang binary representation of each encoded
-key. With the same canonical Flow and Registry, encoding produces equal
-stored maps. This is not a promise of identical JSON byte order from every
-JSON library. The document contains schema IDs, not schema values. Rebinding
-an explicit ID to another schema can change decoded meaning without changing
-the document. A round trip requires the same Registry bindings. Keep the
-Registry version with the stored definition. The document does not include Registry contents or deployed
-Action code. Inline Steps store registered generated Action targets; they
-do not store an inline body.
+Map entries have a stable order by encoded key type and value: non-negative
+integers, strings, registered atoms, then Booleans. With the same canonical
+Flow and Registry, encoding produces equal stored maps. This is not a promise of
+identical JSON byte order from every JSON library. The document contains
+schema references, not schema values. A round trip requires the same Registry
+bindings. Keep each referenced `vsn` available for the stored definition. The
+document does not include Registry contents or deployed Action code. Inline
+Steps store registered generated Action targets; they do not store an inline
+body.
 
 ### Limits, errors, and diagnosis order
 
@@ -1409,7 +1456,7 @@ expression trees have smaller budgets. None of these limits bounds the
 JSON parser or transport.
 
 Safety limits are checked before the root envelope. Envelope failures are
-terminal and report `type` before `version`. After a valid envelope, the
+terminal and report `type` before `vsn`. After a valid envelope, the
 shared definition validator reports unknown fields, root fields, components
 in input list order, then output. Component common fields precede
 kind-specific fields. A missing output can be reported with other field
@@ -1421,7 +1468,7 @@ Failures use `Jido.Flow.Error.InvalidDefinitionError` and the documented
 Flow error types. Examples of matchable messages are
 `"stored Flow document must be a map"`,
 `"stored Flow document type must be jido.flow"`,
-`"stored Flow document version must be 1"`,
+`"stored Flow document vsn must be 1"`,
 `"stored Flow exceeds its nesting limit"`,
 `"stored Flow collection exceeds its size limit"`,
 `"stored Flow exceeds its total node limit"`,
@@ -1440,32 +1487,33 @@ Encoding, decoding, Registry construction, and structural validation do not
 establish that a target exports the Action or Flow contract. Use
 `Jido.Exec.compile/1` or `/2` for that check. No stored document or semantic
 identity is a code snapshot. Retain the application release and Registry
-version needed to execute it.
+references needed to execute it.
 
 ## Portable authoring documents
 
 `Jido.Authoring.Registry`, `Jido.Authoring.Value`, and
 `Jido.Authoring.Document` are the shared storage foundation. A document owner
-still owns its envelope, version, fields, reference kinds, and final semantic
-validation. `Jido.Flow.Codec` owns those rules for Flow documents.
+still owns its envelope, `vsn`, fields, reference kinds, and final semantic
+validation. The internal Flow codec owns those rules for Flow documents.
 
-### Trusted identifiers: `Jido.Authoring.Registry`
+### Trusted references: `Jido.Authoring.Registry`
 
-`new/1` and `new!/1` validate bounded IDs, direct read aliases, and one write
-ID for each exact `{kind, value}` pair. `resolve/3` reads an ID of one required
-kind. `identifier/3` returns the canonical write ID for one typed value.
+`new/1` and `new!/1` validate bounded IDs, positive `vsn` values, and one
+reference for each exact `{kind, value}` pair.
+`resolve/3` reads an `{id, vsn}` reference of one required kind.
+`reference/3` returns the same tuple form. Codecs convert between tuples and
+JSON reference objects at their storage boundary.
 
 The Registry is caller-owned data. It starts no process, loads no module, and
 runs no Action. Stored strings do not create atoms or produce module names.
-The Registry accepts owner-defined atom kinds, so one Registry can contain
-entries for more than one document format. Each document owner validates the
-meaning of the values that it resolves.
+The Registry accepts any non-Boolean atom kind. `jido_action` defines
+`:action`, `:flow`, `:schema`, and `:atom`. Packages above it can add kinds
+without adding a second Registry.
 
 Each ID is 1 through 255 ASCII bytes. It starts with a letter or digit. The
 remaining characters are letters, digits, `.`, `_`, `/`, `:`, `@`, or `-`.
-There can be at most 10,000 entries, including aliases. An alias must point
-directly to a typed write entry. The same `{kind, value}` cannot have two
-write IDs.
+There can be at most 10,000 entries. The same `{kind, value}` cannot have two
+references. Different `vsn` values can use the same ID.
 
 ### Portable values: `Jido.Authoring.Value`
 
@@ -1473,8 +1521,8 @@ write IDs.
 
 - JSON scalar values with valid UTF-8 strings;
 - proper lists;
-- plain maps with valid UTF-8 string keys, non-negative integer keys, or
-  registered atom keys; and
+- plain maps with valid UTF-8 string keys, non-negative integer keys, Boolean
+  keys, or registered atom keys; and
 - atoms that resolve through `:atom` Registry entries.
 
 The value format rejects structs, tuples, processes, invalid UTF-8, improper
@@ -1482,9 +1530,8 @@ lists, duplicate decoded map keys, unsupported map keys, and an atom tag that
 does not resolve to an atom. An accepted decoded value can be encoded again
 with the same Registry.
 
-Portable values have a maximum nesting depth of 100 and a maximum of 10,000
-items in one list or map. Limit errors include `maximum_depth` or
-`maximum_size`, together with the value path.
+The complete document boundary owns depth and collection limits. Portable
+value conversion does not repeat those checks.
 
 ### Complete document limits: `Jido.Authoring.Document`
 
@@ -1498,19 +1545,18 @@ A document owner must apply checks in this order:
 
 1. Apply transport-byte and JSON-parser limits outside the codec.
 2. Call `Document.check/1` on the complete decoded document.
-3. Validate the document envelope, version, and exact fields.
+3. Validate the document envelope, `vsn`, and exact fields.
 4. Decode portable fields with `Value.decode/2` and resolve other typed IDs.
 5. Run the owner's canonical semantic validation.
 
-The shared errors are `Jido.Authoring.Registry.Error`,
-`Jido.Authoring.Value.Error`, and `Jido.Authoring.Document.Error`. An owner can
-translate them to its public error type. `Jido.Flow.Codec` keeps Flow error
-messages, detail keys, and JSON paths when it performs this translation.
+The shared low-level errors are `Jido.Authoring.Registry.Error`,
+`Jido.Authoring.Value.Error`, and `Jido.Authoring.Document.Error`. They are
+Splode invalid errors. `Jido.Authoring` returns its public invalid error during
+encode and ordered issues during decode.
 
-`Jido.Flow.Codec.encode/1` generates temporary IDs for one exact Flow and
-returns the generated Registry. These IDs are repeatable for the same
-collected values, but they are not durable names or content hashes. Use
-application-owned IDs and an application version policy for durable records.
+`Jido.Authoring.encode/2` requires an explicit Registry for a manual codec
+override. Use application-owned IDs and an application version policy for
+durable records.
 
 Source: [Registry](https://github.com/agentjido/jido_action/blob/v3.0.0-beta.21/lib/jido_authoring/registry.ex),
 [portable values](https://github.com/agentjido/jido_action/blob/v3.0.0-beta.21/lib/jido_authoring/value.ex), and
@@ -1519,14 +1565,14 @@ Evidence: [shared authoring tests](https://github.com/agentjido/jido_action/tree
 [Codec tests](https://github.com/agentjido/jido_action/blob/v3.0.0-beta.21/test/jido_flow/codec_test.exs), and
 [storage properties](https://github.com/agentjido/jido_action/blob/v3.0.0-beta.21/test/property/storage/codec_contract_test.exs).
 
-The generated-Registry helper, writer, reader, value adapter, limit adapter,
-and path adapter are internal. They implement the public Flow Codec contract.
+The generated-Registry helper, Flow codec, writer, reader, value adapter,
+limit adapter, and path adapter are internal. They implement the public
+`Jido.Authoring` contract.
 
 ### Storage and expression evidence limits
 
-`Jido.Authoring.Document`, `Jido.Authoring.Registry`,
-`Jido.Authoring.Value`, and `Jido.Flow.Codec` are public. Flow Codec helper
-modules are internal.
+`Jido.Authoring`, `Jido.Authoring.Document`, `Jido.Authoring.Registry`, and
+`Jido.Authoring.Value` are public. Flow codec modules are internal.
 Contributor rules now make this clear.
 
 `Jido.Expr.new/2` checks operator and arity. Parser leaves and macro pins
@@ -1537,8 +1583,8 @@ Storage safety checks precede envelope checks. The storage guide now states
 this order. Tests cover individual safety and envelope failures, not every
 combination of simultaneous failures.
 
-Codec tests exercise all component kinds, tagged values, aliases, unknown
-IDs, malformed fields, limits, exact diagnostic paths, inline Action
+Codec tests exercise all component kinds, tagged values, unknown
+references, malformed fields, limits, exact diagnostic paths, inline Action
 registration, and equal Flow round trips. Registry tests establish inert
 structural validation, not successful execution of every registered module.
 Neither test suite establishes a code snapshot, an external JSON byte
@@ -1546,9 +1592,9 @@ canonicalization standard, cross-version generated-ID stability, or
 Store acknowledgement. Those are separate concerns.
 
 Recommended public evidence covers three storage behaviors: versioned
-meaning-preserving deterministic map encoding; trusted typed ID resolution
+meaning-preserving deterministic map encoding; trusted typed reference resolution
 without atom creation; and bounded rejection with useful diagnostics.
-`STORE-002` and `SECURITY-001` describe the same trusted-ID boundary and
+`STORE-002` and `SECURITY-001` describe the same trusted-reference boundary and
 should share one evidence family. Keep internal path-index records,
 helper field tables, and the current generated-ID sorting algorithm in
 normal tests. For expressions, keep distinct evidence for operation

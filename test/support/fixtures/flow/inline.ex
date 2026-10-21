@@ -103,17 +103,17 @@ defmodule JidoActionTest.Fixtures.InlineAuthoring do
 
   def registry do
     Registry.new!(%{
-      "actions/demo/empty/v1" => {:action, InlineParityFlow.step_action("empty")},
-      "actions/demo/named/v1" => {:action, InlineParityFlow.step_action("named")},
-      "actions/demo/multiple/v1" => {:action, InlineParityFlow.step_action("multiple")},
-      "actions/demo/sole-map/v1" => {:action, InlineParityFlow.step_action("sole_map")},
-      "schemas/empty/v1" => {:schema, []},
-      "atoms/name" => {:atom, :name},
-      "atoms/raw-name" => {:atom, :raw_name},
-      "atoms/prefix" => {:atom, :prefix},
-      "atoms/payload" => {:atom, :payload},
-      "atoms/purpose" => {:atom, :purpose},
-      "atoms/owner" => {:atom, :owner}
+      {"actions/demo/empty/v1", 1} => {:action, InlineParityFlow.step_action("empty")},
+      {"actions/demo/named/v1", 1} => {:action, InlineParityFlow.step_action("named")},
+      {"actions/demo/multiple/v1", 1} => {:action, InlineParityFlow.step_action("multiple")},
+      {"actions/demo/sole-map/v1", 1} => {:action, InlineParityFlow.step_action("sole_map")},
+      {"schemas/empty/v1", 1} => {:schema, []},
+      {"atoms/name", 1} => {:atom, :name},
+      {"atoms/raw-name", 1} => {:atom, :raw_name},
+      {"atoms/prefix", 1} => {:atom, :prefix},
+      {"atoms/payload", 1} => {:atom, :payload},
+      {"atoms/purpose", 1} => {:atom, :purpose},
+      {"atoms/owner", 1} => {:atom, :owner}
     })
   end
 end

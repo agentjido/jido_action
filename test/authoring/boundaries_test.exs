@@ -7,6 +7,7 @@ defmodule JidoActionTest.Authoring.BoundariesTest do
   alias Jido.{Exec, Expr, Flow}
   alias Jido.Authoring.Registry
   alias Jido.Flow.{Codec, Ref}
+  alias JidoActionTest.FlowCodec, as: Codec
   alias JidoActionTest.Authoring.Boundaries
   alias JidoActionTest.Authoring.Components.Echo
 
@@ -59,16 +60,16 @@ defmodule JidoActionTest.Authoring.BoundariesTest do
 
     registry =
       Registry.new!(%{
-        "actions/inline-ctx/v1" => {:action, action},
-        "actions/echo/v1" => {:action, Echo},
-        "schemas/none/v1" => {:schema, []},
-        "atoms/value" => {:atom, :value}
+        {"actions/inline-ctx/v1", 1} => {:action, action},
+        {"actions/echo/v1", 1} => {:action, Echo},
+        {"schemas/none/v1", 1} => {:schema, []},
+        {"atoms/value", 1} => {:atom, :value}
       })
 
     assert {:ok, document} = Codec.encode(direct, registry)
     assert {:ok, ^direct} = Codec.decode(JSON.decode!(JSON.encode!(document)), registry)
     reused = Enum.find(document["components"], &(&1["name"] == "reused"))
-    assert reused["call"]["target"] == "actions/inline-ctx/v1"
+    assert reused["call"]["target"] == %{"id" => "actions/inline-ctx/v1", "vsn" => 1}
     unknown = "missing_#{System.unique_integer([:positive])}"
     assert_raise ArgumentError, fn -> String.to_existing_atom(unknown) end
     assert_raise ArgumentError, fn -> Boundaries.Inline.step_action(unknown) end
@@ -110,7 +111,7 @@ defmodule JidoActionTest.Authoring.BoundariesTest do
     assert {:ok, built} = JidoActionTest.FlowBuilder.new(data)
     assert built == direct
     assert {:ok, document, registry} = Codec.encode(direct)
-    assert document["version"] == 1
+    assert document["vsn"] == 1
     assert {:ok, restored} = Codec.decode(JSON.decode!(JSON.encode!(document)), registry)
     assert restored == direct
     input = %{name: "Ada", a: 2, b: 3, enabled: true, maybe: nil}
@@ -213,9 +214,9 @@ defmodule JidoActionTest.Authoring.BoundariesTest do
   test "fixed host Registry IDs match the saved JSON document" do
     registry =
       Registry.new!(%{
-        "actions/echo/v1" => {:action, Echo},
-        "schemas/none/v1" => {:schema, []},
-        "atoms/value" => {:atom, :value}
+        {"actions/echo/v1", 1} => {:action, Echo},
+        {"schemas/none/v1", 1} => {:schema, []},
+        {"atoms/value", 1} => {:atom, :value}
       })
 
     flow = Boundaries.Stored.flow()
@@ -230,38 +231,12 @@ defmodule JidoActionTest.Authoring.BoundariesTest do
     assert JSON.encode!(document) == json
   end
 
-  test "stored aliases read old IDs but re-encode with the canonical ID" do
-    registry =
-      Registry.new!(%{
-        "actions/echo/v1" => {:action, Echo},
-        "actions/echo/old" => {:alias, "actions/echo/v1"},
-        "schemas/none/v1" => {:schema, []},
-        "atoms/value" => {:atom, :value}
-      })
-
-    document = __DIR__ |> Path.join("support/saved_flow.json") |> File.read!() |> JSON.decode!()
-    old = put_in(document, ["components", Access.at(0), "call", "target"], "actions/echo/old")
-    assert {:ok, restored} = Codec.decode(old, registry)
-    assert {:ok, ^document} = Codec.encode(restored, registry)
-
-    wrong_kind =
-      put_in(document, ["components", Access.at(0), "call", "target"], "schemas/none/v1")
-
-    assert {:error, %Jido.Flow.Error.InvalidDefinitionError{}} =
-             Codec.decode(wrong_kind, registry)
-
-    unknown = put_in(document, ["components", Access.at(0), "call", "target"], "actions/absent")
-
-    assert {:error, %{message: "unknown flow registry identifier"}} =
-             Codec.decode(unknown, registry)
-  end
-
   test "stored document mutations report source paths without executing work" do
     registry =
       Registry.new!(%{
-        "actions/echo/v1" => {:action, Boundaries.Bomb},
-        "schemas/none/v1" => {:schema, []},
-        "atoms/value" => {:atom, :value}
+        {"actions/echo/v1", 1} => {:action, Boundaries.Bomb},
+        {"schemas/none/v1", 1} => {:schema, []},
+        {"atoms/value", 1} => {:atom, :value}
       })
 
     document = __DIR__ |> Path.join("support/saved_flow.json") |> File.read!() |> JSON.decode!()
@@ -289,9 +264,9 @@ defmodule JidoActionTest.Authoring.BoundariesTest do
   test "a stored Flow rejects an invalid UTF-8 name before creating an artifact" do
     registry =
       Registry.new!(%{
-        "actions/echo/v1" => {:action, Boundaries.Bomb},
-        "schemas/none/v1" => {:schema, []},
-        "atoms/value" => {:atom, :value}
+        {"actions/echo/v1", 1} => {:action, Boundaries.Bomb},
+        {"schemas/none/v1", 1} => {:schema, []},
+        {"atoms/value", 1} => {:atom, :value}
       })
 
     document = __DIR__ |> Path.join("support/saved_flow.json") |> File.read!() |> JSON.decode!()
@@ -301,9 +276,9 @@ defmodule JidoActionTest.Authoring.BoundariesTest do
   test "stored documents stop at depth, width, and total-node limits" do
     registry =
       Registry.new!(%{
-        "actions/echo/v1" => {:action, Boundaries.Bomb},
-        "schemas/none/v1" => {:schema, []},
-        "atoms/value" => {:atom, :value}
+        {"actions/echo/v1", 1} => {:action, Boundaries.Bomb},
+        {"schemas/none/v1", 1} => {:schema, []},
+        {"atoms/value", 1} => {:atom, :value}
       })
 
     document = __DIR__ |> Path.join("support/saved_flow.json") |> File.read!() |> JSON.decode!()

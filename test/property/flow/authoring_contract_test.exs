@@ -8,6 +8,7 @@ defmodule JidoActionTest.Property.Flow.AuthoringContractTest do
   alias JidoActionTest.Property.Fuzz
   alias Jido.{Exec, Expr}
   alias Jido.Flow.{Codec, Ref}
+  alias JidoActionTest.FlowCodec, as: Codec
   alias JidoActionTest.Property.Runtime
   @generated JidoActionTest.Property.Flow.GeneratedGraph
   @tag contracts: ["FLOW-001", "FLOW-002", "EFFECT-001"]

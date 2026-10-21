@@ -26,7 +26,7 @@ defmodule JidoActionTest.ActionTest do
     end
 
     test "exposes a JSON-safe Action description" do
-      description = OutputSchemaAction.to_json()
+      description = OutputSchemaAction.authoring_contract()
 
       assert Jason.decode!(Jason.encode!(description)) == description
 
@@ -47,7 +47,7 @@ defmodule JidoActionTest.ActionTest do
                }
              } = description
 
-      assert %{"input_schema" => nil, "output_schema" => nil} = NoSchema.to_json()
+      assert %{"input_schema" => nil, "output_schema" => nil} = NoSchema.authoring_contract()
     end
 
     test "reports an Action schema without a JSON Schema representation" do
@@ -67,7 +67,7 @@ defmodule JidoActionTest.ActionTest do
 
       assert_raise ArgumentError,
                    ~r/:schema does not have a JSON-safe JSON Schema representation/,
-                   fn -> module.to_json() end
+                   fn -> module.authoring_contract() end
     end
 
     test "rejects Action metadata that is not valid JSON" do
@@ -85,7 +85,7 @@ defmodule JidoActionTest.ActionTest do
         end
       )
 
-      assert_raise ArgumentError, ~r/invalid byte 0xFF/, fn -> module.to_json() end
+      assert_raise ArgumentError, ~r/invalid byte 0xFF/, fn -> module.authoring_contract() end
     end
 
     @tag obligation: "jido_action.action.I2"
@@ -283,7 +283,7 @@ defmodule JidoActionTest.ActionTest do
       assert Agent.get(counter, & &1) == 1
       assert {:ok, %{value: 1}} = module.validate_params(%{value: 1})
       assert module.schema() == module.schema()
-      assert module.to_json() == module.to_json()
+      assert module.authoring_contract() == module.authoring_contract()
       assert Agent.get(counter, & &1) == 1
     end
 
@@ -453,8 +453,11 @@ defmodule JidoActionTest.ActionTest do
 
       try do
         for value <- [self(), make_ref(), port] do
-          assert {:error, "runtime process values are not supported at [:values, 1]"} =
-                   Config.validate_static_data(%{values: [:static, value]})
+          assert {:error,
+                  %Jido.Authoring.Error.InvalidError{
+                    code: :non_static_data,
+                    message: "runtime process values are not supported at [:values, 1]"
+                  }} = Config.validate_static_data(%{values: [:static, value]})
         end
       after
         Port.close(port)
@@ -472,7 +475,11 @@ defmodule JidoActionTest.ActionTest do
       ]
 
       for {value, message} <- cases do
-        assert {:error, ^message} = Config.validate_static_data(value)
+        assert {:error,
+                %Jido.Authoring.Error.InvalidError{
+                  code: :non_static_data,
+                  message: ^message
+                }} = Config.validate_static_data(value)
       end
     end
 
@@ -511,11 +518,17 @@ defmodule JidoActionTest.ActionTest do
     end
 
     test "rejects improper list tails at their paths" do
-      assert {:error, "improper list tails are not supported at [1]"} =
-               Config.validate_static_data([:schema | :tail])
+      assert {:error,
+              %Jido.Authoring.Error.InvalidError{
+                code: :non_static_data,
+                message: "improper list tails are not supported at [1]"
+              }} = Config.validate_static_data([:schema | :tail])
 
-      assert {:error, "improper list tails are not supported at [:schema, :steps, 1]"} =
-               Config.validate_static_data(%{schema: %{steps: [:step | :tail]}})
+      assert {:error,
+              %Jido.Authoring.Error.InvalidError{
+                code: :non_static_data,
+                message: "improper list tails are not supported at [:schema, :steps, 1]"
+              }} = Config.validate_static_data(%{schema: %{steps: [:step | :tail]}})
     end
   end
 

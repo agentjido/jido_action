@@ -1,7 +1,7 @@
 # Errors
 
 Execution and validation failures from `Jido.Exec.run/4`, `Jido.Flow`,
-`Jido.Instruction`, and `Jido.Flow.Codec` normally return an exception struct
+`Jido.Instruction`, and `Jido.Authoring` normally return an exception struct
 in a `{:error, exception}` tuple. Managed control and lookup calls can return
 native Runic reasons such as `{:error, :busy}` or `{:error, :not_found}`.
 Invalid Runner or process references are not all contained by this boundary.
@@ -85,7 +85,7 @@ the map through JSON or to an external log. See [Security](security.md).
 | Unknown target module | `Jido.Action.Error.ConfigurationError` | `target`, `reason` |
 | Invalid Instruction fields | `Jido.Action.Error.InvalidInputError` | `reason`, `fields` |
 | Invalid Flow definition, from `Jido.Flow.new/1`, `validate/1`, or compilation | `Jido.Flow.Error.InvalidDefinitionError` | `component`, `field`, `owner` |
-| Invalid stored document, from `Jido.Flow.Codec.diagnose/2` | `Jido.Flow.Error.Invalid` | `errors`, each with its document path |
+| Invalid stored document, from `Jido.Authoring.decode/2` | ordered `Jido.Authoring.Issue` values | `code`, `path`, `message`, `details` |
 | Invalid Flow input | `Jido.Action.Error.InvalidInputError` | `phase: :flow_input`, `errors` |
 
 ### While An Action Runs

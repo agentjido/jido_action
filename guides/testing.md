@@ -93,8 +93,10 @@ For stored Flows, test a Codec round trip and the errors you expect for
 unknown identifiers:
 
 ```elixir
-assert {:ok, document, registry} = Jido.Flow.Codec.encode(flow)
-assert {:ok, restored} = Jido.Flow.Codec.decode(document, registry)
+registry = Jido.Discovery.registry()
+opts = [registry: registry, codec: Jido.Flow.Codec]
+assert {:ok, document} = Jido.Authoring.encode(flow, opts)
+assert {:ok, restored} = Jido.Authoring.decode(document, opts)
 assert Jido.Flow.to_map(restored) == Jido.Flow.to_map(flow)
 ```
 

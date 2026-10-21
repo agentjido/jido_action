@@ -35,10 +35,10 @@ defmodule Jido.Authoring.Compiler do
       @behaviour Jido.Action
 
       @__jido_authoring_config__ unquote(opts_ast)
-      @__jido_authoring_json__ Jido.Authoring.Compiler.compile_json(
-                                 unquote(kind),
-                                 @__jido_authoring_config__
-                               )
+      @__jido_authoring_contract__ Jido.Authoring.Compiler.compile_contract(
+                                     unquote(kind),
+                                     @__jido_authoring_config__
+                                   )
 
       @doc unquote("Returns the name of the #{label}.")
       @spec name() :: String.t()
@@ -57,13 +57,14 @@ defmodule Jido.Authoring.Compiler do
       def output_schema, do: @__jido_authoring_config__[:output_schema]
 
       @doc unquote("""
-           Returns the compile-time #{label} description as JSON-safe data.
+           Returns the compile-time #{label} authoring contract as JSON-safe data.
 
            Raises `ArgumentError` when a declared Zoi schema has no JSON Schema
            representation. Validation and execution remain available in that case.
            """)
-      @spec to_json() :: map()
-      def to_json, do: Jido.Authoring.Compiler.json!(@__jido_authoring_json__)
+      @spec authoring_contract() :: map()
+      def authoring_contract,
+        do: Jido.Authoring.Compiler.contract!(@__jido_authoring_contract__)
 
       @doc unquote(validate_params_doc)
       @impl Jido.Action
@@ -81,15 +82,30 @@ defmodule Jido.Authoring.Compiler do
       @doc false
       @spec __jido_authoring_kind__() :: Jido.Instruction.kind()
       def __jido_authoring_kind__, do: unquote(kind)
+
+      @doc false
+      @spec __jido_authoring__() :: Jido.Authoring.Manifest.t()
+      def __jido_authoring__ do
+        %{
+          id: @__jido_authoring_config__[:id],
+          kind: __jido_authoring_kind__(),
+          vsn: @__jido_authoring_config__[:vsn],
+          target: __MODULE__,
+          name: name(),
+          description: description()
+        }
+      end
     end
   end
 
   @doc false
-  @spec compile_json(Jido.Instruction.kind(), map()) ::
+  @spec compile_contract(Jido.Instruction.kind(), map()) ::
           {:ok, map()} | {:error, String.t()}
-  def compile_json(kind, opts) do
-    json =
+  def compile_contract(kind, opts) do
+    contract =
       %{
+        "id" => Map.fetch!(opts, :id),
+        "vsn" => Map.fetch!(opts, :vsn),
         "kind" => Atom.to_string(kind),
         "name" => Map.fetch!(opts, :name),
         "description" => Map.get(opts, :description),
@@ -99,15 +115,15 @@ defmodule Jido.Authoring.Compiler do
       |> Jason.encode!(maps: :strict)
       |> Jason.decode!()
 
-    {:ok, json}
+    {:ok, contract}
   rescue
     exception -> {:error, Exception.message(exception)}
   end
 
   @doc false
-  @spec json!({:ok, map()} | {:error, String.t()}) :: map() | no_return()
-  def json!({:ok, json}), do: json
-  def json!({:error, message}), do: raise(ArgumentError, message)
+  @spec contract!({:ok, map()} | {:error, String.t()}) :: map() | no_return()
+  def contract!({:ok, contract}), do: contract
+  def contract!({:error, message}), do: raise(ArgumentError, message)
 
   defp compile_json_schema([], _option), do: nil
 

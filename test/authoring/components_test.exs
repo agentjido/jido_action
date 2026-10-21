@@ -5,6 +5,7 @@ defmodule JidoActionTest.Authoring.ComponentsTest do
   @moduletag :authoring
   alias Jido.{Exec, Expr}
   alias Jido.Flow.{Codec, Ref}
+  alias JidoActionTest.FlowCodec, as: Codec
   alias JidoActionTest.Authoring.Components
 
   alias Components.{

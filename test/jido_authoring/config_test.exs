@@ -26,12 +26,36 @@ defmodule Jido.Authoring.ConfigTest do
       assert module.description() == nil
       assert module.schema() == []
       assert module.output_schema() == []
-      assert module.to_json()["input_schema"] == nil
-      assert module.to_json()["output_schema"] == nil
+      assert module.authoring_contract()["input_schema"] == nil
+      assert module.authoring_contract()["output_schema"] == nil
     end
 
     assert {:ok, %{name: "defaults", description: nil, schema: [], output_schema: []}} =
              Config.validate_flow(%{name: "defaults", schema: nil, output_schema: nil})
+  end
+
+  @tag obligation: "jido_action.action.I1"
+  test "Action and Flow expose stable authoring identity" do
+    for kind <- [:action, :flow] do
+      module = compile_module(kind, "id: \"tests/stable-id\", vsn: 3, name: \"stable\"")
+
+      assert %{"id" => "tests/stable-id", "vsn" => 3} = module.authoring_contract()
+      refute function_exported?(module, :authoring_id, 0)
+      refute function_exported?(module, :authoring_vsn, 0)
+      refute function_exported?(module, :to_json, 0)
+    end
+  end
+
+  @tag obligation: "jido_action.action.I2"
+  test "Action and Flow reject invalid authoring identity" do
+    for kind <- [:action, :flow],
+        options <- [
+          "id: \"\", name: \"invalid\"",
+          "id: \"bad id\", name: \"invalid\"",
+          "vsn: 0, name: \"invalid\""
+        ] do
+      assert_raise CompileError, fn -> compile_module(kind, options) end
+    end
   end
 
   @tag obligation: "jido_action.action.I2"
@@ -147,7 +171,7 @@ defmodule Jido.Authoring.ConfigTest do
       assert_received {:schema_built, :output}
       assert module.validate_params(%{}) == {:ok, %{value: 1}}
       assert module.validate_output(%{}) == {:ok, %{value: 1}}
-      assert module.to_json() == module.to_json()
+      assert module.authoring_contract() == module.authoring_contract()
       refute_received :options_built
       refute_received {:schema_built, _}
     end

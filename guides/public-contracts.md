@@ -49,10 +49,10 @@ Covenant remains optional and does not run in default CI.
 | FLOW-004 | Validation and inspection do not run Action work. | `jido_action.flow.I9` | `test/property/flow/validation_contract_test.exs`, `test/jido_flow/` |
 | FLOW-005 | Semantic identity distinguishes references from literal data and survives a Codec round trip. | `jido_action.flow.I10` | `test/property/flow/validation_contract_test.exs`, `test/jido_flow/graph_identity_test.exs` |
 | FLOW-006 | Host extensions lower to ordinary canonical declarations. | `jido_action.flow.I11` | `test/property/flow/inline_contract_test.exs`, `test/jido_flow/` |
-| STORE-001 | The JSON document version preserves canonical Flow meaning and deterministic stored-map encoding. | `jido_action.codec.I5` | `test/property/storage/codec_contract_test.exs`, `test/jido_flow/codec_test.exs` |
+| STORE-001 | The JSON document `vsn` preserves canonical Flow meaning and deterministic stored-map encoding. | `jido_action.codec.I5` | `test/property/storage/codec_contract_test.exs`, `test/jido_flow/codec_test.exs` |
 | STORE-002 | Stored identifiers resolve through a trusted Registry without creating atoms from unknown identifiers. | `jido_action.codec.I6` | `test/property/storage/codec_contract_test.exs`, `test/jido_flow/codec_test.exs` |
 | STORE-003 | Malformed or oversized stored documents return structured errors. | `jido_action.codec.I7` | `test/property/storage/codec_contract_test.exs`, `test/jido_flow/codec_test.exs` |
-| AUTHORING-001 | A trusted Registry provides bounded typed IDs, direct read aliases, and one canonical write ID without creating atoms or running work. | `jido_action.authoring.I1` | `test/jido_authoring/registry_test.exs`, `test/jido_authoring/portable_document_test.exs` |
+| AUTHORING-001 | A trusted Registry provides bounded typed and versioned references without creating atoms or running work. | `jido_action.authoring.I1` | `test/jido_authoring/registry_test.exs`, `test/jido_authoring/portable_document_test.exs` |
 | AUTHORING-002 | Portable values use a closed bounded grammar, and every successful decode can be encoded again with the same Registry. | `jido_action.authoring.I2` | `test/jido_authoring/value_test.exs`, `test/jido_authoring/portable_document_test.exs` |
 | AUTHORING-003 | Complete document checks apply resource limits before owner decoding without taking ownership of envelope or value semantics. | `jido_action.authoring.I3` | `test/jido_authoring/document_test.exs`, `test/jido_authoring/portable_document_test.exs` |
 

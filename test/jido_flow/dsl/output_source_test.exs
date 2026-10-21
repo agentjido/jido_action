@@ -80,8 +80,8 @@ defmodule Jido.Flow.DSL.OutputSourceTest do
       )
 
     assert module.flow() == expected
-    assert {:ok, document, registry} = Jido.Flow.Codec.encode(module.flow())
-    assert {:ok, ^expected} = Jido.Flow.Codec.decode(document, registry)
+    assert {:ok, document, registry} = JidoActionTest.GeneratedFlowCodec.encode(module.flow())
+    assert {:ok, ^expected} = JidoActionTest.FlowCodec.decode(document, registry)
   end
 
   test "a Flow with only output reports the shared component validation error" do

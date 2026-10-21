@@ -2,7 +2,7 @@
 
 Use `Jido.Flow.new/1` to build a Flow at runtime from plain maps. A data
 definition, a Flow module, and a stored JSON document decoded by
-`Jido.Flow.Codec` all produce the same kind of canonical `%Jido.Flow{}` value,
+`Jido.Authoring` all produce the same kind of canonical `%Jido.Flow{}` value,
 and `Jido.Exec` runs it the same way.
 
 Use a data definition when your application assembles a Flow at runtime, such
@@ -306,7 +306,7 @@ body code, anonymous functions, or MFA targets.
 
 An Elixir data definition contains trusted modules and references. Do not
 build one from untrusted input. For JSON from storage, another service, or an
-AI model, use `Jido.Flow.Codec.decode/2` with a host-owned
+AI model, use `Jido.Authoring.decode/2` with a host-owned
 `Jido.Authoring.Registry`. The Registry maps approved identifiers to modules,
 schemas, and atoms; input strings never create atoms or module names. See
 [Store Flows As JSON](flow-storage.md).
@@ -346,7 +346,7 @@ expressions, and supplies the current context.
 rejects internal call records, including records mixed with authoring fields.
 
 Use `Jido.Flow.to_map/1` for a deterministic inspection view and
-`Jido.Flow.Codec` for storage.
+`Jido.Authoring` for storage.
 
 ## Migrate From Builder
 

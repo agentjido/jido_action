@@ -20,14 +20,13 @@ the components it references, and the effective dependency list. Use it when
 a component runs earlier or later than you expect. Source order never creates
 a dependency.
 
-For a stored document, use `Jido.Flow.Codec.diagnose/2`. It returns a
-`Jido.Flow.Error.Invalid` group with document paths instead of only the first
-error:
+For a stored document, use `Jido.Authoring.decode/2`. It returns ordered issues
+with document paths:
 
 ```elixir
-case Jido.Flow.Codec.diagnose(document, registry) do
+case Jido.Authoring.decode(document, registry: registry, codec: Jido.Flow.Codec) do
   {:ok, flow} -> {:ok, flow}
-  {:error, errors} -> {:error, Jido.Flow.Error.to_map(errors)}
+  {:error, issues} -> {:error, Enum.map(issues, &Jido.Authoring.Issue.to_map/1)}
 end
 ```
 

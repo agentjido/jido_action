@@ -4,6 +4,7 @@ defmodule JidoActionTest.Authoring.GeneratedGraphTest do
   @moduletag :authoring
   alias Jido.{Exec, Flow}
   alias Jido.Flow.{Codec, Ref}
+  alias JidoActionTest.FlowCodec, as: Codec
   alias JidoActionTest.FlowComponent
 
   defmodule Add do

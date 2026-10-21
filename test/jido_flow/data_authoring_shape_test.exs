@@ -3,6 +3,7 @@ defmodule Jido.Flow.DataAuthoringShapeTest do
 
   alias Jido.Flow
   alias Jido.Flow.{Codec, Ref}
+  alias JidoActionTest.FlowCodec, as: Codec
   alias Jido.Flow.Error.InvalidDefinitionError
   alias JidoActionTest.Fixtures.Actions.EchoParamsAction
   alias JidoActionTest.Fixtures.NestedFlow
@@ -12,7 +13,7 @@ defmodule Jido.Flow.DataAuthoringShapeTest do
       flow = Flow.new!(definition(component))
       assert Flow.validate(flow) == {:ok, flow}
       assert {:ok, document, registry} = Codec.encode(flow)
-      assert document["version"] == 1
+      assert document["vsn"] == 1
       assert Codec.decode(document, registry) == {:ok, flow}
     end
   end

@@ -26,26 +26,28 @@ end
 
 - `name/0` and `description/0`;
 - `schema/0` and `output_schema/0`;
-- `to_json/0` for a JSON-safe description of the compiled definition;
+- `authoring_contract/0` for a JSON-safe description of the compiled definition;
 - `validate_params/1` and `validate_output/1`.
 
 The module must implement `run/2`. A missing implementation stops compilation.
 
-`to_json/0` returns the Action name, description, input JSON Schema, and output
-JSON Schema. It returns `nil` for an empty input or output schema. It raises
+`authoring_contract/0` returns the Action stable ID, `vsn`, name, description, input JSON
+Schema, and output JSON Schema. It returns `nil` for an empty input or output schema. It raises
 `ArgumentError` when Zoi cannot project a declared schema to JSON Schema. That
 projection is descriptive. Use `validate_params/1` and `validate_output/1` for
 the runtime contract.
 
-Successful compilation does not guarantee that `to_json/0` can project the
+Successful compilation does not guarantee that `authoring_contract/0` can project the
 schema or metadata. Projection errors occur when the description is requested.
 
-Use `to_json/0` when a tool registry, an API, or a language model needs to
+Use `authoring_contract/0` when a tool registry, an API, or a language model needs to
 describe the Action.
 
 ```elixir
-MyApp.Actions.CreateGreeting.to_json()
+MyApp.Actions.CreateGreeting.authoring_contract()
 #=> %{
+#=>   "id" => "Elixir.MyApp.Actions.CreateGreeting",
+#=>   "vsn" => 1,
 #=>   "kind" => "action",
 #=>   "name" => "create_greeting",
 #=>   "description" => "Creates one greeting",

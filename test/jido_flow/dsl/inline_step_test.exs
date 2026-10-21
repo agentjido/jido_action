@@ -807,10 +807,10 @@ defmodule Jido.Flow.DSL.InlineStepTest do
       )
 
     assert owner.flow() == direct
-    assert {:ok, document, registry} = Jido.Flow.Codec.encode(direct)
+    assert {:ok, document, registry} = JidoActionTest.GeneratedFlowCodec.encode(direct)
 
     assert {:ok, restored} =
-             Jido.Flow.Codec.decode(JSON.decode!(JSON.encode!(document)), registry)
+             JidoActionTest.FlowCodec.decode(JSON.decode!(JSON.encode!(document)), registry)
 
     assert restored == direct
 

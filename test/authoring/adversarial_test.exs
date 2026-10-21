@@ -5,6 +5,7 @@ defmodule JidoActionTest.Authoring.AdversarialTest do
   @moduletag :authoring
   alias Jido.{Exec, Flow}
   alias Jido.Flow.{Codec, Ref}
+  alias JidoActionTest.FlowCodec, as: Codec
   alias JidoActionTest.FlowComponent
   alias JidoActionTest.Authoring.Adversarial.{Echo, Sum}
   @nodes ["load/α", "right.$ref", "left space", "combine"]
@@ -117,13 +118,16 @@ defmodule JidoActionTest.Authoring.AdversarialTest do
 
     changed =
       document
-      |> put_in(["components", Access.at(0), "call", "target"], untrusted)
+      |> put_in(
+        ["components", Access.at(0), "call", "target"],
+        %{"id" => untrusted, "vsn" => 1}
+      )
       |> JSON.encode!()
       |> JSON.decode!()
 
     assert {:error,
             %Jido.Flow.Error.InvalidDefinitionError{
-              message: "unknown flow registry identifier",
+              message: "unknown flow registry reference",
               details: %{identifier: ^untrusted, kind: :action}
             }} = Codec.decode(changed, registry)
 

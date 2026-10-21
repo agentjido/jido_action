@@ -4,6 +4,7 @@ defmodule JidoActionTest.Flow.ConditionNormalizationTest do
   alias Jido.Expr
   alias Jido.Flow
   alias Jido.Flow.{Codec, Ref}
+  alias JidoActionTest.FlowCodec, as: Codec
   alias Jido.Flow.DSL.ValueParser
   alias Jido.Flow.Error.InvalidDefinitionError
   alias JidoActionTest.Fixtures.Actions.EchoParamsAction

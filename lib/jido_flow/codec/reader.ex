@@ -2,7 +2,8 @@ defmodule Jido.Flow.Codec.Reader do
   @moduledoc false
 
   alias Jido.Flow.{Component, Error, FieldError}
-  alias Jido.Flow.Codec.{Limits, Paths, Registry, Value}
+  alias Jido.Authoring.Registry
+  alias Jido.Flow.Codec.{Limits, Paths, Value}
 
   @root [
     name: :name,
@@ -21,7 +22,7 @@ defmodule Jido.Flow.Codec.Reader do
   def decode(%{} = document, registry) when not is_struct(document) do
     with :ok <- Limits.check(document),
          :ok <- envelope(document) do
-      record(Map.drop(document, ["type", "version"]), @root, registry, [], [])
+      record(Map.drop(document, ["type", "vsn"]), @root, registry, [], [])
     else
       {:error, errors} -> {:error, List.wrap(errors)}
     end
@@ -29,10 +30,10 @@ defmodule Jido.Flow.Codec.Reader do
 
   def decode(_document, _registry), do: failure("stored Flow document must be a map", [])
 
-  defp envelope(%{"type" => "jido.flow", "version" => 1}), do: :ok
+  defp envelope(%{"type" => "jido.flow", "vsn" => 1}), do: :ok
 
   defp envelope(%{"type" => "jido.flow"}),
-    do: failure("stored Flow document version must be 1", ["version"])
+    do: failure("stored Flow document vsn must be 1", ["vsn"])
 
   defp envelope(_document), do: failure("stored Flow document type must be jido.flow", ["type"])
 
@@ -182,10 +183,24 @@ defmodule Jido.Flow.Codec.Reader do
     do: failure("stored Flow target must be a map", stored)
 
   defp resolve(value, kind, registry, stored, canonical) do
-    case Registry.resolve(registry, value, kind) do
-      {:ok, value} -> {:ok, value, %{canonical => stored}}
-      {:error, error} -> {:error, [Error.prefix_path(error, stored)]}
+    with {:ok, resolved} <- Registry.decode_reference(registry, value, kind) do
+      {:ok, resolved, %{canonical => stored}}
+    else
+      {:error, %Registry.Error{} = error} ->
+        error = flow_registry_error(error)
+        {:error, [Error.prefix_path(error, registry_error_path(value, error, stored))]}
     end
+  end
+
+  defp registry_error_path(%{}, %{details: %{field: field}}, stored)
+       when is_binary(field),
+       do: stored ++ [field]
+
+  defp registry_error_path(_value, _error, stored), do: stored
+
+  defp flow_registry_error(%Registry.Error{} = error) do
+    message = String.replace(error.message, "authoring Registry", "flow registry")
+    Error.validation_error(message, error.details)
   end
 
   defp closed(table, value, label, stored, canonical) do

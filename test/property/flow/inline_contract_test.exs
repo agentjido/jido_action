@@ -7,6 +7,7 @@ defmodule JidoActionTest.Property.Flow.InlineContractTest do
   @moduletag :property
   alias Jido.{Exec, Instruction}
   alias Jido.Flow.{Codec, Ref}
+  alias JidoActionTest.FlowCodec, as: Codec
   alias JidoActionTest.Property.Runtime
   alias JidoActionTest.Property.AuthoringFixtures.{Inline, Extended}
   @tag contracts: ["ACT-005", "FLOW-001", "TARGET-001"]

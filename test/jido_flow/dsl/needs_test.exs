@@ -1,6 +1,7 @@
 defmodule Jido.Flow.DSL.NeedsTest do
   use ExUnit.Case, async: false
   alias Jido.Flow.Codec
+  alias JidoActionTest.FlowCodec, as: Codec
   alias JidoActionTest.Fixtures.Actions.Add
 
   test "keyword and block needs preserve defaults, nil, scalar, and list order" do

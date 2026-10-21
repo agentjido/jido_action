@@ -51,8 +51,10 @@ Read these files before a change that affects their subject:
 - `lib/jido_flow/dsl/` contains compile-time authoring and lowering.
 - `lib/jido_flow/definition.ex` normalizes map-based component definitions.
 - `lib/jido_flow/codec.ex` contains the versioned stored-JSON boundary.
-- `lib/jido_authoring/` contains the shared Registry, portable value grammar,
+- `lib/jido_authoring/` contains the runtime authoring boundary, Registry,
+  codec routing, portable value grammar, classified errors, ordered issues,
   and complete-document limits.
+- `lib/jido_discovery.ex` builds the immutable runtime authoring Registry.
 - `lib/jido_exec/compiler.ex` converts canonical Flow data to a Runic workflow.
 - `lib/jido_exec.ex` is the public execution facade.
 - `lib/jido_exec/node/` contains the executable Runic components. Runner

@@ -34,7 +34,9 @@ defmodule Jido.Flow.DSL.Lowerer do
          {:ok, output} <- lower_output(output_entity) do
       sources = SourceMap.put_entity(sources, output_entity, :output, file)
 
-      case Definition.diagnose_body(config, components, output) do
+      definition_config = Map.take(config, [:name, :description, :schema, :output_schema])
+
+      case Definition.diagnose_body(definition_config, components, output) do
         {:ok, attrs} ->
           {:ok, struct!(Flow, attrs), sources}
 

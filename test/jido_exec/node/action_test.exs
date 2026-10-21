@@ -288,8 +288,8 @@ defmodule Jido.Exec.Node.ActionTest do
 
     assert is_binary(input_doc)
     assert is_binary(output_doc)
-    assert input_schema == Add.to_json()["input_schema"]
-    assert output_schema == Add.to_json()["output_schema"]
+    assert input_schema == Add.authoring_contract()["input_schema"]
+    assert output_schema == Add.authoring_contract()["output_schema"]
 
     workflow = Runic.Transmutable.to_workflow(node)
     assert workflow.name == "named"
@@ -380,8 +380,10 @@ defmodule Jido.Exec.Node.ActionTest do
   test "Action schemas are available through the Runic Component ports" do
     node = Add |> then(&Instruction.new!(target: &1)) |> Runic.Transmutable.to_component()
 
-    assert Runic.Component.inputs(node)[:in][:schema] == Add.to_json()["input_schema"]
-    assert Runic.Component.outputs(node)[:out][:schema] == Add.to_json()["output_schema"]
+    assert Runic.Component.inputs(node)[:in][:schema] == Add.authoring_contract()["input_schema"]
+
+    assert Runic.Component.outputs(node)[:out][:schema] ==
+             Add.authoring_contract()["output_schema"]
   end
 
   @tag obligation: "jido_action.boundary.I5"

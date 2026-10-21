@@ -70,8 +70,8 @@ defmodule Jido.Flow.GraphIdentityTest do
         refute workflow_log(reference_flow) == workflow_log(literal_flow)
 
         for flow <- flows do
-          assert {:ok, document, registry} = Flow.Codec.encode(flow)
-          assert {:ok, restored} = Flow.Codec.decode(document, registry)
+          assert {:ok, document, registry} = JidoActionTest.GeneratedFlowCodec.encode(flow)
+          assert {:ok, restored} = JidoActionTest.FlowCodec.decode(document, registry)
           assert restored == flow
           assert Flow.semantic_identity(restored) == Flow.semantic_identity(flow)
 

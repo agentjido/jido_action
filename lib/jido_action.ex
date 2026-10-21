@@ -103,6 +103,8 @@ defmodule Jido.Action do
   ## Options
 
   - `name` (required) - The non-blank metadata name of the Action.
+  - `id` (optional) - The stable identifier used by runtime authoring discovery.
+  - `vsn` (optional, default: `1`) - The positive authoring version.
   - `description` (optional) - A description of what the Action does.
   - `schema` (optional, default: `[]`) - A Zoi schema for Action input.
   - `output_schema` (optional, default: `[]`) - A Zoi schema for Action output.

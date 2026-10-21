@@ -31,7 +31,7 @@ defmodule Jido.Flow do
 
   * the compile-time Flow module DSL;
   * map-based data definitions through `new/1`; and
-  * versioned stored JSON documents through `Jido.Flow.Codec`.
+  * versioned stored JSON documents through `Jido.Authoring`.
 
   Use the Flow module DSL as the primary developer authoring surface:
 
@@ -110,8 +110,11 @@ defmodule Jido.Flow do
   author control order. Source order does not create a dependency. The Spark
   compiler keeps source locations outside the canonical Flow value.
 
-  Use `Jido.Flow.Codec.encode/2` and `Jido.Flow.Codec.decode/2` with a trusted
+  Use `Jido.Authoring.encode/2` and `Jido.Authoring.decode/2` with a trusted
   `Jido.Authoring.Registry` for database or transport storage.
+
+  Flow modules also accept `id:` and `vsn:` options for runtime authoring
+  discovery. Use an explicit stable ID for any Flow referenced by stored JSON.
 
   A Flow module returns one stable canonical value from `flow/0` for the life
   of the loaded module version. Each validation, compilation, or execution
@@ -223,7 +226,7 @@ defmodule Jido.Flow do
   Converts a Flow artifact to its deterministic semantic map.
 
   Components use deterministic dependency order, then component name. Use
-  `Jido.Flow.Codec` for database storage.
+  `Jido.Authoring` for database storage.
   """
   @spec to_map(t()) :: map()
   def to_map(%__MODULE__{} = flow) do

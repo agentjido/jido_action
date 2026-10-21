@@ -8,8 +8,8 @@ owns authorization, effects, secrets, and resource policy.
 The module DSL is trusted compile-time Elixir source. Do not evaluate user or
 generated Elixir source to create a Flow.
 
-Use `Jido.Flow.Codec` for database, API, UI, or AI-authored Flow data. The
-Codec accepts decoded map data and a host-owned trusted Registry.
+Use `Jido.Authoring` for database, API, UI, or AI-authored Flow data. It
+accepts decoded map data and a host-owned trusted Registry.
 
 Stored data cannot create atoms or derive module names. It can select only the
 Actions, Flows, schemas, and atoms that the Registry contains.
@@ -28,15 +28,15 @@ error details, component metadata, or persisted execution events.
 
 ## Apply Storage Limits
 
-The Codec decoder rejects:
+The Authoring boundary rejects:
 
 - invalid UTF-8;
 - depth greater than 100;
 - one collection wider than 10,000 entries; and
 - more than 100,000 data nodes in one document.
 
-These checks occur after the caller decodes JSON. Apply HTTP byte limits,
-parser limits, and request timeouts before Codec.
+`Jido.Authoring.decode_json/2` applies its byte limit before Jason parses the
+document. Apply HTTP byte limits and request timeouts before Authoring.
 
 Registry size is limited to 10,000 entries. Registry lookup is inert. It does
 not load or execute an Action.

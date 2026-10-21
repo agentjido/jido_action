@@ -6,6 +6,7 @@ defmodule JidoActionTest.Property.Flow.GraphContractTest do
   use ExUnitProperties
   alias Jido.{Exec, Flow}
   alias Jido.Flow.{Codec, Ref}
+  alias JidoActionTest.FlowCodec, as: Codec
   alias JidoActionTest.Property.{Fuzz, Runtime}
 
   defmodule Add do

@@ -1,6 +1,6 @@
 # Store Flows As JSON
 
-`Jido.Flow.Codec` converts a canonical `%Jido.Flow{}` to a JSON-compatible
+`Jido.Authoring` converts a canonical `%Jido.Flow{}` to a JSON-compatible
 document and back. It is the only supported way to store a Flow.
 
 A stored document never contains module names, schemas, or atoms. It contains
@@ -14,6 +14,7 @@ The examples in this guide store this Flow:
 ```elixir
 defmodule MyApp.Actions.CreateGreeting do
   use Jido.Action,
+    id: "actions/create-greeting",
     name: "create_greeting",
     schema: Zoi.object(%{name: Zoi.string()})
 
@@ -23,6 +24,7 @@ end
 
 defmodule MyApp.Flows.Greeting do
   use Jido.Flow,
+    id: "flows/greeting",
     name: "greeting",
     schema: Zoi.object(%{name: Zoi.string()})
 
@@ -35,95 +37,66 @@ defmodule MyApp.Flows.Greeting do
     output result("greet")
   end
 end
+
+defmodule MyApp.GreetingAuthoringVocabulary do
+  def __jido_authoring__ do
+    [
+      %{
+        id: "schemas/greeting/input/v1",
+        kind: :schema,
+        vsn: 1,
+        target: MyApp.Flows.Greeting.schema()
+      },
+      %{id: "atoms/name", kind: :atom, vsn: 1, target: :name},
+      %{id: "atoms/owner", kind: :atom, vsn: 1, target: :owner}
+    ]
+  end
+end
 ```
-
-## Build A Trusted Registry
-
-Register every Action, child Flow, schema, and atom that the document needs.
-This Flow needs its Action, its input schema, its empty output schema `[]`,
-and the atoms `:name` (a params key and input path) and `:owner` (a `meta`
-key).
-
-```elixir
-registry =
-  Jido.Authoring.Registry.new!(%{
-    "actions/create-greeting" => {:action, MyApp.Actions.CreateGreeting},
-    "schemas/greeting-input" => {:schema, MyApp.Flows.Greeting.schema()},
-    "schemas/none" => {:schema, []},
-    "atoms/name" => {:atom, :name},
-    "atoms/owner" => {:atom, :owner},
-    "actions/old-greeting" => {:alias, "actions/create-greeting"}
-  })
-```
-
-Each typed entry is the one write identifier for its value. An `{:alias, id}`
-entry is accepted only when reading, and it must point directly to a typed
-entry. Use aliases to rename identifiers without breaking stored documents.
-The Registry rejects two write identifiers for the same value.
-
-Registry rules:
-
-- Flow documents use `{:action, module}`, `{:flow, module}`,
-  `{:schema, schema}`, `{:atom, atom}`, and `{:alias, identifier}` entries.
-  Other document owners can use their own atom kinds in the same Registry.
-- An identifier starts with a letter or digit and contains up to 255
-  letters, digits, and `. _ / : @ -` characters.
-- A Registry holds at most 10,000 entries.
-
-Use `Jido.Flow.Codec.encode/1` when stable application identifiers are not
-required:
-
-```elixir
-flow = MyApp.Flows.Greeting.flow()
-{:ok, temporary_document, temporary_registry} = Jido.Flow.Codec.encode(flow)
-{:ok, json} = Jason.encode(temporary_document)
-
-{:ok, decoded_document} = Jason.decode(json)
-{:ok, decoded_flow} = Jido.Flow.Codec.decode(decoded_document, temporary_registry)
-```
-
-`encode/1` validates the canonical Flow, as `encode/2` does. It does not
-check target contracts; `Jido.Exec.compile/2` does. It collects its Action
-modules, child Flow modules, schemas, and data atoms. It assigns generated identifiers
-and returns the Registry separately.
-
-The generated identifiers are deterministic only for the exact Flow value.
-They can change after a Flow, module, or schema change. Use them only for
-temporary storage, tests, or transport within one application version. Keep
-the Registry available until decoding is complete. Use an application-owned
-Registry for durable storage.
-
-Stored data never creates atoms, derives module names, or selects an
-unregistered schema.
 
 ## Encode And Decode
 
+The active Registry must contain the Action, input schema, empty output
+schema, and atoms used by this Flow. Configure these entries as described in
+[Authoring Runtime Data](authoring.md#configure-discovery).
+
+After Discovery includes the application vocabulary, use the common Authoring
+boundary:
+
 ```elixir
+:ok =
+  Jido.Discovery.refresh(
+    applications: [:jido_action],
+    modules: [
+      MyApp.Actions.CreateGreeting,
+      MyApp.Flows.Greeting,
+      MyApp.GreetingAuthoringVocabulary
+    ]
+  )
+
+registry = Jido.Discovery.registry()
 flow = MyApp.Flows.Greeting.flow()
 
-{:ok, document} = Jido.Flow.Codec.encode(flow, registry)
-json = JSON.encode!(document)
+{:ok, document} = Jido.Authoring.encode(flow)
+{:ok, json} = Jido.Authoring.encode_json(flow)
+{:ok, ^flow} = Jido.Authoring.decode_json(json)
 
-{:ok, decoded_flow} = Jido.Flow.Codec.decode(JSON.decode!(json), registry)
-true = decoded_flow == flow
-{:ok, %{message: "Hello, Ada!"}} = Jido.Exec.run(decoded_flow, %{name: "Ada"})
+{:ok, %{message: "Hello, Ada!"}} = Jido.Exec.run(flow, %{name: "Ada"})
 ```
 
-These examples use Elixir's built-in `JSON` module. Any JSON library works,
-because the document contains only JSON-compatible data.
-
-`encode/2` returns an error when the Registry has no identifier for a value
-the Flow uses.
+Encoding validates the canonical Flow and requires a Registry reference for
+every target, schema, and non-Boolean atom. It does not check target contracts.
+Use `Jido.Exec.compile/1` for that check.
 
 ## Document Format
 
 The document root has these fields:
 
 ```elixir
-%{"type" => "jido.flow", "version" => 1, "name" => "greeting"} =
-  Map.take(document, ["type", "version", "name"])
+%{"type" => "jido.flow", "vsn" => 1, "name" => "greeting"} =
+  Map.take(document, ["type", "vsn", "name"])
 
-["components", "description", "name", "output", "output_schema", "schema", "type", "version"] =
+["components", "description", "name", "output", "output_schema", "schema", "type", "vsn"] =
   document |> Map.keys() |> Enum.sort()
 ```
 
@@ -137,33 +110,34 @@ tags:
 | --- | --- |
 | `{"$ref": {"source": "input", "component": null, "path": [...]}}` | A reference. `source` is `input`, `context`, `result`, `item`, `item_index`, `item_id`, `accumulator`, `state`, `iteration_index`, or `body_result`. |
 | `{"$expr": {"operator": ">=", "operands": [...]}}` | A `Jido.Expr` operation. The operator is the Elixir spelling, such as `"=="`, `"and"`, `"not"`, `"+"`, or `"*"`. |
-| `{"$type": "atom", "id": "atoms/name"}` | An atom, resolved through the Registry. |
+| `{"$type": "atom", "id": "atoms/name", "vsn": 1}` | An atom, resolved through the Registry. |
 | `{"$type": "map", "entries": [{"key": ..., "value": ...}]}` | A map. Each key and value uses the same encoding. |
 
 Strings, numbers, Booleans, `null`, and lists are written as plain JSON.
 Because maps use their own tag, a literal map with a `$expr` key is never read
 as an operation.
 
-The writer and reader use document version 1 for all current features,
-including `$expr` operations. Other versions are rejected. Document versions
-and semantic identity versions are separate.
+The writer and reader use document `vsn` 1 for all current features,
+including `$expr` operations. Other `vsn` values are rejected. The document
+`vsn` is separate from the semantic identity version.
 
 Stored components use canonical call records instead of the `step` and
 `subflow` records in the [data authoring form](flow-data.md#component-kinds).
 Documents use string keys and fixed string kinds. A call record contains `"kind"`,
-`"target"`, and `"params"`. Its target is a Registry identifier. A Dispatch
+`"target"`, and `"params"`. Its target is a Registry reference with `"id"`
+and `"vsn"`. A Dispatch
 expander contains only `"kind"` and `"target"`.
 
 ```elixir
 [greet] = document["components"]
 "call" = greet["kind"]
 "action" = greet["call"]["kind"]
-"actions/create-greeting" = greet["call"]["target"]
+%{"id" => "actions/create-greeting", "vsn" => 1} = greet["call"]["target"]
 ["call", "kind", "meta", "name", "needs"] = Enum.sort(Map.keys(greet))
 ```
 
 Do not hand-edit a `Jido.Flow.to_map/1` result into a stored document. Only
-Codec output is a valid document.
+`Jido.Authoring` output is a valid document.
 
 ## Store A Compiled Inline Step
 
@@ -189,43 +163,61 @@ defmodule MyApp.Flows.InlineGreeting do
   end
 end
 
-inline_registry =
-  Jido.Authoring.Registry.new!(%{
-    "actions/greeting/normalize/v1" =>
-      {:action, MyApp.Flows.InlineGreeting.step_action("normalize")},
-    "actions/greeting/greet/v1" => {:action, MyApp.Flows.InlineGreeting.step_action("greet")},
-    "schemas/greeting/input/v1" => {:schema, MyApp.Flows.InlineGreeting.schema()},
-    "schemas/none" => {:schema, []},
-    "atoms/name" => {:atom, :name}
-  })
+defmodule MyApp.InlineAuthoringVocabulary do
+  def __jido_authoring__ do
+    [
+      %{
+        id: "actions/greeting/normalize/v1",
+        kind: :action,
+        vsn: 1,
+        target: MyApp.Flows.InlineGreeting.step_action("normalize")
+      },
+      %{
+        id: "actions/greeting/greet/v1",
+        kind: :action,
+        vsn: 1,
+        target: MyApp.Flows.InlineGreeting.step_action("greet")
+      },
+      %{
+        id: "schemas/greeting/input/v1",
+        kind: :schema,
+        vsn: 1,
+        target: MyApp.Flows.InlineGreeting.schema()
+      },
+      %{id: "atoms/name", kind: :atom, vsn: 1, target: :name}
+    ]
+  end
+end
+
+:ok =
+  Jido.Discovery.refresh(
+    applications: [:jido_action],
+    modules: [MyApp.InlineAuthoringVocabulary]
+  )
 
 inline_flow = MyApp.Flows.InlineGreeting.flow()
-{:ok, inline_document} = Jido.Flow.Codec.encode(inline_flow, inline_registry)
-
-{:ok, restored} =
-  Jido.Flow.Codec.decode(JSON.decode!(JSON.encode!(inline_document)), inline_registry)
-
-true = restored == inline_flow
-{:ok, %{message: "Hello, Ada!"}} = Jido.Exec.run(restored, %{name: " Ada "})
+{:ok, inline_document} = Jido.Authoring.encode(inline_flow)
+{:ok, ^inline_flow} = Jido.Authoring.decode(inline_document)
+{:ok, %{message: "Hello, Ada!"}} = Jido.Exec.run(inline_flow, %{name: " Ada "})
 ```
 
 The stored Steps contain only identifiers and data:
 
 ```elixir
 [normalize, greet] = inline_document["components"]
-"actions/greeting/greet/v1" = greet["call"]["target"]
+%{"id" => "actions/greeting/greet/v1", "vsn" => 1} = greet["call"]["target"]
 ["call", "kind", "meta", "name", "needs"] = Enum.sort(Map.keys(greet))
 
 %{
   "$type" => "map",
   "entries" => [
     %{
-      "key" => %{"$type" => "atom", "id" => "atoms/name"},
+      "key" => %{"$type" => "atom", "id" => "atoms/name", "vsn" => 1},
       "value" => %{
         "$ref" => %{
           "source" => "input",
           "component" => nil,
-          "path" => [%{"$type" => "atom", "id" => "atoms/name"}]
+          "path" => [%{"$type" => "atom", "id" => "atoms/name", "vsn" => 1}]
         }
       }
     }
@@ -239,70 +231,44 @@ public identifier.
 
 A body change can keep the same target and semantic graph identity. Neither
 the document nor its identity is a code snapshot. Select the application
-release and Registry version that can run stored work. See
+release and Registry references that can run stored work. See
 [Inline Steps](inline-actions.md).
 
-## Registry Functions
+## Flow Validation
 
-| Function | Use |
-| --- | --- |
-| `Jido.Authoring.Registry.new/1`, `new!/1` | Build and validate a Registry from a map. |
-| `Jido.Flow.Codec.encode/1` | Build a document and a temporary generated Registry for one Flow. |
-| `Jido.Authoring.Registry.resolve/3` | Resolve an identifier of a given kind, following aliases. |
-| `Jido.Authoring.Registry.identifier/3` | Find the write identifier for a value. |
+The shared Authoring boundary checks JSON, limits, document routing, and
+Registry references. The Flow decoder then rejects unknown fields, invalid
+tagged values, invalid components, missing output, unknown graph references,
+cycles, and invalid Dispatch placement.
 
-```elixir
-{:ok, MyApp.Actions.CreateGreeting} =
-  Jido.Authoring.Registry.resolve(registry, "actions/old-greeting", :action)
-
-{:ok, "actions/create-greeting"} =
-  Jido.Authoring.Registry.identifier(registry, :action, MyApp.Actions.CreateGreeting)
-```
-
-## Validation And Limits
-
-Decode rejects:
-
-- invalid UTF-8;
-- nesting deeper than 100 levels;
-- one map or list with more than 10,000 items;
-- a document with more than 100,000 data nodes;
-- unknown or extra fields;
-- unknown Registry identifiers; and
-- invalid canonical Flow data.
-
-Encode checks the finished document against the same limits. It returns an
-error if the document would be too large or too deep to read back.
-
-These limits do not bound HTTP bytes or the JSON parser. Apply transport and
-parser limits before `decode/2`.
-
-Decode does not run Actions or check that the resolved modules are
-executable. Call `Jido.Exec.compile/1` to check target contracts, or run the
-Flow with `Jido.Exec`.
+Decode does not run Actions or check that resolved modules implement their
+contracts. Call `Jido.Exec.compile/1` after a valid decode.
 
 ## Diagnose An Editor Draft
 
-`decode/2` returns the first error. `diagnose/2` returns every error it finds
-in the current validation phase, so an editor can show them together:
+`Jido.Authoring.decode/2` returns ordered issues, so an editor can show them
+together:
 
 ```elixir
-draft = put_in(document, ["components", Access.at(0), "call", "target"], "actions/missing")
+draft =
+  put_in(
+    document,
+    ["components", Access.at(0), "call", "target"],
+    %{"id" => "actions/missing", "vsn" => 1}
+  )
 
-{:error, errors} = Jido.Flow.Codec.diagnose(draft, registry)
+{:error, issues} = Jido.Authoring.decode(draft, registry: registry)
 
-%{details: %{errors: [%{message: "unknown flow registry identifier"}]}} =
-  Jido.Flow.Error.to_map(errors)
+[%Jido.Authoring.Issue{path: path, message: message} | _] = issues
 ```
 
-The error is one `%Jido.Flow.Error.Invalid{}` group. Each leaf error has a
-JSON `path` when one applies. The error map lists the leaves under
-`details.errors`.
+Each issue has a JSON `path` when one applies. The issue list retains source
+order and JSON-compatible details.
 
 Diagnosis uses the same field rules and error order as data authoring:
 
 1. UTF-8, size, collection size, and nesting safety checks, followed by
-   document type and version checks. A failure is terminal.
+   document type and `vsn` checks. A failure is terminal.
 2. Unknown fields, root configuration, components in list order, and output.
    Each component checks its common fields, then its kind-specific fields.
    Registry and tagged-value errors keep their position in that field order.

@@ -8,6 +8,7 @@ defmodule JidoActionTest.Property.Flow.ValidationContractTest do
   alias JidoActionTest.Property.Fuzz
   alias Jido.{Exec, Flow}
   alias Jido.Flow.{Codec, Ref}
+  alias JidoActionTest.FlowCodec, as: Codec
   alias JidoActionTest.FlowComponent
   alias JidoActionTest.Property.Runtime
   @tag contracts: ["FLOW-003", "FLOW-004"]

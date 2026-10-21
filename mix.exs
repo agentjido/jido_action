@@ -170,7 +170,8 @@ defmodule JidoAction.MixProject do
         {"guides/nested-flows.livemd", title: "Nested Flows"},
         {"guides/dynamic-flows.md", title: "Dynamic Flows With Dispatch"},
         {"guides/flow-modules.md", title: "Flow Modules And Extensions"},
-        # Flows As Data
+        # Authoring And Storage
+        {"guides/authoring.md", title: "Authoring Runtime Data"},
         {"guides/flow-data.md", title: "Flow Data Definitions"},
         {"guides/flow-storage.md", title: "Store Flows As JSON"},
         {"guides/flow-inspection.md", title: "Inspect Flows"},
@@ -218,10 +219,15 @@ defmodule JidoAction.MixProject do
           Jido.Flow.Extension
         ],
         "Portable Storage": [
+          Jido.Authoring,
+          Jido.Authoring.Error,
+          Jido.Authoring.Error.InvalidError,
+          Jido.Authoring.Error.InternalError,
           Jido.Authoring.Document,
+          Jido.Authoring.Issue,
           Jido.Authoring.Registry,
           Jido.Authoring.Value,
-          Jido.Flow.Codec
+          Jido.Discovery
         ],
         Expressions: [Jido.Expr, Jido.Expr.Error],
         Execution: [

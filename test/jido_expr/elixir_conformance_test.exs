@@ -4,6 +4,7 @@ defmodule Jido.Expr.ElixirConformanceTest do
   require Jido.Expr
   alias Jido.Expr
   alias Jido.Flow.{Codec, Ref}
+  alias JidoActionTest.FlowCodec, as: Codec
   alias JidoActionTest.Fixtures.Actions.EchoParamsAction
 
   # Each entry owns one accepted Elixir spelling and arity.
@@ -198,7 +199,7 @@ defmodule Jido.Expr.ElixirConformanceTest do
       )
 
     assert {:ok, document, registry} = Codec.encode(flow)
-    assert document["version"] == 1
+    assert document["vsn"] == 1
 
     assert {:ok, restored} =
              document |> JSON.encode!() |> JSON.decode!() |> Codec.decode(registry)

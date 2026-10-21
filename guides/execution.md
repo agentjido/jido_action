@@ -384,7 +384,7 @@ Jido does not add another Task tree or cancellation model.
 
 A durable execution has two separate records:
 
-- the versioned Jido Flow definition, encoded with `Jido.Flow.Codec`; and
+- the versioned Jido Flow definition, encoded with `Jido.Authoring`; and
 - the Runic execution state, stored through `Runic.Runner.Store`.
 
 This split lets an application hydrate the same Flow definition and restore

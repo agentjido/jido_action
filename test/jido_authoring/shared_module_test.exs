@@ -61,7 +61,7 @@ defmodule Jido.Authoring.SharedModuleTest do
   @tag obligation: "jido_action.action.I1"
   test "shared metadata descriptions preserve schemas and distinguish module kinds" do
     for {module, kind} <- [{Echo, "action"}, {EchoFlow, "flow"}] do
-      json = module.to_json()
+      json = module.authoring_contract()
       assert json["kind"] == kind
       assert json["name"] == module.name()
       assert json["description"] == module.description()
@@ -163,7 +163,7 @@ defmodule Jido.Authoring.SharedModuleTest do
       refute_received :built_schema
       assert {:ok, %{value: 1}} = module.validate_params(%{value: 1})
       assert module.schema() == module.schema()
-      assert module.to_json() == module.to_json()
+      assert module.authoring_contract() == module.authoring_contract()
       refute_received :built_schema
     end
   end

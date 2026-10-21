@@ -4,6 +4,7 @@ defmodule Jido.Flow.DiagnosticPathsTest do
   alias Jido.Flow
   alias Jido.Authoring.Registry
   alias Jido.Flow.Codec
+  alias JidoActionTest.FlowCodec, as: Codec
   alias JidoActionTest.Fixtures.Actions.EchoParamsAction
 
   @empty %{"$type" => "map", "entries" => []}
@@ -71,7 +72,7 @@ defmodule Jido.Flow.DiagnosticPathsTest do
       "kind" => "iterate",
       "name" => "loop",
       "state" => %{
-        "schema" => "schemas/none",
+        "schema" => %{"id" => "schemas/none", "vsn" => 1},
         "initial" => @empty,
         "update" => %{"$ref" => %{"source" => "body_result", "component" => nil, "path" => []}}
       },
@@ -79,7 +80,11 @@ defmodule Jido.Flow.DiagnosticPathsTest do
       "max_iterations" => 20_000,
       "needs" => [],
       "meta" => @empty,
-      "call" => %{"kind" => "action", "target" => "actions/echo", "params" => @empty}
+      "call" => %{
+        "kind" => "action",
+        "target" => %{"id" => "actions/echo", "vsn" => 1},
+        "params" => @empty
+      }
     }
 
     assert {:error, errors} = Codec.diagnose(document([iterate], result_ref("loop")), registry())
@@ -89,7 +94,11 @@ defmodule Jido.Flow.DiagnosticPathsTest do
       %{
         "name" => "o",
         "condition" => condition,
-        "call" => %{"kind" => "action", "target" => "actions/echo", "params" => @empty}
+        "call" => %{
+          "kind" => "action",
+          "target" => %{"id" => "actions/echo", "vsn" => 1},
+          "params" => @empty
+        }
       }
     end
 
@@ -97,7 +106,11 @@ defmodule Jido.Flow.DiagnosticPathsTest do
       "kind" => "choice",
       "name" => "c",
       "options" => [option.(true), option.(false)],
-      "fallback" => %{"kind" => "action", "target" => "actions/echo", "params" => @empty},
+      "fallback" => %{
+        "kind" => "action",
+        "target" => %{"id" => "actions/echo", "vsn" => 1},
+        "params" => @empty
+      },
       "needs" => [],
       "meta" => @empty
     }
@@ -106,10 +119,22 @@ defmodule Jido.Flow.DiagnosticPathsTest do
     assert [["components", 0, "options"]] = paths(errors)
   end
 
+  test "Codec diagnostics identify a missing reference vsn" do
+    invalid =
+      document([step("a", %{})], result_ref("a"))
+      |> put_in(
+        ["components", Access.at(0), "call", "target"],
+        %{"id" => "actions/echo"}
+      )
+
+    assert {:error, errors} = Codec.diagnose(invalid, registry())
+    assert [["components", 0, "call", "target", "vsn"]] = paths(errors)
+  end
+
   defp registry do
     Registry.new!(%{
-      "actions/echo" => {:action, EchoParamsAction},
-      "schemas/none" => {:schema, []}
+      {"actions/echo", 1} => {:action, EchoParamsAction},
+      {"schemas/none", 1} => {:schema, []}
     })
   end
 
@@ -120,7 +145,11 @@ defmodule Jido.Flow.DiagnosticPathsTest do
         "needs" => [],
         "meta" => @empty,
         "kind" => "call",
-        "call" => %{"kind" => "action", "target" => "actions/echo", "params" => @empty}
+        "call" => %{
+          "kind" => "action",
+          "target" => %{"id" => "actions/echo", "vsn" => 1},
+          "params" => @empty
+        }
       },
       extra
     )
@@ -129,11 +158,11 @@ defmodule Jido.Flow.DiagnosticPathsTest do
   defp document(components, output) do
     %{
       "type" => "jido.flow",
-      "version" => 1,
+      "vsn" => 1,
       "name" => "paths",
       "description" => nil,
-      "schema" => "schemas/none",
-      "output_schema" => "schemas/none",
+      "schema" => %{"id" => "schemas/none", "vsn" => 1},
+      "output_schema" => %{"id" => "schemas/none", "vsn" => 1},
       "components" => components,
       "output" => output
     }

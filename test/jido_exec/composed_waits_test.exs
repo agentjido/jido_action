@@ -465,14 +465,14 @@ defmodule Jido.Exec.ComposedWaitsTest do
 
     registry =
       Jido.Authoring.Registry.new!(%{
-        "none" => {:schema, []},
-        "decide" => {:action, Decide},
-        "expand" => {:action, Expand},
-        "id" => {:atom, :id}
+        {"none", 1} => {:schema, []},
+        {"decide", 1} => {:action, Decide},
+        {"expand", 1} => {:action, Expand},
+        {"id", 1} => {:atom, :id}
       })
 
-    assert {:ok, document} = Jido.Flow.Codec.encode(definition, registry)
-    assert {:ok, decoded} = Jido.Flow.Codec.decode(document, registry)
+    assert {:ok, document} = JidoActionTest.FlowCodec.encode(definition, registry)
+    assert {:ok, decoded} = JidoActionTest.FlowCodec.decode(document, registry)
 
     results =
       for target <- [DispatchFlow, definition, decoded] do
@@ -532,14 +532,14 @@ defmodule Jido.Exec.ComposedWaitsTest do
 
     registry =
       Jido.Authoring.Registry.new!(%{
-        "none" => {:schema, []},
-        "child" => {:action, Child},
-        "record" => {:action, Record},
-        "id" => {:atom, :id}
+        {"none", 1} => {:schema, []},
+        {"child", 1} => {:action, Child},
+        {"record", 1} => {:action, Record},
+        {"id", 1} => {:atom, :id}
       })
 
-    assert {:ok, encoded} = Jido.Flow.Codec.encode(definition, registry)
-    assert {:ok, decoded} = Jido.Flow.Codec.decode(encoded, registry)
+    assert {:ok, encoded} = JidoActionTest.FlowCodec.encode(definition, registry)
+    assert {:ok, decoded} = JidoActionTest.FlowCodec.decode(encoded, registry)
 
     for target <- [definition, decoded] do
       assert {:error, %{details: %{expected: :action, actual: :flow}}} =

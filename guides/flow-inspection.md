@@ -111,8 +111,8 @@ map = Jido.Flow.to_map(flow)
 ```
 
 `to_map/1` returns a deterministic map with components in dependency order,
-then by name. Use it for inspection and tests. Use `Jido.Flow.Codec` for
-storage, because Codec records a version and replaces modules and atoms with
+then by name. Use it for inspection and tests. Use `Jido.Authoring` for
+storage, because its Flow document records a version and replaces modules and atoms with
 Registry identifiers. See [Store Flows As JSON](flow-storage.md).
 
 ## Inspect The Executable Workflow

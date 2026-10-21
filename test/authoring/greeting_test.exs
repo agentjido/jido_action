@@ -4,6 +4,7 @@ defmodule JidoActionTest.Authoring.GreetingTest do
   use ExUnit.Case, async: false
   @moduletag :authoring
   alias Jido.Flow.{Codec, Ref}
+  alias JidoActionTest.FlowCodec, as: Codec
   alias JidoActionTest.Authoring.Greeting.{Flow, Greet, Normalize}
 
   test "an authored Action validates input and carries caller context" do

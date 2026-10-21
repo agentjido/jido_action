@@ -34,9 +34,9 @@ API to use. See the guides on HexDocs for explanations and examples.
 - Put request IDs, tenants, and other caller data in context, not params.
 - Implement `on_before_validate_params/1` only for raw input preparation that
   Zoi coercion and defaults cannot express.
-- Use `MyAction.to_json/0` for a JSON-safe description (name, description,
-  input and output JSON Schema). It is descriptive; Zoi validation is
-  authoritative.
+- Use `MyAction.authoring_contract/0` for a JSON-safe description (stable ID, `vsn`,
+  name, description, input and output JSON Schema). It is descriptive; Zoi
+  validation is authoritative.
 - Direct object and struct schemas preserve unknown root keys when their
   default policy is strip. Explicit strict and typed policies stay unchanged.
   Nested and wrapped schemas use their declared policy.
@@ -125,10 +125,10 @@ API to use. See the guides on HexDocs for explanations and examples.
 - Prefer precise schemas with defaults for optional Flow inputs.
 - Use `Jido.Flow.validate/1` for canonical Flow structure and graph rules.
 - Use `Jido.Exec.compile/2` to also check all Flow target contracts.
-- Use `Jido.Flow.Codec.encode/2` and `Jido.Flow.Codec.decode/2` with a trusted
+- Use `Jido.Authoring.encode/2` and `Jido.Authoring.decode/2` with a trusted
   `Jido.Authoring.Registry` for stored JSON data.
-- Use `Jido.Flow.Codec.diagnose/2` when an editor needs all independent stored
-  document and graph errors.
+- Use the ordered issues from `Jido.Authoring.decode/2` when an editor needs
+  stored document and graph errors.
 
 ## Flow Authoring
 
@@ -206,16 +206,40 @@ API to use. See the guides on HexDocs for explanations and examples.
   the decision.
 - Data definitions use only these authoring fields. `Jido.Flow.new/1` rejects
   internal call records.
-- Store all current features with document version 1. Other versions are
+- Store all current features with document `vsn` 1. Other `vsn` values are
   rejected. Data and JSON use the same validation error order.
-- Use `Jido.Flow.Codec.encode/2` and `decode/2` with an application-owned
+- Use `Jido.Authoring.encode/2` and `decode/2` with an application-owned
   `Jido.Authoring.Registry` for stored or transported Flows. Keep Registry
-  identifiers stable.
-- Use `Jido.Flow.Codec.encode/1` only for temporary storage within one
-  application version. Keep the Registry it returns.
-- Use `Jido.Flow.Codec.diagnose/2` when an editor or AI needs every error with
-  its document path.
+  IDs and `vsn` values stable.
+- Use the ordered issues from `Jido.Authoring.decode/2` when an editor or AI
+  needs errors with document paths.
 - Never evaluate stored or generated Elixir source to build a Flow.
+
+## Runtime JSON Authoring
+
+- Give stored Action and Flow references an explicit stable `id:`. Use
+  `vsn:` when the authored module contract is not version 1.
+- Configure `Jido.Discovery` under `:jido_action`. Use an application allowlist
+  for editor or network input.
+- The startup scan includes Action and Flow manifests from `:jido_action` and
+  keeps them as separate Registry kinds. Include each provider application in
+  configuration or refresh Discovery after that application starts.
+- Use `Jido.Discovery.list/0`, `list/1`, `get/2`, and `get_by_target/2` for
+  Action, Flow, schema, and atom entries.
+- Use `Jido.Authoring.encode/2` or `encode_json/2` to encode a canonical value
+  through its discovered codec.
+- Use `Jido.Authoring.decode_json/2` for JSON text and
+  `Jido.Authoring.decode/2` for decoded JSON data.
+- JSON documents default to 8 MiB. Configure `Jido.Authoring` under
+  `:jido_action` or pass `maximum_json_bytes:` to `encode/2`, `encode_json/2`,
+  `decode/2`, or `decode_json/2` for one call.
+- Handle invalid input as an ordered list of `%Jido.Authoring.Issue{}` values.
+  Use stable issue codes and source JSON paths in an editor.
+- Publish schema and atom entries from a static
+  `__jido_authoring__/0` function when Action and Flow module entries are not
+  sufficient.
+- Treat Discovery as an inventory. Apply application authorization before you
+  run a decoded Flow.
 
 ## Validation And Inspection
 
