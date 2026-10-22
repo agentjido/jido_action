@@ -11,6 +11,17 @@ entries return to the normal automated changelog process.
 
 <!-- changelog -->
 
+## [v3.0.0-beta.22](https://github.com/agentjido/jido_action/compare/v3.0.0-beta.21...v3.0.0-beta.22) (2026-10-22)
+
+
+
+
+### Refactoring:
+
+* authoring: centralize runtime authoring by mikehostetler
+
+* authoring: consolidate portable codec support by mikehostetler
+
 ## Unreleased
 
 ### Breaking Changes:

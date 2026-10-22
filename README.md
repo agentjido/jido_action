@@ -36,7 +36,7 @@ Add `jido_action` to your dependencies:
 ```elixir
 def deps do
   [
-    {:jido_action, "~> 3.0.0-beta.21"}
+    {:jido_action, "~> 3.0.0-beta.22"}
   ]
 end
 ```
