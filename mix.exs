@@ -219,6 +219,7 @@ defmodule JidoAction.MixProject do
           Jido.Flow.Extension
         ],
         "Portable Storage": [
+          Jido.PortableTerm,
           Jido.Authoring,
           Jido.Authoring.Error,
           Jido.Authoring.Error.InvalidError,

@@ -213,6 +213,7 @@ Action module | Flow module | %Jido.Flow{} | %Jido.Instruction{}
 | `Jido.Action` | Defines one validated unit of work. |
 | `Jido.Instruction` | Holds one call (target, params, context, metadata) as data. |
 | `Jido.Flow` | Defines and validates a graph of Action calls. |
+| `Jido.PortableTerm` | Validates shared Erlang terms for storage or transport. |
 | `Jido.Authoring` and `Jido.Authoring.Registry` | Store and load Flows as JSON-safe data. |
 | `Jido.Expr` | Evaluates small, data-only expressions in Flow fields. |
 | `Jido.Exec` | Compiles and runs Actions and Flows. |

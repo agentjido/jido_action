@@ -41,6 +41,7 @@ Contents:
 - [Action and Flow errors](#action-and-flow-errors)
 - [Flow definitions and generated modules](#flow-definitions-and-generated-modules)
 - [Expressions](#expressions-jido-expr)
+- [Portable term validation](#portable-term-validation-jidoportableterm)
 - [Stored Flow documents](#stored-flow-documents-jido-flow-codec)
 - [Trusted stored identifiers](#trusted-stored-identifiers-jido-flow-registry)
 - [Execution](#execution-jido-exec)
@@ -1282,6 +1283,27 @@ Keep parser representation, map iterator details, and membership cost reuse
 in normal tests. Keep closed grammar, operation results, host callback
 boundaries, safe error locations, and resource limits in public evidence.
 
+## Portable term validation: `Jido.PortableTerm`
+
+`Jido.PortableTerm` is the shared strict boundary for Erlang terms that an
+application stores or sends to another BEAM instance. It is not a JSON codec.
+It does not change the value.
+
+`validate/2` accepts a term and an atom or list root path. It returns `:ok` or
+`{:error, path}`. `valid?/1` returns a Boolean. The validator checks map keys,
+map values, tuples, and proper lists. It rejects PIDs, ports, references,
+functions, improper lists, and non-byte-aligned bitstrings.
+
+An error path has at most 20 segments. A binary or atom segment has at most
+64 bytes. An integer map key stays in the path only when it is between
+`-9_999_999_999_999_999` and `9_999_999_999_999_999`. Other map keys use a
+bounded index marker. Map traversal has a deterministic term order.
+
+`Jido.Exec` has a different managed execution policy. It uses an internal
+mode of the same traversal. This mode permits improper lists and
+non-byte-aligned bitstrings. It rejects only values that are local to one
+runtime. Exec does not use the strict public `validate/2` function.
+
 ## Runtime authoring: `Jido.Authoring` and `Jido.Discovery`
 
 `Jido.Discovery` scans configured application module lists and explicit
@@ -1936,7 +1958,7 @@ APIs. Their source files use `@moduledoc false` or `@doc false`:
 | Jido.Action.Application | `start/2`; starts the package Task Supervisor. |
 | Jido.Exec.Compiler | `compile/1,2`, `compile!/1,2`, `compile_nested!/2`, `validate/1`, `validate_targets/1`. Use the Exec/Flow facade. |
 | Jido.Exec.Validation | `input/2,3`, `output/2`, `schema/3,4`, `output_schema/3`, `callback/4`, `apply/4`. |
-| Jido.Exec.Portable | `validate/2`; process-local term traversal. |
+| Jido.Exec.Portable | `validate/2`; execution error mapping for process-local term validation. |
 | Jido.Exec.Source | `attach/2,3`; adds diagnostic location details. |
 | Jido.Exec.ValueResolver | `condition/4`, `resolve/2`; resolves references and expressions. |
 | Jido.Exec.Frame | `new/1`, `nest/2`, `merge/1`, `put_result/4`, `item_id/2`, `resolver_state/2`, `effects/2`, `fetch_result/2`, `effects_for/2`, `complete_nested/4`. Frame tuple tags and fields are not stored Flow format. |
