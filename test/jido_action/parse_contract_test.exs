@@ -1,25 +1,28 @@
-defmodule JidoActionTest.Action.OpenValidationContractTest do
+defmodule JidoActionTest.Action.ParseContractTest do
   use Covenant.Case, component: "jido_action.validation", async: true
 
   alias Jido.Action.Error
   alias Jido.Action.Validation
 
   defmodule Value do
-    defstruct [:count]
+    defstruct [:count, :tag]
   end
 
   @tag obligation: "jido_action.validation.I1"
-  test "open validation modes retain distinct struct results and the same map results" do
+  test "parse modes retain distinct struct shapes and the same Zoi field policy" do
     schema = Zoi.struct(Value, %{count: Zoi.integer()}, coerce: true)
     input = %{count: 2, extra: :kept}
 
-    assert {:ok, ^input} = Validation.open_validate(schema, input, %{})
+    assert {:ok, %{count: 2, tag: nil}} = Validation.parse(schema, input, %{})
 
-    assert {:ok, %Value{count: 2}} =
-             Validation.open_validate_preserving_shape(schema, input, %{})
+    assert {:ok, %Value{count: 2, tag: nil}} =
+             Validation.parse_preserving_shape(schema, input, %{})
+
+    assert {:ok, %{count: 2, tag: nil}} =
+             Validation.parse(Zoi.nullable(schema), input, %{})
 
     for validate <- validators() do
-      assert {:ok, ^input} =
+      assert {:ok, %{count: 2}} =
                validate.(Zoi.object(%{count: Zoi.integer()}), input, %{})
 
       assert {:ok, :unchanged} = validate.([], :unchanged, %{})
@@ -28,7 +31,7 @@ defmodule JidoActionTest.Action.OpenValidationContractTest do
   end
 
   @tag obligation: "jido_action.validation.I3"
-  test "open validation modes return the same complete public parse errors" do
+  test "parse modes return the same complete public parse errors" do
     schema = Zoi.object(%{count: Zoi.integer()})
     details = %{phase: :input, errors: :replaced}
     {:error, errors} = Zoi.parse(schema, %{count: "bad"})
@@ -66,6 +69,6 @@ defmodule JidoActionTest.Action.OpenValidationContractTest do
   end
 
   defp validators do
-    [&Validation.open_validate/3, &Validation.open_validate_preserving_shape/3]
+    [&Validation.parse/3, &Validation.parse_preserving_shape/3]
   end
 end

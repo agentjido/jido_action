@@ -37,9 +37,10 @@ API to use. See the guides on HexDocs for explanations and examples.
 - Use `MyAction.authoring_contract/0` for a JSON-safe description (stable ID, `vsn`,
   name, description, input and output JSON Schema). It is descriptive; Zoi
   validation is authoritative.
-- Direct object and struct schemas preserve unknown root keys when their
-  default policy is strip. Explicit strict and typed policies stay unchanged.
-  Nested and wrapped schemas use their declared policy.
+- Direct, nested, and wrapped schemas use their declared Zoi unknown-key
+  policy. Add `unrecognized_keys: :preserve` to each object that must retain
+  undeclared fields. Struct schemas support strip or strict behavior, and a
+  parsed root struct becomes a complete plain map.
 
 ## Running Work
 
@@ -117,11 +118,9 @@ API to use. See the guides on HexDocs for explanations and examples.
 - Validate outputs with `validate_output/1`.
 - Use `on_before_validate_params/1` only for deterministic raw input
   preparation that must happen before Zoi validation.
-- Direct object and struct schemas use open validation at the Flow root:
-  Jido treats Zoi `:strip` as `:preserve`, so declared keys are validated and
-  unknown root keys are preserved.
-- Nested and wrapped schemas use their declared Zoi `unrecognized_keys` policy.
-  Jido keeps Zoi `:error` and typed preservation policies unchanged.
+- Direct, nested, and wrapped schemas use their declared Zoi
+  `unrecognized_keys` policy. Add `:preserve` to each object that must retain
+  undeclared fields. Use `:error` when unknown fields must fail validation.
 - Prefer precise schemas with defaults for optional Flow inputs.
 - Use `Jido.Flow.validate/1` for canonical Flow structure and graph rules.
 - Use `Jido.Exec.compile/2` to also check all Flow target contracts.

@@ -1,12 +1,12 @@
 # Validation survivors; reasons apply to the supported Zoi 0.18.11 contract.
 
-- at: "lib/jido_action/validation.ex:11:44"
+- at: "lib/jido_action/validation.ex:11:36"
   operator: "guard_removal"
   mutation: "`when is_map(details)` → `(no guard)`"
   sort: "equivalent"
   reason: "All admitted calls supply a map for details, as required by the function specification and every Action/Flow caller. Removing this guard preserves those calls."
 
-- at: "lib/jido_action/validation.ex:19:61"
+- at: "lib/jido_action/validation.ex:19:53"
   operator: "guard_removal"
   mutation: "`when is_map(details)` → `(no guard)`"
   sort: "equivalent"
@@ -17,63 +17,3 @@
   mutation: "`map_schema?(inner)` → `nil`"
   sort: "dead-code"
   reason: "Zoi 0.18.11 has no Zoi.Types.Default implementation. Defaults are schema metadata. Action/Flow admission rejects this old wrapper before this classification branch; no current Zoi schema produces it."
-
-- at: "lib/jido_action/validation.ex:98:8"
-  operator: "guard_removal"
-  mutation: "`when is_list(fields) and is_map(data)` → `(no guard)`"
-  sort: "equivalent"
-  reason: "For a non-map input, Zoi returns the same type error before root unknown-key policy applies. Generic Map schemas without field lists use the same fallback policy. Valid object maps already satisfy the removed guard."
-
-- at: "lib/jido_action/validation.ex:98:29"
-  operator: "logical_swap"
-  mutation: "`and` → `or`"
-  sort: "equivalent"
-  reason: "Broadening this guard admits non-map object input or fieldless Map input. Non-map input returns the same Zoi type error; fieldless Maps retain their existing policy because open_root_object only changes field-list objects."
-
-- at: "lib/jido_action/validation.ex:106:8"
-  operator: "guard_removal"
-  mutation: "`when is_list(fields) and is_map(data)` → `(no guard)`"
-  sort: "equivalent"
-  reason: "This strict Struct clause and the fallback both return {Zoi.parse(schema, data), %{}}. Removing the guard changes only which identical expression is selected."
-
-- at: "lib/jido_action/validation.ex:106:29"
-  operator: "logical_swap"
-  mutation: "`and` → `or`"
-  sort: "equivalent"
-  reason: "This strict Struct clause and the fallback both return {Zoi.parse(schema, data), %{}}. Broadening the guard changes only which identical expression is selected."
-
-- at: "lib/jido_action/validation.ex:171:58"
-  operator: "return_nil"
-  mutation: "`true` → `nil`"
-  sort: "equivalent"
-  reason: "parse_schema returns an empty unknown map for every Zoi Map schema. Omitting Map.merge(%{}, validated) preserves the exact result. Struct schemas retain their own clause."
-
-- at: "lib/jido_action/validation.ex:171:25"
-  operator: "element_removal"
-  mutation: "`__struct__: Zoi.Types.Map` → `(removed)`"
-  sort: "equivalent"
-  reason: "This pattern already matches every Zoi Map schema. Broadening it to other schemas changes only merging an empty unknown map; nonempty unknown fields occur only for Struct roots, which already return true."
-
-- at: "lib/jido_action/validation.ex:171:58"
-  operator: "boolean_flip"
-  mutation: "`true` → `false`"
-  sort: "equivalent"
-  reason: "parse_schema returns an empty unknown map for every Zoi Map schema. Omitting Map.merge(%{}, validated) preserves the exact result. Struct schemas retain their own clause."
-
-- at: "lib/jido_action/validation.ex:172:25"
-  operator: "element_removal"
-  mutation: "`__struct__: Zoi.Types.Struct` → `(removed)`"
-  sort: "equivalent"
-  reason: "The preceding Map clause remains first. Broadening the Struct clause affects only schemas whose unknown map is empty. Merging that empty map preserves successful map values, and scalar values bypass the merge."
-
-- at: "lib/jido_action/validation.ex:173:37"
-  operator: "return_nil"
-  mutation: "`false` → `nil`"
-  sort: "equivalent"
-  reason: "The private result is used only as a Boolean condition. Both false and nil skip the same merge."
-
-- at: "lib/jido_action/validation.ex:173:37"
-  operator: "boolean_flip"
-  mutation: "`false` → `true`"
-  sort: "equivalent"
-  reason: "Only Struct roots can produce a nonempty unknown map, and their earlier clause already returns true. All schemas newly admitted by this fallback have an empty unknown map, so merging it preserves their map result. Scalar results bypass the merge."

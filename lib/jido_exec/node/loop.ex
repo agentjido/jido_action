@@ -325,7 +325,7 @@ defmodule Jido.Exec.Node.Loop do
     }
 
     if is_map(value) and not is_struct(value) do
-      case Validation.open_validate_preserving_shape(node.state.schema, value, details) do
+      case Validation.parse_preserving_shape(node.state.schema, value, details) do
         {:ok, validated} when is_map(validated) and not is_struct(validated) ->
           {:ok, validated}
 

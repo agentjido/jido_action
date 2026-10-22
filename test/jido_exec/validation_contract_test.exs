@@ -59,10 +59,10 @@ defmodule Jido.Exec.ValidationContractTest do
     use Jido.Action,
       name: "prepared_validation_contract",
       schema:
-        Zoi.object(%{value: Zoi.integer()})
+        Zoi.object(%{value: Zoi.integer()}, unrecognized_keys: :preserve)
         |> Zoi.transform({Jido.Exec.ValidationContractTest, :transform, [:input]}),
       output_schema:
-        Zoi.object(%{value: Zoi.integer()})
+        Zoi.object(%{value: Zoi.integer()}, unrecognized_keys: :preserve)
         |> Zoi.transform({Jido.Exec.ValidationContractTest, :transform, [:output]})
 
     def on_before_validate_params(%{test_pid: pid} = value) do
@@ -261,7 +261,7 @@ defmodule Jido.Exec.ValidationContractTest do
   end
 
   @tag obligation: ["jido_action.boundary.I1", "jido_action.boundary.I3"]
-  test "preparation and Action schemas run once and retain unknown root keys" do
+  test "preparation and Action schemas run once with explicit key preservation" do
     assert {:ok, %{value: 3, extra: :kept}} =
              Exec.run(PreparedAction, %{test_pid: self(), value: "1", extra: :kept})
 
@@ -328,7 +328,9 @@ defmodule Jido.Exec.ValidationContractTest do
   end
 
   defp transform_schema(phase),
-    do: Zoi.object(%{value: Zoi.integer()}) |> Zoi.transform({__MODULE__, :transform, [phase]})
+    do:
+      Zoi.object(%{value: Zoi.integer()}, unrecognized_keys: :preserve)
+      |> Zoi.transform({__MODULE__, :transform, [phase]})
 
   defp boundaries(ActionValidator, phase) do
     [{ActionValidator, phase, nil}, {ParentAction, phase, ["child"]}]

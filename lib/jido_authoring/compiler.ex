@@ -5,18 +5,16 @@ defmodule Jido.Authoring.Compiler do
   Validates the input parameters for the Action.
 
   Runs `on_before_validate_params/1` when the Action implements it, then applies
-  the input schema. Returns `{:ok, validated_params}` or `{:error, reason}`. A
-  direct object or struct schema preserves unknown root keys. Nested and
-  wrapped schemas use their Zoi unknown-key policy.
+  the input schema. Returns `{:ok, validated_params}` or `{:error, reason}`.
+  Direct, nested, and wrapped schemas use their declared Zoi unknown-key policy.
   """
 
   @validate_output_doc """
   Validates the output result for the Action.
 
   Returns `{:ok, validated_output}` or
-  `{:error, %Jido.Action.Error.InvalidInputError{}}`. A direct object or struct
-  schema preserves unknown root keys. Nested and wrapped schemas use their Zoi
-  unknown-key policy. An explicit
+  `{:error, %Jido.Action.Error.InvalidInputError{}}`. Direct, nested, and wrapped
+  schemas use their declared Zoi unknown-key policy. An explicit
   `Jido.Action.Output` envelope is validated as an envelope.
   """
 

@@ -213,14 +213,14 @@ defmodule JidoActionTest.Property.Action.BoundaryContractTest do
       end)
     end
 
-    # Action root validation preserves undeclared fields.
+    # Action root validation uses the declared default strip policy.
     Runtime.with_context(fn context ->
       input = %{value: value, extra: %{value: value}}
 
       assert {:ok, %{value: ^value}, [:request]} =
                Exec.run(Validated, input, context, Runtime.options(context))
 
-      Runtime.assert_calls(context, [input])
+      Runtime.assert_calls(context, [%{value: value}])
     end)
   end
 

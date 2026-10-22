@@ -179,26 +179,25 @@ input parsing, Action work, and output parsing. At Exec, each validator must
 return `{:ok, map}`; an output validator can also return a valid Output
 envelope. The root and nested boundaries check these return shapes.
 
-A direct object root changes Zoi's default `:strip` policy to `:preserve`.
-Declared root fields are validated and unknown root fields stay. Explicit
-`:error` remains strict. Typed unknown-key preservation still checks the
-unknown keys and values. This rule does not recursively open nested or
-wrapped schemas. They use their Zoi policy.
+Direct, nested, and wrapped object schemas use their declared Zoi unknown-key
+policy. Zoi's default `:strip` policy removes unknown keys. Explicit
+`:preserve`, `:error`, and typed-preservation policies retain their Zoi
+behavior. Jido does not rewrite a root policy or merge stripped fields back
+into the parsed result.
 
-A direct struct schema validates the struct, including its refinements, then
-normally returns a plain map. With no root transform, undeclared struct
-defaults stay absent unless the input supplied them. With a root transform
-that returns a struct, all final struct fields remain in the returned map.
-An input-only field removed by a transform is not inserted again as a declared
-field. For direct struct roots, separately retained unknown fields are merged
-with the result, with validated values winning on a collision. A transform
-that returns a scalar still fails at the Action or Flow map boundary.
+A struct schema also uses its declared Zoi policy. Zoi supports `:strip` and
+`:error` for structs, but not unknown-key preservation. When parsing returns a
+struct, the Action and Flow boundary converts the complete parsed struct to a
+plain map with `Map.from_struct/1`. Jido does not inspect transform metadata or
+select a second field set. A transform that returns a plain map stays a plain
+map. A transform that returns a scalar still fails at the Action or Flow map
+boundary.
 
 String keys and scalar coercion require the corresponding Zoi coercion option.
 Object `coerce: true` accepts string forms of declared atom keys and returns
-the declared keys. Field `coerce: true` converts field values. Unknown string
-keys remain strings in an open root. Jido does not add general string-to-atom
-conversion for input.
+the declared keys. Field `coerce: true` converts field values. With explicit
+unknown-key preservation, undeclared string keys remain strings. Jido does not
+add general string-to-atom conversion for input.
 
 Schema parse errors become `Jido.Action.Error.InvalidInputError`. Details
 include caller boundary context and `errors`, a list of maps with `path`,
@@ -217,18 +216,18 @@ validator raise, throw, or exit becomes `ExecutionFailureError`; it retains
 A normal scalar Action output is rejected before the custom output validator
 runs. An Output value is checked before and after a custom output validator.
 
-The internal `open_validate_preserving_shape/3` mode keeps a validated struct
+The internal `parse_preserving_shape/3` function keeps a parsed struct
 instead of projecting it to a map. It is used where the caller owns a
 non-Action data shape. This helper is not a second public Action validation
 API. Its direct scalar and lazy-schema tests do not establish public support
 for scalar Action results or lazy Action configuration.
 
-Source: [shared validation](https://github.com/agentjido/jido_action/blob/v3.0.0-beta.21/lib/jido_action/validation.ex),
-[Exec validation](https://github.com/agentjido/jido_action/blob/v3.0.0-beta.21/lib/jido_exec/validation.ex).
-Evidence: [schema tests](https://github.com/agentjido/jido_action/blob/v3.0.0-beta.21/test/jido_action/validation_test.exs),
-[open validation tests](https://github.com/agentjido/jido_action/blob/v3.0.0-beta.21/test/jido_action/open_validation_contract_test.exs),
-[execution boundary tests](https://github.com/agentjido/jido_action/blob/v3.0.0-beta.21/test/jido_exec/validation_contract_test.exs),
-[composed schema test](https://github.com/agentjido/jido_action/blob/v3.0.0-beta.21/test/authoring/schema_pipeline_test.exs).
+Source: [shared validation](https://github.com/agentjido/jido_action/blob/release/v3/lib/jido_action/validation.ex),
+[Exec validation](https://github.com/agentjido/jido_action/blob/release/v3/lib/jido_exec/validation.ex).
+Evidence: [schema tests](https://github.com/agentjido/jido_action/blob/release/v3/test/jido_action/validation_test.exs),
+[parse contract tests](https://github.com/agentjido/jido_action/blob/release/v3/test/jido_action/parse_contract_test.exs),
+[execution boundary tests](https://github.com/agentjido/jido_action/blob/release/v3/test/jido_exec/validation_contract_test.exs),
+[composed schema test](https://github.com/agentjido/jido_action/blob/release/v3/test/authoring/schema_pipeline_test.exs).
 See [Schemas And Validation](schemas-validation.md) for examples of root,
 strict-policy, and nested-schema behavior.
 
@@ -574,7 +573,7 @@ make each export a separate public promise.
 | Module | Internal exports reviewed |
 | --- | --- |
 | `Jido.Action` | `validate_params_for/2`, `validate_output_for/2`. |
-| Jido.Action.Validation | `open_validate/3`, `open_validate_preserving_shape/3`, `zoi_schema?/1`, `map_schema?/1`. |
+| Jido.Action.Validation | `parse/3`, `parse_preserving_shape/3`, `zoi_schema?/1`, `map_schema?/1`. |
 | `Jido.Action.Output` | `validate/1`. |
 | Jido.Authoring.Compiler | `__using__/1` macro, `compile_json/2`, `json!/1`. Generated `__jido_authoring_kind__/0` is an internal target marker. |
 | Jido.Authoring.Config | `validate_name/1-2`, `validate_config_schema/1-2`, `validate_map_schema/1-2`, `validate_static_data/1`, `prepare!/3`, `validate_flow/1`, `flow_name/1`, `description/1`, `schema/2`. |

@@ -280,7 +280,7 @@ defmodule Jido.Action.InlineTest do
     target = Inline.target!(owner, path("typed"))
     assert target.name() == "public_name"
     assert target.description() == "typed callback"
-    assert {:ok, %{value: 4, extra: true}} = target.validate_params(%{extra: true})
+    assert {:ok, %{value: 4}} = target.validate_params(%{extra: true})
     refute_received :typed_body
 
     assert {:error, %Jido.Action.Error.InvalidInputError{}} =

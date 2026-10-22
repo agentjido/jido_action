@@ -15,9 +15,9 @@ and `ACT-003` and retain tests for the internal validation rule.
 - **kind:** functional
 - **status:** active
 
-### jido_action.validation.I2 — Root and nested unknown-key policies remain distinct
+### jido_action.validation.I2 — Every boundary honors the declared unknown-key policy
 - **scope:** `Jido.Action.validate_params/1`, `Jido.Action.validate_output/1`, `Jido.Flow.validate_params/1`, `Jido.Flow.validate_output/1`
-- **must:** Preserve unknown keys at direct object and struct roots when the default strip policy applies. Honor explicit strict and typed preservation policies. Nested and wrapped schemas, collections, combinations and map sets retain Zoi's declared policy rather than receiving an implicit root policy.
+- **must:** Honor Zoi's declared strip, preserve, strict and typed-preservation policies at direct, nested and wrapped boundaries, including collections, combinations and map sets. Do not merge stripped input fields back into parsed results. Project a parsed root struct to one plain map with all fields from that parsed struct and no added input fields.
 - **kind:** functional
 - **status:** active
 

@@ -29,6 +29,9 @@ entries return to the normal automated changelog process.
 - Replace `Jido.Flow.Registry` with the owner-neutral
   `Jido.Authoring.Registry`. Use `Jido.Flow.Codec.encode/1` when temporary
   generated identifiers are sufficient.
+- Honor each Zoi schema's declared unknown-key policy at Action, Flow, and
+  Iterate State boundaries. Add `unrecognized_keys: :preserve` to object
+  schemas that must retain undeclared fields.
 
 ### Features:
 

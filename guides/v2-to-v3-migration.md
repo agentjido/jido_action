@@ -142,19 +142,18 @@ end
 Build runtime-dependent input before the Action call. Do not store a process,
 reference, port, or anonymous function in an Action schema.
 
-### Declare The Unknown-Key Policy For Nested Data
+### Declare The Unknown-Key Policy At Every Object Boundary
 
-Version 3 preserves unknown keys for direct root object schemas whose policy
-is `:strip`, and for direct root struct schemas unless their policy is
-`:error`. Explicit strict and typed object policies remain active. Nested
-and wrapped schemas keep their declared Zoi unknown-key policy.
+Version 3 uses the declared Zoi unknown-key policy at direct, nested, and
+wrapped boundaries. Zoi object schemas strip unknown keys by default. Explicit
+`:preserve`, `:error`, and typed preservation policies remain active.
 
 Code that relied on version 2 open validation can lose or reject keys after
-the upgrade. Check both root and nested policies. See
+the upgrade. Check input and output schemas at every boundary. See
 [Schemas And Validation](schemas-validation.md#action-schemas).
 
-Set `unrecognized_keys: :preserve` on each nested object that must keep its
-unknown keys:
+Set `unrecognized_keys: :preserve` on each object that must keep its unknown
+keys:
 
 ```elixir
 schema:
@@ -167,8 +166,9 @@ schema:
   })
 ```
 
-Use `:error` when an unknown nested key must fail validation. Use the Zoi
-default only when stripping unknown nested keys is correct.
+Use `:error` when an unknown key must fail validation. Use the Zoi default only
+when stripping unknown keys is correct. Struct schemas do not support unknown
+key preservation. Declare each required struct field, or use an object schema.
 
 ### Remove Five Action Lifecycle Hooks
 

@@ -10,10 +10,13 @@ defmodule MyApp.Actions.Price do
   use Jido.Action,
     name: "price",
     schema:
-      Zoi.object(%{
-        quantity: Zoi.integer() |> Zoi.min(1),
-        unit_price: Zoi.number()
-      }),
+      Zoi.object(
+        %{
+          quantity: Zoi.integer() |> Zoi.min(1),
+          unit_price: Zoi.number()
+        },
+        unrecognized_keys: :preserve
+      ),
     output_schema: Zoi.object(%{total: Zoi.number()})
 
   @impl true
@@ -26,16 +29,18 @@ end
 An Action schema must accept map-shaped data. `[]` means that no field schema
 is applied, but the Action boundary still requires a map.
 
-Direct object and struct schemas are open at the Jido boundary. Declared root
-fields are validated. Unknown root fields stay in the returned map. Jido treats
-Zoi `unrecognized_keys: :strip` as `:preserve` at this root. Zoi `:error` and
-typed preservation policies stay unchanged.
+Direct, nested, and wrapped schemas keep their declared Zoi unknown-key policy.
+Zoi object schemas strip unknown keys by default. Use
+`unrecognized_keys: :preserve` when an Action or Flow must retain them. Use
+`:error` to reject them, or a typed preservation policy to validate and retain
+them.
 
-Struct validation returns a map. Without a root transform, undeclared struct
-defaults stay absent unless the input supplied them. If a root transform
-returns a struct, all fields in that final struct stay in the returned map.
-This applies when the transform returns a different struct or adds fields to
-the original struct. Action and Flow input and output schemas use this rule.
+Struct schemas use Zoi's `:strip` or `:error` policy. Zoi does not support an
+unknown-key preservation policy for structs. Declare each required struct
+field, or use an object schema when arbitrary additional fields must survive.
+When Zoi returns a struct, Action and Flow validation converts the complete
+parsed struct to a plain map. A transform that returns a plain map or another
+value keeps that result unchanged, subject to the Action and Flow map boundary.
 
 ```elixir
 {:ok, validated} =
@@ -48,8 +53,7 @@ the original struct. Action and Flow input and output schemas use this rule.
 validated.request_tag
 ```
 
-Nested and wrapped schemas use normal Zoi unknown-key behavior. Set the policy
-on each nested object that must preserve unknown fields.
+Set the policy on each object that must preserve unknown fields.
 
 ```elixir
 Zoi.object(%{
@@ -84,8 +88,8 @@ schema =
   Zoi.parse(schema, %{"quantity" => "3", "unit_price" => "2.5"})
 ```
 
-The validated map uses atom keys for declared fields. Undeclared string keys
-stay as strings in the open root.
+The validated map uses atom keys for declared fields. When the object uses
+`unrecognized_keys: :preserve`, undeclared string keys stay as strings.
 
 ## Flow Schemas
 

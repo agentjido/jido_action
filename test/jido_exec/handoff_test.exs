@@ -49,6 +49,14 @@ defmodule Jido.Exec.HandoffTest do
     def run(_params, _context), do: raise("successor must run in a new Turn")
   end
 
+  defmodule PortableTarget do
+    use Jido.Action,
+      name: "handoff_portable_target",
+      schema: Zoi.object(%{value: Zoi.integer(), resource: Zoi.any()})
+
+    def run(_params, _context), do: raise("successor must run in a new Turn")
+  end
+
   defmodule Decide do
     use Jido.Action, name: "handoff_decide"
     def run(params, _context), do: {:ok, params, [:predecessor_effect]}
@@ -223,9 +231,13 @@ defmodule Jido.Exec.HandoffTest do
     assert {:handoff, %Instruction{}, _effects} = hd(results)
   end
 
-  test "handoff envelopes reject invalid targets and non-portable input" do
+  test "handoff envelopes reject invalid targets and declared non-portable input" do
     assert {:error, _} = Handoff.new(Enum, %{})
-    assert {:error, _} = Handoff.new(Target, %{value: 1, resource: self()})
+
+    assert {:ok, %Handoff{params: %{value: 1}}} =
+             Handoff.new(Target, %{value: 1, resource: self()})
+
+    assert {:error, _} = Handoff.new(PortableTarget, %{value: 1, resource: self()})
 
     for runtime <- [context: %{tenant: "tenant"}, metadata: %{request_id: "request"}] do
       bound = Instruction.new!([target: Target] ++ [runtime])

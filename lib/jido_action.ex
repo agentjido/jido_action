@@ -22,10 +22,10 @@ defmodule Jido.Action do
 
   The generated `validate_params/1` and `validate_output/1` functions apply the
   declared schemas. An Action can implement `c:on_before_validate_params/1` to
-  prepare raw input before its schema runs. Direct object and struct root
-  schemas preserve unknown keys when their policy is `:strip`. Explicit strict
-  and typed policies stay in effect. Nested and wrapped schemas keep their
-  declared policy. See [Schemas And Validation](schemas-validation.md).
+  prepare raw input before its schema runs. Direct, nested, and wrapped schemas
+  keep their declared Zoi unknown-key policy. Parsed struct results become
+  plain maps at the Action boundary. See
+  [Schemas And Validation](schemas-validation.md).
 
   A direct `run/2` call runs in the calling process. It does not start a task
   or add validation. Validate both boundaries explicitly when you call

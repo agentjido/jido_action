@@ -40,7 +40,7 @@ defmodule Jido.Exec.Validation do
   @spec schema(term(), term(), map(), String.t() | nil) ::
           {:ok, map()} | {:error, Error.InvalidInputError.t()}
   def schema(schema, value, details, message \\ nil) do
-    with {:ok, validated} <- Jido.Action.Validation.open_validate(schema, value, details) do
+    with {:ok, validated} <- Jido.Action.Validation.parse(schema, value, details) do
       if is_map(validated) do
         {:ok, validated}
       else
