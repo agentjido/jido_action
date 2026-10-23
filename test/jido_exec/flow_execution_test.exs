@@ -125,7 +125,7 @@ defmodule Jido.Exec.FlowExecutionTest do
       assert {:error, %Jido.Action.Error.InvalidInputError{} = error} =
                Exec.run(target, %{value: 1})
 
-      assert Exception.message(error) == "Action output validation must return a map"
+      assert error.details.phase == :flow_output
     end
 
     raw = flow!("raw_output", [step("raw", RawAction, %{})], Ref.result("raw"))

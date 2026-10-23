@@ -6,16 +6,12 @@ defmodule Jido.Action.Validation do
   @doc false
   @spec parse(term(), term(), map()) ::
           {:ok, term()} | {:error, Error.InvalidInputError.t()}
-  def parse([], data, _details), do: {:ok, data}
-
   def parse(schema, data, details) when is_map(details),
     do: parse(schema, data, details, &normalize_result/1)
 
   @doc false
   @spec parse_preserving_shape(term(), term(), map()) ::
           {:ok, term()} | {:error, Error.InvalidInputError.t()}
-  def parse_preserving_shape([], data, _details), do: {:ok, data}
-
   def parse_preserving_shape(schema, data, details) when is_map(details),
     do: parse(schema, data, details, &{:ok, &1})
 

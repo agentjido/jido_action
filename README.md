@@ -187,7 +187,7 @@ an arbitrary module or create atoms:
 registry =
   Jido.Authoring.Registry.new!(%{
     {"actions/greet-user", 1} => {:action, MyApp.Actions.GreetUser},
-    {"schemas/none", 1} => {:schema, []},
+    {"schemas/map", 1} => {:schema, Zoi.map()},
     {"atoms/name", 1} => {:atom, :name}
   })
 

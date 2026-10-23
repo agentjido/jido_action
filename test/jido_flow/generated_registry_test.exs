@@ -27,7 +27,7 @@ defmodule Jido.Flow.GeneratedRegistryTest do
     assert {:ok, NestedFlow} =
              Registry.resolve(registry, {"flows/generated-1", 1}, :flow)
 
-    assert {:ok, []} =
+    assert {:ok, %Zoi.Types.Map{}} =
              Registry.resolve(registry, {"schemas/generated-1", 1}, :schema)
 
     for {atom, index} <-

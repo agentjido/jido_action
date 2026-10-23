@@ -221,7 +221,7 @@ defmodule JidoActionTest.Flow.CanonicalDataTest do
             kind: :iterate,
             name: "loop",
             action: Add,
-            state: %{schema: [], initial: %{}, update: %{}},
+            state: %{schema: Zoi.map(), initial: %{}, update: %{}},
             completion: true,
             max_iterations: 1
           }

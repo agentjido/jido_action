@@ -19,10 +19,11 @@ defmodule JidoActionTest.ActionTest do
       assert fields |> field_keys() |> Enum.sort() == [:a, :b]
     end
 
-    test "creates a valid action with no schema" do
+    test "creates a valid action with default schemas" do
       assert NoSchema.name() == "add_two"
       assert NoSchema.description() == "Adds 2 to the input value"
-      assert NoSchema.schema() == []
+      assert %Zoi.Types.Map{} = NoSchema.schema()
+      assert %Zoi.Types.Map{} = NoSchema.output_schema()
     end
 
     test "exposes a JSON-safe Action description" do
@@ -47,7 +48,10 @@ defmodule JidoActionTest.ActionTest do
                }
              } = description
 
-      assert %{"input_schema" => nil, "output_schema" => nil} = NoSchema.authoring_contract()
+      assert %{
+               "input_schema" => %{"type" => "object"},
+               "output_schema" => %{"type" => "object"}
+             } = NoSchema.authoring_contract()
     end
 
     test "reports an Action schema without a JSON Schema representation" do
@@ -368,9 +372,9 @@ defmodule JidoActionTest.ActionTest do
       assert {:error, "Action name must be a string."} = Config.validate_name([])
     end
 
-    test "accepts empty schema sentinel and Zoi schemas" do
-      assert :ok = Config.validate_config_schema([])
+    test "accepts Zoi schemas and rejects empty lists" do
       assert :ok = Config.validate_config_schema(Zoi.object(%{value: Zoi.integer()}))
+      assert {:error, "must be a Zoi schema"} = Config.validate_config_schema([])
     end
 
     test "rejects non-Zoi schemas" do

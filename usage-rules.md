@@ -17,10 +17,12 @@ API to use. See the guides on HexDocs for explanations and examples.
 
 ## Actions
 
-- Define Actions with `use Jido.Action, name: ..., schema: ..., output_schema: ...`.
-  `name` is required. Implement `run/2`; a missing `run/2` is a compile error.
-- Use Zoi schemas. Omit a schema (or use `[]`) only when validation is
-  intentionally empty. Schemas must accept maps.
+- Define Actions with `use Jido.Action, name: ..., schema: ...`.
+  `name` is required. Both schemas default to `Zoi.map()`. Declare `schema:` or
+  `output_schema:` when callers need a more specific shape. Implement `run/2`;
+  a missing `run/2` is a compile error.
+- Use Zoi schemas. Omit a schema when generic map validation is enough.
+  Schemas must accept maps. An empty list is not a schema.
 - Keep schemas static. Do not use anonymous functions or `Zoi.lazy` in
   schemas. Use MFA tuples for refinements and transforms:
   `Zoi.refine({__MODULE__, :check, []})`.
@@ -135,8 +137,8 @@ API to use. See the guides on HexDocs for explanations and examples.
 ## Flow Authoring
 
 - Use `use Jido.Flow, name: ...` and a `flow do ... end` block as the normal
-  way to write a Flow. Add `schema:` and `output_schema:` for Flow input and
-  output.
+  way to write a Flow. Both schemas default to `Zoi.map()`. Add `schema:` or
+  `output_schema:` for a more specific boundary.
 - Add `:jido_action` to `import_deps` in `.formatter.exs`.
 - Give every component a unique string name.
 - End every Flow with `output <expression>`. It is required and must be the

@@ -116,7 +116,7 @@ defmodule Jido.Flow.DSL.NestedSourceTest do
     {error, _source} =
       compile_error("""
       iterate "loop" do
-        state [], initial: %{}
+        state Zoi.map(), initial: %{}
         action Echo
         params %{}
         update item()
@@ -133,7 +133,7 @@ defmodule Jido.Flow.DSL.NestedSourceTest do
     {error, _source} =
       compile_error("""
       iterate "loop" do
-        state [], initial: item()
+        state Zoi.map(), initial: item()
         action Echo
         params %{}
         update item()
@@ -174,7 +174,7 @@ defmodule Jido.Flow.DSL.NestedSourceTest do
            """, "option", "unsupported Flow condition: 1"},
           {"""
            iterate "loop" do
-             state [], initial: %{}
+             state Zoi.map(), initial: %{}
              action Echo
              while 1
              update System.system_time()
@@ -185,7 +185,7 @@ defmodule Jido.Flow.DSL.NestedSourceTest do
            """, "params Date", "unsupported Flow expression: Date.utc_today()"},
           {"""
            iterate "loop" do
-             state [], initial: %{}
+             state Zoi.map(), initial: %{}
              action Echo
              while 1
              update Date.utc_today()
@@ -259,13 +259,13 @@ defmodule Jido.Flow.DSL.NestedSourceTest do
       :state_parse ->
         {"""
          iterate "loop" do
-           #{state} [], initial: [Date.utc_today()]
+           #{state} Zoi.map(), initial: [Date.utc_today()]
            action Echo
            params %{}
            repeat 1
          end
          output result("loop")
-         """, "#{state} []"}
+         """, "#{state} Zoi.map()"}
 
       :state_schema ->
         {"""

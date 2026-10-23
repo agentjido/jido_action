@@ -25,7 +25,7 @@ defmodule JidoActionTest.Action.ParseContractTest do
       assert {:ok, %{count: 2}} =
                validate.(Zoi.object(%{count: Zoi.integer()}), input, %{})
 
-      assert {:ok, :unchanged} = validate.([], :unchanged, %{})
+      assert {:error, %{message: "Unsupported schema type"}} = validate.([], :unchanged, %{})
       assert {:ok, 2} = validate.(Zoi.integer(), 2, %{})
     end
   end

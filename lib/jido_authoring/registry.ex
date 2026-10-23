@@ -8,14 +8,14 @@ defmodule Jido.Authoring.Registry do
 
   @maximum_entries 10_000
   @identifier_pattern ~r/\A[A-Za-z0-9][A-Za-z0-9._\/:@-]{0,254}\z/
-  @none_schema %{
-    id: "jido/schemas/none",
+  @map_schema %{
+    id: "jido/schemas/map",
     kind: :schema,
     vsn: 1,
-    target: [],
+    target: Zoi.map(),
     provider: __MODULE__,
-    name: "No schema",
-    description: "The empty Jido schema"
+    name: "Map schema",
+    description: "The default Jido map schema"
   }
 
   @type stable_id :: String.t()
@@ -93,7 +93,7 @@ defmodule Jido.Authoring.Registry do
   @spec new_discovered([manifest()], [codec()]) :: {:ok, t()} | {:error, term()}
   def new_discovered(manifests, codecs) do
     manifests =
-      [@none_schema | manifests]
+      [@map_schema | manifests]
       |> Enum.sort_by(&{&1.id, &1.vsn, Atom.to_string(&1.kind), Atom.to_string(&1.provider)})
 
     codecs = Enum.sort_by(codecs, &{&1.type, &1.vsn, Atom.to_string(&1.module)})

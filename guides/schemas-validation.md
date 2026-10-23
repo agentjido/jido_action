@@ -26,8 +26,8 @@ defmodule MyApp.Actions.Price do
 end
 ```
 
-An Action schema must accept map-shaped data. `[]` means that no field schema
-is applied, but the Action boundary still requires a map.
+An Action schema must accept map-shaped data. Omitted and `nil` schemas use
+`Zoi.map()`. An explicit `[]` is invalid because it is not a Zoi schema.
 
 Direct, nested, and wrapped schemas keep their declared Zoi unknown-key policy.
 Zoi object schemas strip unknown keys by default. Use

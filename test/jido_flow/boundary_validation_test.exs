@@ -113,25 +113,27 @@ defmodule Jido.Flow.BoundaryValidationTest do
   end
 
   test "Iterate state rejects incomplete and unknown authoring data" do
+    schema = Zoi.map()
+
     valid = %{
       kind: :iterate,
       name: "iterate",
       action: Add,
-      state: %{schema: [], initial: %{}, update: %{}},
+      state: %{schema: schema, initial: %{}, update: %{}},
       completion: true,
       max_iterations: 1
     }
 
-    assert {:ok, {"iterate", %{state: %{schema: [], initial: %{}, update: %{}}}}} =
+    assert {:ok, {"iterate", %{state: %{schema: ^schema, initial: %{}, update: %{}}}}} =
              Definition.component(valid)
 
     for state <- [
           :bad,
           [:not_keyword],
-          %{schema: [], initial: %{}, update: %{}, extra: true},
+          %{schema: Zoi.map(), initial: %{}, update: %{}, extra: true},
           %{schema: fn -> :bad end, initial: %{}, update: %{}},
-          %{schema: [], update: %{}},
-          %{schema: [], initial: %{}}
+          %{schema: Zoi.map(), update: %{}},
+          %{schema: Zoi.map(), initial: %{}}
         ] do
       assert {:error, %InvalidDefinitionError{}} =
                valid
@@ -218,7 +220,7 @@ defmodule Jido.Flow.BoundaryValidationTest do
     assert {:error, _error} =
              Flow.new(%{name: "", components: [valid_step], output: Ref.result("step")})
 
-    assert {:ok, %Flow{schema: [], output_schema: []}} =
+    assert {:ok, %Flow{schema: %Zoi.Types.Map{}, output_schema: %Zoi.Types.Map{}}} =
              Flow.new(%{
                name: "nil_schemas",
                schema: nil,

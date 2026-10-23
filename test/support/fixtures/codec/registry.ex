@@ -10,7 +10,8 @@ defmodule JidoActionTest.Fixtures.CodecRegistry do
       {"actions/add", 1} => {:action, Add},
       {"actions/multiply", 1} => {:action, Multiply},
       {"flows/nested", 1} => {:flow, NestedFlow},
-      {"schemas/empty", 1} => {:schema, []},
+      {"schemas/map", 1} => {:schema, Zoi.map()},
+      {"schemas/object", 1} => {:schema, Zoi.object(%{})},
       {"atoms/add", 1} => {:atom, :add},
       {"atoms/amount", 1} => {:atom, :amount},
       {"atoms/count", 1} => {:atom, :count},
@@ -27,7 +28,7 @@ defmodule JidoActionTest.Fixtures.CodecRegistry do
     Registry.new!(%{
       {"action/add/v1", 1} => {:action, Add},
       {"action/multiply/v1", 1} => {:action, Multiply},
-      {"schema/empty/v1", 1} => {:schema, []},
+      {"schema/map/v1", 1} => {:schema, Zoi.map()},
       {"atom/amount/v1", 1} => {:atom, :amount},
       {"atom/atom-key/v1", 1} => {:atom, :atom_key},
       {"atom/bad/v1", 1} => {:atom, :bad},

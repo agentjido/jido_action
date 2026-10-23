@@ -37,8 +37,6 @@ defmodule Jido.Authoring.Config do
   @spec validate_config_schema(term(), keyword()) :: :ok | {:error, String.t()}
   def validate_config_schema(value, _opts \\ [])
 
-  def validate_config_schema([], _opts), do: :ok
-
   def validate_config_schema(value, _opts) do
     if Validation.zoi_schema?(value) do
       :ok
@@ -51,7 +49,7 @@ defmodule Jido.Authoring.Config do
   @spec validate_map_schema(term(), keyword()) :: :ok | {:error, String.t()}
   def validate_map_schema(value, opts \\ []) do
     with :ok <- validate_config_schema(value, opts) do
-      if value == [] or Validation.map_schema?(value) do
+      if Validation.map_schema?(value) do
         :ok
       else
         {:error, "must accept map-shaped data"}
@@ -171,6 +169,10 @@ defmodule Jido.Authoring.Config do
 
   defp validate_field(_kind, field, _value) when field in [:name, :description],
     do: {:error, :string}
+
+  defp validate_field(_kind, field, nil)
+       when field in [:schema, "schema", :output_schema, "output_schema"],
+       do: {:ok, Zoi.map()}
 
   defp validate_field(_kind, _field, nil), do: {:ok, []}
 

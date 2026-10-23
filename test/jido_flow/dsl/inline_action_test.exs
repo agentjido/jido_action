@@ -280,7 +280,7 @@ defmodule Jido.Flow.DSL.InlineActionTest do
       """,
       """
       iterate "increment" do
-        state [], initial: %{value: 0}
+        state Zoi.map(), initial: %{value: 0}
         action value <- state(:value), do: {:ok, %{value: value + 1}}
         repeat 1
       end
@@ -371,7 +371,7 @@ defmodule Jido.Flow.DSL.InlineActionTest do
         end
 
         iterate "loop" do
-          state [], initial: result("increment")
+          state Zoi.map(), initial: result("increment")
           action Target
           params %{value: state(:value)}
           repeat 1

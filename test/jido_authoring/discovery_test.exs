@@ -164,8 +164,8 @@ defmodule Jido.Authoring.DiscoveryTest do
     assert Registry.resolve(registry, {"tests/flows/alpha", 3}, :flow) ==
              {:ok, AlphaFlow}
 
-    assert Registry.resolve(registry, {"jido/schemas/none", 1}, :schema) ==
-             {:ok, []}
+    assert Registry.resolve(registry, {"jido/schemas/map", 1}, :schema) ==
+             {:ok, Zoi.map()}
 
     assert [%{target: AlphaActionV1}, %{target: AlphaAction}, %{target: BetaAction}] =
              Discovery.list(:action)

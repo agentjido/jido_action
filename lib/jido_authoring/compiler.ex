@@ -123,8 +123,6 @@ defmodule Jido.Authoring.Compiler do
   def contract!({:ok, contract}), do: contract
   def contract!({:error, message}), do: raise(ArgumentError, message)
 
-  defp compile_json_schema([], _option), do: nil
-
   defp compile_json_schema(schema, option) do
     Zoi.to_json_schema(schema)
   rescue

@@ -16,7 +16,7 @@ defmodule Jido.Flow.DSL.SourceMapTest do
           otherwise action: Echo, params: %{}
         end
         iterate "loop" do
-          state [], initial: %{}
+          state Zoi.map(), initial: %{}
           action Echo
           params state()
           repeat 1

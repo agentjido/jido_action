@@ -56,8 +56,8 @@ end
 
 ## Encode And Decode
 
-The active Registry must contain the Action, input schema, empty output
-schema, and atoms used by this Flow. Configure these entries as described in
+The active Registry must contain the Action, input schema, and atoms used by
+this Flow. Configure these entries as described in
 [Authoring Runtime Data](authoring.md#configure-discovery).
 
 After Discovery includes the application vocabulary, use the common Authoring
@@ -96,7 +96,7 @@ The document root has these fields:
 %{"type" => "jido.flow", "vsn" => 1, "name" => "greeting"} =
   Map.take(document, ["type", "vsn", "name"])
 
-["components", "description", "name", "output", "output_schema", "schema", "type", "vsn"] =
+["components", "description", "name", "output", "schema", "type", "vsn"] =
   document |> Map.keys() |> Enum.sort()
 ```
 

@@ -225,7 +225,7 @@ defmodule JidoActionTest.Fixtures.ChildIterator do
 
   flow do
     iterate "child" do
-      state([], initial: %{count: 0})
+      state(Zoi.map(), initial: %{count: 0})
       action(JidoActionTest.Fixtures.Increment)
       params(%{count: state(:count), index: iteration_index()})
       update(%{count: body_result(:count)})

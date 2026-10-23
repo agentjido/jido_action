@@ -15,7 +15,7 @@ defmodule Jido.Authoring.ConfigTest do
   end
 
   @tag obligation: "jido_action.action.I1"
-  test "Action and Flow keep omitted and nil schema defaults" do
+  test "Action and Flow default omitted and nil schemas to maps" do
     for kind <- [:action, :flow],
         options <- [
           "name: \"defaults\"",
@@ -24,13 +24,19 @@ defmodule Jido.Authoring.ConfigTest do
       module = compile_module(kind, options)
       assert module.name() == "defaults"
       assert module.description() == nil
-      assert module.schema() == []
-      assert module.output_schema() == []
-      assert module.authoring_contract()["input_schema"] == nil
-      assert module.authoring_contract()["output_schema"] == nil
+      assert %Zoi.Types.Map{} = module.schema()
+      assert %Zoi.Types.Map{} = module.output_schema()
+      assert %{"type" => "object"} = module.authoring_contract()["input_schema"]
+      assert %{"type" => "object"} = module.authoring_contract()["output_schema"]
     end
 
-    assert {:ok, %{name: "defaults", description: nil, schema: [], output_schema: []}} =
+    assert {:ok,
+            %{
+              name: "defaults",
+              description: nil,
+              schema: %Zoi.Types.Map{},
+              output_schema: %Zoi.Types.Map{}
+            }} =
              Config.validate_flow(%{name: "defaults", schema: nil, output_schema: nil})
   end
 
@@ -104,6 +110,7 @@ defmodule Jido.Authoring.ConfigTest do
   test "schema failures keep boundary formatting and static errors take Action priority" do
     for field <- [:schema, :output_schema] do
       for {source, reason} <- [
+            {"[]", "must be a Zoi schema"},
             {":invalid", "must be a Zoi schema"},
             {"Zoi.integer()", "must accept map-shaped data"},
             {"Zoi.object(%{value: Zoi.integer() |> Zoi.refine(fn _ -> :ok end)})",

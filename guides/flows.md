@@ -101,6 +101,9 @@ validates the output value after the last component finishes. Both are Zoi
 schemas, the same as Action schemas. See
 [Schemas And Validation](schemas-validation.md).
 
+The input and output schemas default to `Zoi.map()`. Declare a more specific
+schema when callers need named fields.
+
 Make `output` a map. A Flow module whose output is not a map fails at runtime
 with `details.phase == :flow_output`. Return `Jido.Action.Output` from an
 Action when the Flow must return an intentional non-map value.

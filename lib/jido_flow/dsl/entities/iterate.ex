@@ -11,7 +11,7 @@ defmodule Jido.Flow.DSL.IterateState do
       schema: [
         type: :any,
         required: true,
-        doc: "The static State schema, or `[]`. Pass it first."
+        doc: "The static State schema. Pass it first."
       ],
       initial: [
         type: :quoted,

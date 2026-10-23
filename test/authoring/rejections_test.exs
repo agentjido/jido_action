@@ -370,7 +370,7 @@ defmodule JidoActionTest.Authoring.RejectionsTest do
     assert {:error, _root_schema_error} =
              Exec.run(strict_root, %{mode: :finish, value: 5, target: nil}, context)
 
-    permissive_root = %{strict_root | output_schema: []}
+    permissive_root = %{strict_root | output_schema: Zoi.map()}
 
     for target <- [Hostile.ValidatedFinal, Hostile.ValidatedFinalFlow] do
       input = %{mode: :continue, value: 5, target: target}

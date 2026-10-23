@@ -174,8 +174,8 @@ defmodule Jido.Action.InlineHostTest do
     assert Jido.Exec.run(target, %{value: 9}, %{prefix: "reuse"}) ==
              {:ok, %{value: 9, prefix: "reuse"}}
 
-    assert target.schema() == []
-    assert target.output_schema() == []
+    assert %Zoi.Types.Map{} = target.schema()
+    assert %Zoi.Types.Map{} = target.output_schema()
   end
 
   @tag obligation: "jido_action.inline.I2"

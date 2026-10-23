@@ -152,7 +152,7 @@ document `vsn` 1:
 ```elixir
 registry =
   Jido.Authoring.Registry.new!(%{
-    {"schemas/none", 1} => {:schema, []},
+    {"schemas/map", 1} => {:schema, Zoi.map()},
     {"actions/normalize", 1} =>
       {:action, ExprGuide.Invoice.step_action("normalize")},
     {"atoms/name", 1} => {:atom, :name},

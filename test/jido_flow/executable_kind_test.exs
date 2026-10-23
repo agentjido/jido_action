@@ -29,7 +29,7 @@ defmodule Jido.Flow.ExecutableKindTest do
       JidoActionTest.FlowComponent.iterate!(
         name: "iterate",
         action: NestedFlow,
-        state: JidoActionTest.FlowComponent.state!(schema: [], initial: %{}, update: %{}),
+        state: JidoActionTest.FlowComponent.state!(schema: Zoi.map(), initial: %{}, update: %{}),
         completion: Jido.Expr.new!(:==, [Ref.iteration_index(), 0]),
         max_iterations: 1
       )

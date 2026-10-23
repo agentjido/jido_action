@@ -48,7 +48,7 @@ end
 ```
 
 Shared Action options are `name`, `description`, `schema`, `output_schema`,
-`context`, and the required `do` body. Omitted schemas are `[]`. No field,
+`context`, and the required `do` body. Omitted schemas are `Zoi.map()`. No field,
 type, or default is inferred from a binding or pattern. Schemas validate the
 resolved bound parameters or the incoming callback parameters. Defaults are
 applied before the body matches its input. Metadata and schemas use the same

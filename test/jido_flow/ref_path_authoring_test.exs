@@ -334,7 +334,7 @@ defmodule Jido.Flow.RefPathAuthoringTest do
             name: "node",
             action: EchoParamsAction,
             params: %{value: ref},
-            state: [schema: [], initial: %{}, update: %{}],
+            state: [schema: Zoi.map(), initial: %{}, update: %{}],
             completion: true,
             max_iterations: 1
           )
@@ -362,7 +362,7 @@ defmodule Jido.Flow.RefPathAuthoringTest do
       JidoActionTest.FlowComponent.iterate!(
         name: "node",
         action: EchoParamsAction,
-        state: [schema: [], initial: %{}, update: %{value: Ref.body_result()}],
+        state: [schema: Zoi.map(), initial: %{}, update: %{value: Ref.body_result()}],
         completion: true,
         max_iterations: 1
       )

@@ -35,8 +35,8 @@ end
 | --- | --- | --- |
 | `name` | Yes | The Flow name, a string. |
 | `description` | No | A string description. |
-| `schema` | No | A static Zoi schema for Flow input. Defaults to `[]`, no validation. |
-| `output_schema` | No | A static Zoi schema for Flow output. Defaults to `[]`. |
+| `schema` | No | A static Zoi schema for Flow input. Defaults to `Zoi.map()`. |
+| `output_schema` | No | A static Zoi schema for Flow output. Defaults to `Zoi.map()`. |
 | `extensions` | No | A list of `Jido.Flow.Extension` modules. See below. |
 
 Action and Flow schemas use Zoi. A keyword-list schema fails at compile time

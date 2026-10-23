@@ -37,7 +37,7 @@ defmodule Jido.Flow.DSL.FlowTest.MixedFlow do
     end
 
     iterate "loop" do
-      state([], initial: %{count: 0})
+      state(Zoi.map(), initial: %{count: 0})
       action(JidoActionTest.Fixtures.Actions.Add)
       params(%{value: state(:count), amount: 1})
       update(%{count: body_result(:value)})
@@ -377,7 +377,7 @@ defmodule Jido.Flow.DSL.FlowTest do
         end
 
         iterate "loop" do
-          state([], initial: %{items: []})
+          state(Zoi.map(), initial: %{items: []})
           action(JidoActionTest.Fixtures.Actions.EchoParamsAction)
           params(state())
           update(body_result())
@@ -649,7 +649,7 @@ defmodule Jido.Flow.DSL.FlowTest do
        """, "iterate must declare one state"},
       {"""
        iterate "loop" do
-         state([], initial: %{})
+         state(Zoi.map(), initial: %{})
          action(JidoActionTest.Fixtures.Actions.Add)
          params(%{value: 1})
          while(1 == 1)
@@ -657,7 +657,7 @@ defmodule Jido.Flow.DSL.FlowTest do
        """, "iterate max_iterations must be an integer"},
       {"""
        iterate "loop" do
-         state([], initial: %{})
+         state(Zoi.map(), initial: %{})
          action(JidoActionTest.Fixtures.Actions.Add)
          params(%{value: 1})
          repeat(1)
@@ -666,7 +666,7 @@ defmodule Jido.Flow.DSL.FlowTest do
        """, "iterate repeat must not set max_iterations"},
       {"""
        iterate "loop" do
-         state([], initial: %{})
+         state(Zoi.map(), initial: %{})
          action(JidoActionTest.Fixtures.Actions.Add)
          params(%{value: 1})
        end
@@ -736,7 +736,7 @@ defmodule Jido.Flow.DSL.FlowTest do
           needs: "first"
 
         iterate "loop" do
-          state([], initial: %{value: 0})
+          state(Zoi.map(), initial: %{value: 0})
           action(JidoActionTest.Fixtures.Actions.Add)
           params(%{value: state(:value)})
           needs(["second", "first"])

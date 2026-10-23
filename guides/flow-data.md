@@ -53,8 +53,8 @@ The definition is a map with atom keys:
 | --- | --- | --- |
 | `name` | Yes | The Flow name, a string. |
 | `description` | No | A string description. |
-| `schema` | No | A static input schema. Defaults to `[]`. |
-| `output_schema` | No | A static output schema. Defaults to `[]`. |
+| `schema` | No | A static input schema. Defaults to `Zoi.map()`. |
+| `output_schema` | No | A static output schema. Defaults to `Zoi.map()`. |
 | `components` | Yes | A non-empty list of component maps. |
 | `output` | Yes | A non-`nil` Flow value, usually a map of references. |
 
@@ -207,7 +207,7 @@ The data form differs from the DSL:
 - A DSL `while condition` is the same as `completion: not condition`.
 - A DSL `repeat n` is the same as
   `completion: iteration_index() >= n` with `max_iterations: n`.
-- `state` is a map with `schema` (optional, default `[]`), `initial`
+- `state` is a map with `schema` (optional, default `Zoi.map()`), `initial`
   (required), and `update` (required). The DSL fills in `update` for you; the
   data form does not.
 - `max_iterations` is required, from 1 through 10,000. If `completion` is

@@ -233,7 +233,7 @@ defmodule Jido.Exec.ErrorPathsTest do
     Flow.new!(%{name: "error_paths", components: components, output: output})
   end
 
-  defp iterate(action, initial, completion, max, schema \\ []) do
+  defp iterate(action, initial, completion, max, schema \\ Zoi.map()) do
     %{
       kind: :iterate,
       name: "loop",

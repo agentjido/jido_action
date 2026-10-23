@@ -287,8 +287,6 @@ defmodule JidoActionTest.Action.ValidationTest do
                  %{value: 1, extra: true},
                  %{}
                )
-
-      assert {:ok, :unchanged} = Validation.parse_preserving_shape([], :unchanged, %{})
     end
 
     @tag obligation: "jido_action.validation.I3"
@@ -301,6 +299,11 @@ defmodule JidoActionTest.Action.ValidationTest do
 
       assert {:error, error} =
                Validation.parse_preserving_shape(:invalid, %{}, %{phase: :test})
+
+      assert Exception.message(error) == "Unsupported schema type"
+
+      assert {:error, error} =
+               Validation.parse_preserving_shape([], %{}, %{phase: :test})
 
       assert Exception.message(error) == "Unsupported schema type"
     end

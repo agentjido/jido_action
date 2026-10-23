@@ -866,7 +866,7 @@ defmodule JidoActionTest.Property.Execution.RunnerFuzzTest do
                 action: Record,
                 params: %{label: Ref.iteration_index(), value: Ref.state(:value), amount: amount},
                 state: %{
-                  schema: [],
+                  schema: Zoi.map(),
                   initial: %{value: seed},
                   update: %{value: Ref.body_result(:value)}
                 },

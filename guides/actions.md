@@ -31,8 +31,8 @@ end
 
 The module must implement `run/2`. A missing implementation stops compilation.
 
-`authoring_contract/0` returns the Action stable ID, `vsn`, name, description, input JSON
-Schema, and output JSON Schema. It returns `nil` for an empty input or output schema. It raises
+`authoring_contract/0` returns the Action stable ID, `vsn`, name, description,
+input JSON Schema, and output JSON Schema. Both default schemas are maps. It raises
 `ArgumentError` when Zoi cannot project a declared schema to JSON Schema. That
 projection is descriptive. Use `validate_params/1` and `validate_output/1` for
 the runtime contract.
@@ -74,9 +74,10 @@ defmodule ActionGuide.Greeting do
 end
 ```
 
-The body compiles to an ordinary Action. Its schemas default to empty. Use
-the Step's `inline:` settings for explicit schemas, a description, or the
-execution context. Schemas are not inferred from bindings. See
+The body compiles to an ordinary Action. Its input and output schemas default
+to maps. Use the Step's `inline:` settings for
+explicit schemas, a description, or the execution context. Schemas are not
+inferred from bindings. See
 [Inline Steps](inline-actions.md).
 
 The separate public `Jido.Action.Inline` API lets a downstream package provide

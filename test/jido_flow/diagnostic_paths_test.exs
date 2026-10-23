@@ -72,7 +72,7 @@ defmodule Jido.Flow.DiagnosticPathsTest do
       "kind" => "iterate",
       "name" => "loop",
       "state" => %{
-        "schema" => %{"id" => "schemas/none", "vsn" => 1},
+        "schema" => %{"id" => "schemas/map", "vsn" => 1},
         "initial" => @empty,
         "update" => %{"$ref" => %{"source" => "body_result", "component" => nil, "path" => []}}
       },
@@ -134,7 +134,7 @@ defmodule Jido.Flow.DiagnosticPathsTest do
   defp registry do
     Registry.new!(%{
       {"actions/echo", 1} => {:action, EchoParamsAction},
-      {"schemas/none", 1} => {:schema, []}
+      {"schemas/map", 1} => {:schema, Zoi.map()}
     })
   end
 
@@ -161,8 +161,8 @@ defmodule Jido.Flow.DiagnosticPathsTest do
       "vsn" => 1,
       "name" => "paths",
       "description" => nil,
-      "schema" => %{"id" => "schemas/none", "vsn" => 1},
-      "output_schema" => %{"id" => "schemas/none", "vsn" => 1},
+      "schema" => %{"id" => "schemas/map", "vsn" => 1},
+      "output_schema" => %{"id" => "schemas/map", "vsn" => 1},
       "components" => components,
       "output" => output
     }

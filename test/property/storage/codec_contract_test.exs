@@ -136,7 +136,6 @@ defmodule JidoActionTest.Property.Storage.CodecContractTest do
     registry =
       Registry.new!(%{
         {"actions/emit", 1} => {:action, Runtime.Emit},
-        {"schemas/empty", 1} => {:schema, []},
         {"atoms/value", 1} => {:atom, :value}
       })
 
@@ -158,8 +157,6 @@ defmodule JidoActionTest.Property.Storage.CodecContractTest do
       "vsn" => 1,
       "name" => "wire_oracle",
       "description" => nil,
-      "schema" => %{"id" => "schemas/empty", "vsn" => 1},
-      "output_schema" => %{"id" => "schemas/empty", "vsn" => 1},
       "components" => [
         %{
           "name" => "work",

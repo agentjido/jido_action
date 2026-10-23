@@ -72,7 +72,9 @@ defmodule Jido.Flow.CodecTest do
 
   test "stored Registry references include and check vsn" do
     registry = InlineAuthoring.registry()
-    assert {:ok, document} = Codec.encode(InlineParityFlow.flow(), registry)
+    schema = Zoi.object(%{})
+    flow = %{InlineParityFlow.flow() | schema: schema, output_schema: schema}
+    assert {:ok, document} = Codec.encode(flow, registry)
 
     assert %{"id" => _id, "vsn" => 1} = document["schema"]
     assert %{"id" => _id, "vsn" => 1} = document["output_schema"]
@@ -598,15 +600,15 @@ defmodule Jido.Flow.CodecTest do
     assert {:error, %Error.Invalid{errors: missing}} = Codec.diagnose(missing_fields, registry)
     assert Enum.map(missing, & &1.details.path) == [["name"], ["components"], ["output"]]
 
-    invalid_fields = %{
-      document
-      | "name" => 42,
+    invalid_fields =
+      Map.merge(document, %{
+        "name" => 42,
         "description" => 42,
         "schema" => 42,
         "output_schema" => 42,
         "components" => :not_a_list,
         "output" => %{"bad" => true}
-    }
+      })
 
     assert {:error, %Error.Invalid{errors: invalid}} = Codec.diagnose(invalid_fields, registry)
     assert length(invalid) == 6
@@ -635,7 +637,9 @@ defmodule Jido.Flow.CodecTest do
       })
 
     bad_schema = %{"id" => "schemas/bad", "vsn" => 1}
-    bad_schemas = %{document | "schema" => bad_schema, "output_schema" => bad_schema}
+
+    bad_schemas =
+      Map.merge(document, %{"schema" => bad_schema, "output_schema" => bad_schema})
 
     assert {:error, %Error.Invalid{errors: schema_errors}} =
              Codec.diagnose(bad_schemas, bad_schema_registry)
@@ -902,7 +906,7 @@ defmodule Jido.Flow.CodecTest do
     wrong_registry =
       Registry.new!(%{
         {"targets/child", 1} => {:action, NestedFlow},
-        {"schemas/empty", 1} => {:schema, []}
+        {"schemas/map", 1} => {:schema, Zoi.map()}
       })
 
     assert {:error, %InvalidDefinitionError{}} = Codec.encode(flow, wrong_registry)
@@ -912,8 +916,8 @@ defmodule Jido.Flow.CodecTest do
       "vsn" => 1,
       "name" => "one_subflow",
       "description" => nil,
-      "schema" => %{"id" => "schemas/empty", "vsn" => 1},
-      "output_schema" => %{"id" => "schemas/empty", "vsn" => 1},
+      "schema" => %{"id" => "schemas/map", "vsn" => 1},
+      "output_schema" => %{"id" => "schemas/map", "vsn" => 1},
       "components" => [
         %{
           "name" => "child",
@@ -1007,7 +1011,8 @@ defmodule Jido.Flow.CodecTest do
 
   test "reference records reject extra fields and report the exact path" do
     registry = CodecRegistry.mixed()
-    assert {:ok, document} = Codec.encode(FlowAuthoring.mixed_flow!(), registry)
+    flow = %{FlowAuthoring.mixed_flow!() | schema: Zoi.object(%{})}
+    assert {:ok, document} = Codec.encode(flow, registry)
 
     schema = Map.put(document["schema"], "extra", true)
     target_index = Enum.find_index(document["components"], &Map.has_key?(&1, "call"))
@@ -1031,7 +1036,8 @@ defmodule Jido.Flow.CodecTest do
 
   test "invalid reference versions report the vsn field" do
     registry = CodecRegistry.mixed()
-    assert {:ok, document} = Codec.encode(FlowAuthoring.mixed_flow!(), registry)
+    flow = %{FlowAuthoring.mixed_flow!() | schema: Zoi.object(%{})}
+    assert {:ok, document} = Codec.encode(flow, registry)
 
     for invalid_vsn <- [0, "1", nil] do
       schema = Map.put(document["schema"], "vsn", invalid_vsn)
@@ -1199,7 +1205,7 @@ defmodule Jido.Flow.CodecTest do
     registry =
       Registry.new!(%{
         {"actions/add", 1} => {:action, Add},
-        {"schemas/empty", 1} => {:schema, []}
+        {"schemas/map", 1} => {:schema, Zoi.map()}
       })
 
     assert {:error, %InvalidDefinitionError{}} = Codec.encode(flow, registry)
@@ -1286,7 +1292,7 @@ defmodule Jido.Flow.CodecTest do
       {"actions/mark/v1", 1} => {:action, InlineProbeFlow.step_action("mark")},
       {"flows/not-an-action", 1} => {:flow, NestedFlow},
       {"atoms/marker", 1} => {:atom, :marker},
-      {"schemas/empty/v1", 1} => {:schema, []}
+      {"schemas/map/v1", 1} => {:schema, Zoi.map()}
     })
   end
 

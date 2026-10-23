@@ -55,7 +55,7 @@ defmodule Jido.Action do
   alias Jido.Exec.Validation
 
   @typedoc "A static Action input or output schema."
-  @type schema :: Zoi.schema() | []
+  @type schema :: Zoi.schema()
 
   @typedoc "An ordered list of opaque effect requests. Exec does not dispatch them."
   @type effects :: [term()]
@@ -84,8 +84,7 @@ defmodule Jido.Action do
   @doc false
   @spec validate_output_for(map() | Output.t(), module()) ::
           {:ok, map() | Output.t()} | {:error, Error.InvalidInputError.t()}
-  def validate_output_for(%Output{} = output, _module),
-    do: Validation.output_schema([], output, %{})
+  def validate_output_for(%Output{} = output, _module), do: Output.validate(output)
 
   def validate_output_for(output, module) do
     Validation.output_schema(module.output_schema(), output, %{
@@ -106,8 +105,8 @@ defmodule Jido.Action do
   - `id` (optional) - The stable identifier used by runtime authoring discovery.
   - `vsn` (optional, default: `1`) - The positive authoring version.
   - `description` (optional) - A description of what the Action does.
-  - `schema` (optional, default: `[]`) - A Zoi schema for Action input.
-  - `output_schema` (optional, default: `[]`) - A Zoi schema for Action output.
+  - `schema` (optional, default: `Zoi.map()`) - A Zoi schema for Action input.
+  - `output_schema` (optional, default: `Zoi.map()`) - A Zoi schema for Action output.
 
   Schemas must be static module data. Use named MFA tuples for Zoi refinements,
   transforms, and other effects. Anonymous functions and lazy schemas are not

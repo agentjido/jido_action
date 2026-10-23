@@ -214,7 +214,7 @@ defmodule Jido.Exec.HandoffTest do
 
     registry =
       Registry.new!(%{
-        {"none", 1} => {:schema, []},
+        {"map", 1} => {:schema, Zoi.map()},
         {"decide", 1} => {:action, Decide},
         {"expand", 1} => {:action, Expand},
         {"value", 1} => {:atom, :value}

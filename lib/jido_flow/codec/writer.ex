@@ -20,9 +20,8 @@ defmodule Jido.Flow.Codec.Writer do
   end
 
   defp do_encode(flow, registry) do
-    with {:ok, schema} <- Registry.encode_reference(registry, :schema, flow.schema),
-         {:ok, output_schema} <-
-           Registry.encode_reference(registry, :schema, flow.output_schema),
+    with {:ok, schema} <- encode_schema(flow.schema, registry),
+         {:ok, output_schema} <- encode_schema(flow.output_schema, registry),
          {:ok, components} <-
            sequence(Graph.canonical_components(flow.components), fn {name, node} ->
              record = Map.put(node, :name, name)
@@ -42,15 +41,27 @@ defmodule Jido.Flow.Codec.Writer do
         "vsn" => 1,
         "name" => flow.name,
         "description" => flow.description,
-        "schema" => schema,
-        "output_schema" => output_schema,
         "components" => components,
         "output" => output
       }
 
+      document =
+        document
+        |> put_schema("schema", schema)
+        |> put_schema("output_schema", output_schema)
+
       with :ok <- Limits.check(document), do: {:ok, document}
     end
   end
+
+  defp encode_schema(schema, registry) do
+    if schema == Zoi.map(),
+      do: {:ok, nil},
+      else: Registry.encode_reference(registry, :schema, schema)
+  end
+
+  defp put_schema(document, _field, nil), do: document
+  defp put_schema(document, field, schema), do: Map.put(document, field, schema)
 
   defp record(values, fields, registry) do
     Enum.reduce_while(fields, {:ok, %{}}, fn {name, type}, {:ok, result} ->

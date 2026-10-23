@@ -114,8 +114,8 @@ defmodule Jido.Action.InlineTest do
     """)
 
     target = Inline.target!(owner, path("increment"))
-    assert target.schema() == []
-    assert target.output_schema() == []
+    assert %Zoi.Types.Map{} = target.schema()
+    assert %Zoi.Types.Map{} = target.output_schema()
     assert target.name() == "test_action"
 
     assert {:ok, %Jido.Instruction{kind: :action, target: ^target}} =

@@ -66,7 +66,7 @@ The valid `inline:` settings are:
 - `output_schema`
 - `context`
 
-All settings are optional. Omitted schemas are `[]`. Bindings do not infer
+All settings are optional. Omitted schemas are `Zoi.map()`. Bindings do not infer
 fields, types, or defaults.
 
 `context: ctx` binds the second Action callback argument. It does not add a

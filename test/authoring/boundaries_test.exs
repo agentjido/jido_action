@@ -62,7 +62,7 @@ defmodule JidoActionTest.Authoring.BoundariesTest do
       Registry.new!(%{
         {"actions/inline-ctx/v1", 1} => {:action, action},
         {"actions/echo/v1", 1} => {:action, Echo},
-        {"schemas/none/v1", 1} => {:schema, []},
+        {"schemas/map/v1", 1} => {:schema, Zoi.map()},
         {"atoms/value", 1} => {:atom, :value}
       })
 
@@ -215,7 +215,7 @@ defmodule JidoActionTest.Authoring.BoundariesTest do
     registry =
       Registry.new!(%{
         {"actions/echo/v1", 1} => {:action, Echo},
-        {"schemas/none/v1", 1} => {:schema, []},
+        {"schemas/map/v1", 1} => {:schema, Zoi.map()},
         {"atoms/value", 1} => {:atom, :value}
       })
 
@@ -235,7 +235,7 @@ defmodule JidoActionTest.Authoring.BoundariesTest do
     registry =
       Registry.new!(%{
         {"actions/echo/v1", 1} => {:action, Boundaries.Bomb},
-        {"schemas/none/v1", 1} => {:schema, []},
+        {"schemas/map/v1", 1} => {:schema, Zoi.map()},
         {"atoms/value", 1} => {:atom, :value}
       })
 
@@ -265,7 +265,7 @@ defmodule JidoActionTest.Authoring.BoundariesTest do
     registry =
       Registry.new!(%{
         {"actions/echo/v1", 1} => {:action, Boundaries.Bomb},
-        {"schemas/none/v1", 1} => {:schema, []},
+        {"schemas/map/v1", 1} => {:schema, Zoi.map()},
         {"atoms/value", 1} => {:atom, :value}
       })
 
@@ -277,7 +277,7 @@ defmodule JidoActionTest.Authoring.BoundariesTest do
     registry =
       Registry.new!(%{
         {"actions/echo/v1", 1} => {:action, Boundaries.Bomb},
-        {"schemas/none/v1", 1} => {:schema, []},
+        {"schemas/map/v1", 1} => {:schema, Zoi.map()},
         {"atoms/value", 1} => {:atom, :value}
       })
 

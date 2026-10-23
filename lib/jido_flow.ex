@@ -155,8 +155,8 @@ defmodule Jido.Flow do
             %{
               name: Zoi.string(description: "Flow name"),
               description: Zoi.string(description: "Flow description") |> Zoi.optional(),
-              schema: Zoi.any(description: "Flow input schema") |> Zoi.default([]),
-              output_schema: Zoi.any(description: "Flow output schema") |> Zoi.default([]),
+              schema: Zoi.any(description: "Flow input schema") |> Zoi.default(Zoi.map()),
+              output_schema: Zoi.any(description: "Flow output schema") |> Zoi.default(Zoi.map()),
               components:
                 Zoi.map(description: "Canonical named Flow component graph") |> Zoi.default(%{}),
               output: Zoi.any(description: "Declared output expression")

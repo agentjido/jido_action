@@ -119,8 +119,8 @@ replaces the State; Jido does not merge it. If you omit `update`, the next
 State is the complete body result.
 
 The State schema, the first argument to `state`, validates the initial State
-and every replacement. Use `[]` for no schema. State must be a map. The body
-Action's own schema validates its params.
+and every replacement. Omit it to use `Zoi.map()`. State must be a map. The
+body Action's own schema validates its params.
 
 These references are valid in Iterate `params`, `update`, and `while`:
 

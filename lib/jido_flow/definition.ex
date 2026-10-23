@@ -72,10 +72,8 @@ defmodule Jido.Flow.Definition do
   defp diagnose_fields(attrs, fields, mode, initial, unknown) do
     {values, errors} =
       Enum.reduce(fields, {initial, unknown}, fn {field, validator}, {values, errors} ->
-        default = if field in [:schema, :output_schema], do: [], else: nil
-
         result =
-          case Map.get(attrs, field, default) do
+          case Map.get(attrs, field) do
             %FieldError{errors: errors} -> {:error, errors}
             value -> validator.(value)
           end

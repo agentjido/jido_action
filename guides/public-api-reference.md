@@ -65,8 +65,8 @@ options are evaluated once at the declaration site. The supported keys are:
 | `vsn` | Positive authoring version. It defaults to `1`. |
 | `name` | Required UTF-8 string. It must contain a non-space character and be at most 256 bytes. Punctuation and spaces are allowed. The value is kept; it is not trimmed or converted to an identifier. |
 | `description` | A binary when supplied. Omission gives `nil`. Explicit `nil` is rejected for an Action. Invalid UTF-8 currently passes compilation but prevents `authoring_contract/0`. Flow configuration also accepts `nil` and checks UTF-8. |
-| `schema` | `[]`, `nil`, or a static Zoi schema that can accept map data. Omission and `nil` become `[]`. |
-| `output_schema` | The same configuration rules as `schema`; default `[]`. |
+| `schema` | `nil` or a static Zoi schema that can accept map data. Omission and `nil` become `Zoi.map()`. An explicit `[]` is invalid. |
+| `output_schema` | The same configuration rules and `Zoi.map()` default as `schema`. |
 
 Unknown keys fail compilation. Configuration failure raises `CompileError`
 with the declaration file and line. The common configuration implementation
@@ -97,7 +97,7 @@ metadata generator; their `"kind"` is `"flow"`.
 | --- | --- |
 | `name/0` | The declared string. |
 | `description/0` | The declared binary or `nil`. |
-| `schema/0`, `output_schema/0` | The retained Zoi value or `[]`. |
+| `schema/0`, `output_schema/0` | The retained Zoi schema. |
 | `authoring_contract/0` | A map with exactly `"id"`, `"vsn"`, `"kind"`, `"name"`, `"description"`, `"input_schema"`, and `"output_schema"`. |
 | `validate_params(params)` (`/1`) | Runs optional preparation, then the retained input schema. Normal success is `{:ok, map}`. |
 | `validate_output(output)` (`/1`) | Runs the retained output schema for a normal value, or validates an Output envelope. |
@@ -111,17 +111,17 @@ shape before Zoi parsing. Its error passes through a direct validator call.
 Its raise, throw, exit, or invalid return is contained only when the caller
 uses Exec. Prefer deterministic preparation because it can run again on retry.
 
-Public types are `schema/0` (`Zoi.schema() | []`), `effects/0` (a list of opaque
+Public types are `schema/0` (`Zoi.schema()`), `effects/0` (a list of opaque
 requests), `effect_result/0` (`{:ok, map | Output.t(), effects}`), and
 `result/0` (the callback forms below).
 
 ### Tool descriptions
 
 `authoring_contract/0` gives descriptive data, not an executable tool and not a stored
-Flow document. The two schema fields are `nil` for `[]`. Otherwise, Jido calls
-`Zoi.to_json_schema/1`, then a strict Jason encode/decode round trip. The
-successful value contains JSON string keys. Repeated calls return the
-compile-time projection.
+Flow document. Jido calls `Zoi.to_json_schema/1` for both schemas, then uses a
+strict Jason encode/decode round trip. Omitted schemas produce the JSON Schema
+for `Zoi.map()`. The successful value contains JSON string keys. Repeated calls
+return the compile-time projection.
 
 A Zoi schema can validate at runtime without a JSON Schema representation.
 Projection errors are retained during compilation. `authoring_contract/0` then raises
@@ -394,9 +394,10 @@ map. The Flow Inline Step host can impose a narrower grammar than this API.
 
 The parser requires a keyword options list and rejects duplicate or unknown
 keys. Allowed keys are `do` (required body), `name`, `description`, `schema`,
-`output_schema`, and `context`. Schemas are explicit and default to `[]`;
-they are not inferred from patterns. Validation and defaults occur before
-pattern matching. `context` must be a named variable, not `_`, and cannot
+`output_schema`, and `context`. Both schemas default to `Zoi.map()`; they are
+not inferred from patterns.
+Validation and defaults occur before pattern matching. `context` must be a
+named variable, not `_`, and cannot
 collide with any parameter-pattern variable. It binds actual callback context
 without adding an input key or schema field. Metadata and schema options keep
 AST for evaluation at the declaration site.
@@ -625,8 +626,8 @@ modules also implement the shared `Jido.Action` behavior.
 
 `%Jido.Flow{}` has `name`, `description`, `schema`, `output_schema`,
 `components`, and `output`. Defaults in the struct are `description: nil`,
-`schema: []`, `output_schema: []`, and `components: %{}`. A usable Flow still
-needs a non-empty component graph and an explicit non-`nil` output. The data
+`schema: Zoi.map()`, `output_schema: Zoi.map()`, and `components: %{}`. A usable Flow
+still needs a non-empty component graph and an explicit non-`nil` output. The data
 constructor accepts a list of components and stores a map keyed by normalized
 component names. Raw struct construction does not perform validation.
 
@@ -654,7 +655,7 @@ Source: [Flow facade](https://github.com/agentjido/jido_action/blob/v3.0.0-beta.
 `vsn` defaults to `1`. `name` is required and must be a non-blank UTF-8 string of at
 most 256 bytes. Validation does not trim or rewrite the accepted name.
 `description` is a UTF-8 string or `nil`, with default `nil`. Both schemas
-default to `[]`; explicit `nil` also normalizes to `[]` in authoring.
+default to `Zoi.map()`. Explicit `nil` uses this default.
 Schemas must use the shared static, map-shaped Zoi contract. Anonymous
 functions, lazy schemas, process values, and improper lists within schemas
 are rejected. Named MFA schema effects are allowed. Unknown configuration
@@ -670,7 +671,7 @@ A generated Flow module exposes:
 | Function | Behavior |
 | --- | --- |
 | `name/0`, `description/0`, `schema/0`, `output_schema/0` | Return the declared shared module metadata and schemas. |
-| `authoring_contract/0` | Returns JSON-safe string-keyed metadata with `"id"`, `"vsn"`, `"kind" => "flow"`, `"name"`, `"description"`, `"input_schema"`, and `"output_schema"`. An absent schema becomes `nil`. A schema without a JSON Schema representation makes this function raise `ArgumentError`; the module can still validate and execute. This is a module description, not a stored graph. |
+| `authoring_contract/0` | Returns JSON-safe string-keyed metadata with `"id"`, `"vsn"`, `"kind" => "flow"`, `"name"`, `"description"`, `"input_schema"`, and `"output_schema"`. Both omitted schemas become generic object schemas. A schema without a JSON Schema representation makes this function raise `ArgumentError`; the module can still validate and execute. This is a module description, not a stored graph. |
 | `validate_params/1`, `validate_output/1` | Use the shared Action validation rules. The input pre-validation callback is used when present. See the shared validation section for root key preservation, defaults, transformations, and envelopes. |
 | `flow/0` | Returns the compile-time canonical Flow for the loaded module version. |
 | `compiled/0` | Calls `Jido.Exec.compile!` with that Flow and its source map. Returns `Runic.Workflow.t()` or raises a compile error. It is a derived plan, not a cached runtime or durable execution. |
@@ -798,7 +799,7 @@ with `name`, `condition`, `action`, and optional `params`. The fallback is a
 plain map with `action` and optional `params`. Conditions must be a Boolean,
 `Jido.Flow.Ref`, or `Jido.Expr`; their resolved values must be Booleans.
 An Iterate state is a plain map with required `initial` and `update`, and
-optional `schema` defaulting to `[]`. `completion` is a stop condition, not a
+optional `schema` defaulting to `Zoi.map()`. `completion` is a stop condition, not a
 while condition. `max_iterations` is required and must be 1 through 10,000.
 The data form has no `repeat`, `while`, or implicit update shorthand.
 
@@ -1383,8 +1384,8 @@ is not fully revalidated.
 
 ### `vsn` 1 root and component records
 
-The writer always emits all eight root fields. The reader accepts only the
-listed fields. It requires `"type": "jido.flow"` and integer `"vsn": 1`.
+The writer emits the required root fields and non-default schema fields. The
+reader accepts only the listed fields. It requires `"type": "jido.flow"` and integer `"vsn": 1`.
 Document `vsn` 1 is separate from semantic identity versions.
 
 | Root field | Stored form and read rule |
@@ -1393,7 +1394,7 @@ Document `vsn` 1 is separate from semantic identity versions.
 | `vsn` | Required integer `1`. |
 | `name` | Required valid Flow name: non-blank UTF-8 string, at most 256 bytes. |
 | `description` | UTF-8 string or null. Defaults to nil when absent. |
-| `schema` | Registry schema reference when present. Defaults to `[]` when absent. An explicit null is invalid. |
+| `schema` | Registry schema reference when present. Defaults to `Zoi.map()` when absent. An explicit null is invalid. |
 | `output_schema` | Same rule as `schema`. |
 | `components` | Required non-empty list of the component records below. |
 | `output` | Required non-nil encoded Flow value. |
@@ -1410,7 +1411,7 @@ No references or expressions are permitted in metadata.
 | `"choice"` | `options`: non-empty ordered list of option records; `fallback`: Action call record. Each option has `name`, `condition`, and `call`. Option names must be unique. Conditions must decode to a Boolean, reference, or expression. |
 | `"map"` | `collection`: encoded Flow value; `call`: Action call record; `on_error`: `"fail_fast"` or `"collect_errors"`. Omission defaults to `"fail_fast"`; explicit null fails. |
 | `"reduce"` | `collection`, `initial`: encoded Flow values; `call`: Action call record. |
-| `"iterate"` | `call`: Action call record; `state`: state record; `completion`: encoded Boolean/reference/expression; `max_iterations`: integer 1 through 10,000. State has `schema`, `initial`, and `update`. Its omitted schema defaults to `[]`; its present schema is a Registry reference. |
+| `"iterate"` | `call`: Action call record; `state`: state record; `completion`: encoded Boolean/reference/expression; `max_iterations`: integer 1 through 10,000. State has `schema`, `initial`, and `update`. Its omitted schema defaults to `Zoi.map()`; its present schema is a Registry reference. |
 | `"dispatch"` | `decision`: Action call record; `expander`: Action target record without params. |
 
 A call record has `kind`, `target`, and `params`. The target is a Registry

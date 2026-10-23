@@ -119,9 +119,9 @@ defmodule Jido.Action.Inline do
   - `do:` is the required Action body, either expressions or `->` clauses.
   - `name:` overrides the host's default public Action name, not its identity.
   - `description:` sets public Action metadata; it defaults to `nil`.
-  - `schema:` and `output_schema:` use static Action schemas and default to
-    `[]`. Schemas are not inferred from patterns. Input defaults apply before
-    the body matches its parameters.
+  - `schema:` and `output_schema:` use static Action schemas. Both default to
+    `Zoi.map()`. Schemas are not inferred from patterns. Input defaults apply
+    before the body matches its parameters.
   - `context: named_variable` binds actual callback context without adding a
     parameter or a schema field. It must not collide with a pattern variable.
 

@@ -61,7 +61,7 @@ defmodule Jido.Flow.DSL.FormatterTest do
     end
 
     iterate "loop" do
-      state [], initial: %{count: 0}
+      state Zoi.map(), initial: %{count: 0}
       action Increment
       params %{count: state(:count)}
       update %{count: body_result(:count)}
@@ -70,7 +70,7 @@ defmodule Jido.Flow.DSL.FormatterTest do
     end
 
     iterate "fixed" do
-      state [] do
+      state Zoi.map() do
         initial %{count: 0}
       end
 
