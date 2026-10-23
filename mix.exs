@@ -76,9 +76,10 @@ defmodule JidoAction.MixProject do
         # Test helpers and their Inspect implementations.
         ~r/^Inspect\.JidoActionTest\./,
         ~r/^JidoActionTest\./,
-        # Generated Spark and inline Action scaffolding. Authored bodies stay covered.
+        # Generated Spark and inline target scaffolding. Authored bodies stay covered.
         ~r/^Jido\.Flow\.DSL\.Extension\.Flow\./,
-        ~r/^Jido\.Action\.Generated\.Inline\./
+        ~r/^Jido\.Action\.Generated\.Inline\./,
+        ~r/^Jido\.Flow\.Generated\.Inline\./
       ],
       summary: [threshold: 93]
     ]
