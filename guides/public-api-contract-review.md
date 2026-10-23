@@ -61,7 +61,7 @@ a single example of Choice or a ten-step checkpoint is insufficient.
 
 ## Active Covenant mapping
 
-The implementation now uses **48 focused obligations in 15 promise groups**.
+The implementation now uses **54 focused obligations in 15 promise groups**.
 It merges overlapping detailed requirements, removes the 36 duplicate public
 register requirements, and adds focused graph, storage, policy, ownership,
 recovery, effect, and telemetry evidence. Existing normal tests remain.
@@ -83,7 +83,7 @@ All IDs below have the `jido_action.` prefix.
 | P05 | Deferred effects | `execution.I19, execution.I24` |
 | P06 | Graph rules | `flow.I8` |
 | P07 | Component meaning | `execution.I17, boundary.I7–I9` |
-| P08 | Authoring equivalence | `flow.I7, flow.I11, inline.I1–I3` |
+| P08 | Authoring equivalence | `flow.I7, flow.I11, inline.I1–I3, inline_flow.I1–I3` |
 | P09 | Expressions | `expression.I1–I4` |
 | P10 | Stored documents | `authoring.I1–I3, codec.I5–I7` |
 | P11 | Inspection and identity | `flow.I9–I10, boundary.I5` |

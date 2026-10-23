@@ -49,6 +49,7 @@ Covenant remains optional and does not run in default CI.
 | FLOW-004 | Validation and inspection do not run Action work. | `jido_action.flow.I9` | `test/property/flow/validation_contract_test.exs`, `test/jido_flow/` |
 | FLOW-005 | Semantic identity distinguishes references from literal data and survives a Codec round trip. | `jido_action.flow.I10` | `test/property/flow/validation_contract_test.exs`, `test/jido_flow/graph_identity_test.exs` |
 | FLOW-006 | Host extensions lower to ordinary canonical declarations. | `jido_action.flow.I11` | `test/property/flow/inline_contract_test.exs`, `test/jido_flow/` |
+| FLOW-007 | A compile-time host can embed an ordinary Flow module with bounded identity, owner-scoped options, generated-module body scope, and inert lookup. | `jido_action.inline_flow.I1–I3` | `test/jido_flow/inline_test.exs` |
 | STORE-001 | The JSON document `vsn` preserves canonical Flow meaning and deterministic stored-map encoding. | `jido_action.codec.I5` | `test/property/storage/codec_contract_test.exs`, `test/jido_flow/codec_test.exs` |
 | STORE-002 | Stored identifiers resolve through a trusted Registry without creating atoms from unknown identifiers. | `jido_action.codec.I6` | `test/property/storage/codec_contract_test.exs`, `test/jido_flow/codec_test.exs` |
 | STORE-003 | Malformed or oversized stored documents return structured errors. | `jido_action.codec.I7` | `test/property/storage/codec_contract_test.exs`, `test/jido_flow/codec_test.exs` |

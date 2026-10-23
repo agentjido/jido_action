@@ -9,13 +9,18 @@ defmodule Jido.Flow.Inline.Compiler do
   def compile!(path_ast, options_ast, body_ast, caller) do
     Owner.ensure_compiling!(caller)
     target = Macro.unique_var(:inline_flow, __MODULE__)
+    path = Macro.unique_var(:inline_flow_path, __MODULE__)
+    options = Macro.unique_var(:inline_flow_options, __MODULE__)
 
     declaration =
       quote line: caller.line do
+        unquote(path) = unquote(path_ast)
+        unquote(options) = unquote(options_ast)
+
         unquote(target) =
           unquote(__MODULE__).create!(
-            unquote(path_ast),
-            unquote(Macro.escape(options_ast)),
+            unquote(path),
+            unquote(options),
             unquote(Macro.escape(body_ast)),
             __ENV__
           )
@@ -25,15 +30,17 @@ defmodule Jido.Flow.Inline.Compiler do
   end
 
   @doc false
-  @spec create!(term(), Macro.t(), Macro.t(), Macro.Env.t()) :: module()
-  def create!(path, options_ast, body_ast, caller) do
+  @spec create!(term(), term(), Macro.t(), Macro.Env.t()) :: module()
+  def create!(path, options, body_ast, caller) do
     Owner.setup!(caller)
     path = Owner.validate_path!(path, caller)
     Owner.check_identity!(path, caller)
 
     target = identity(caller.module, path)
     ensure_owner!(target, {caller.module, path}, caller)
-    create_flow!(target, caller.module, path, options_ast, body_ast, caller)
+    Jido.Flow.DSL.ModuleCompiler.validate_options!(options, caller)
+    reset_target!(target)
+    create_flow!(target, caller.module, path, options, body_ast, caller)
     Owner.register!(path, target, caller)
     target
   end
@@ -47,9 +54,7 @@ defmodule Jido.Flow.Inline.Compiler do
   end
 
   defp ensure_owner!(target, identity, caller) do
-    if Code.ensure_loaded?(target) and
-         not (function_exported?(target, :__jido_inline_flow__, 0) and
-                target.__jido_inline_flow__() == identity) do
+    if Code.ensure_loaded?(target) and not owned_target?(target, identity) do
       error!(
         caller,
         "generated inline Flow module #{inspect(target)} already belongs to another definition"
@@ -57,11 +62,29 @@ defmodule Jido.Flow.Inline.Compiler do
     end
   end
 
-  defp create_flow!(target, owner, path, options_ast, body_ast, caller) do
+  defp owned_target?(target, identity) do
+    function_exported?(target, :__jido_inline_flow__, 0) and
+      target.__jido_inline_flow__() == identity
+  rescue
+    _error -> false
+  catch
+    _kind, _reason -> false
+  end
+
+  defp reset_target!(target) do
+    if Code.loaded?(target) do
+      :code.delete(target)
+      :code.soft_purge(target)
+    end
+
+    :ok
+  end
+
+  defp create_flow!(target, owner, path, options, body_ast, caller) do
     definition =
       quote generated: true do
         @moduledoc false
-        use Jido.Flow, unquote(options_ast)
+        use Jido.Flow, unquote(Macro.escape(options))
 
         flow do
           unquote(body_ast)

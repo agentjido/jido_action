@@ -23,15 +23,15 @@ mix covenant.check --static --contracts test/contracts --test-path 'test/**/*_te
 ```
 
 The components cover Actions, errors, Instructions, Action execution boundaries,
-Output, shared validation, inline Actions, Expressions, Flow definitions,
-portable authoring, Flow storage, and immediate and managed execution.
+Output, shared validation, inline Actions, inline Flows, Expressions, Flow
+definitions, portable authoring, Flow storage, and immediate and managed execution.
 The configured test path selects tests across the package.
 `mix test.contracts` includes properties with seed zero and keeps fuzz and
 other optional suites excluded. Normal tests with obligation tags still run
 in their usual suites. Covenant reports and mutation checks run only when
 requested; default CI and release preflight do not run them.
 
-The active inventory has **51 focused obligations in 15 public promise groups**.
+The active inventory has **54 focused obligations in 15 public promise groups**.
 The [contract review](../../guides/public-api-contract-review.md#active-covenant-mapping)
 maps the groups to facets. The register points to shared evidence; it does not
 create a second obligation for each entry. Tests for private helpers and
@@ -54,6 +54,7 @@ mix covenant.mutate jido_action.boundary --seed 0 --jobs 1 --max-mutants-per-wor
 mix covenant.mutate jido_action.inline --macros \
   --recompile test/support/fixtures/action/inline_host.ex \
   --recompile test/support/fixtures/flow/inline.ex --seed 0 --jobs 1 --max-mutants-per-worker 50 --max-runtime 4500000
+mix covenant.mutate jido_action.inline_flow --macros --seed 0 --jobs 1 --max-mutants-per-worker 50 --max-runtime 4500000
 mix covenant.mutate jido_action.expression --macros --seed 0 --jobs 1 --max-mutants-per-worker 50 --max-runtime 4500000
 mix covenant.mutate jido_action.flow --module Jido.Flow.GraphValidation --seed 0 --jobs 1 --max-mutants-per-worker 50 --max-runtime 4500000
 mix covenant.mutate jido_action.authoring --seed 0 --jobs 1 --max-mutants-per-worker 50 --max-runtime 4500000
@@ -61,6 +62,8 @@ mix covenant.mutate jido_action.codec --module Jido.Flow.Codec.Reader --seed 0 -
 mix covenant.mutate jido_action.execution --module Jido.Exec.Node.Choice --seed 0 --jobs 1 --max-mutants-per-worker 50 --max-runtime 4500000
 mix covenant.mutate jido_action.inline --seed 0 --jobs 1 --max-mutants-per-worker 50 --max-runtime 4500000 \
   --out tmp/covenant/mutate/jido_action.inline/runtime_kill_matrix.json
+mix covenant.mutate jido_action.inline_flow --seed 0 --jobs 1 --max-mutants-per-worker 50 --max-runtime 4500000 \
+  --out tmp/covenant/mutate/jido_action.inline_flow/runtime_kill_matrix.json
 mix covenant.mutate jido_action.expression --seed 0 --jobs 1 --max-mutants-per-worker 50 --max-runtime 4500000 \
   --out tmp/covenant/mutate/jido_action.expression/runtime_kill_matrix.json
 ```
@@ -72,9 +75,10 @@ Covenant recompiles explicit caller sources in order and the selected contract
 test files last. It does not discover transitive callers. Mutation workers keep
 the original code and restore it after each run. Caller compile failures are
 invalid mutations and receive no kill credit.
-Run both modes for Inline and Expression. Runtime-only results test runtime
-mutations without caller compilation failures. Macro results check provider
-expansions and the compiled host boundary. Do not combine their kill totals.
+Run both modes for Inline Action, Inline Flow, and Expression. Runtime-only
+results test runtime mutations without caller compilation failures. Macro
+results check provider expansions and the compiled host boundary. Do not
+combine their kill totals.
 
 Run supported-runtime package suites in sequence. Their ExUnit fixture paths
 are shared even when their build roots differ. Run broad package checks after

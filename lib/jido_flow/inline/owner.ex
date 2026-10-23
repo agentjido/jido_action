@@ -32,11 +32,16 @@ defmodule Jido.Flow.Inline.Owner do
   @doc false
   @spec __on_definition__(Macro.Env.t(), atom(), atom(), list(), list(), term()) :: :ok
   def __on_definition__(caller, _kind, name, args, _guards, _body) do
-    function = {name, length(args)}
+    arity = length(args)
+    defaults = Enum.count(args, &match?({:\\, _, [_, _]}, &1))
     generated = Module.get_attribute(caller.module, :__jido_inline_flow_generated__)
 
-    if function == @index_function and generated != function do
-      reserved_error!(caller)
+    for defined_arity <- (arity - defaults)..arity do
+      function = {name, defined_arity}
+
+      if function == @index_function and generated != function do
+        reserved_error!(caller)
+      end
     end
 
     :ok
@@ -48,7 +53,7 @@ defmodule Jido.Flow.Inline.Owner do
     unless valid_path?(path) do
       error!(
         caller,
-        "inline Flow identity must be a typed path with host, declaration, and role: :flow segments, got: #{inspect(path)}"
+        "inline Flow identity must have at least three typed segments, start with :host, and end with role: :flow, got: #{inspect(path)}"
       )
     end
 
@@ -63,7 +68,7 @@ defmodule Jido.Flow.Inline.Owner do
 
   defp valid_segments?([]), do: true
 
-  defp valid_segments?([{kind, value} | rest]) when is_atom(kind) do
+  defp valid_segments?([{kind, value} | rest]) when is_atom(kind) and not is_nil(kind) do
     ((is_atom(value) and not is_nil(value)) or is_binary(value) or is_integer(value)) and
       valid_segments?(rest)
   end
@@ -123,7 +128,9 @@ defmodule Jido.Flow.Inline.Owner do
     with true <- is_atom(owner) and not is_nil(owner) and valid_path?(path),
          true <- Code.ensure_loaded?(owner),
          true <- function_exported?(owner, :__jido_inline_flows__, 0),
-         {:ok, target} <- Map.fetch(owner.__jido_inline_flows__(), path) do
+         {:ok, index} <- owner_index(owner),
+         {:ok, target} <- Map.fetch(index, path),
+         true <- owned_target?(target, owner, path) do
       target
     else
       _ ->
@@ -132,6 +139,30 @@ defmodule Jido.Flow.Inline.Owner do
     end
   end
 
+  defp owner_index(owner) do
+    case owner.__jido_inline_flows__() do
+      index when is_map(index) -> {:ok, index}
+      _other -> :error
+    end
+  rescue
+    _error -> :error
+  catch
+    _kind, _reason -> :error
+  end
+
+  defp owned_target?(target, owner, path) when is_atom(target) and not is_nil(target) do
+    Code.ensure_loaded?(target) and
+      function_exported?(target, :__jido_inline_flow__, 0) and
+      target.__jido_inline_flow__() == {owner, path}
+  rescue
+    _error -> false
+  catch
+    _kind, _reason -> false
+  end
+
+  defp owned_target?(_target, _owner, _path), do: false
+
+  @spec error!(Macro.Env.t(), String.t()) :: no_return()
   defp error!(caller, description) do
     raise CompileError, file: caller.file, line: caller.line, description: description
   end
@@ -141,6 +172,7 @@ defmodule Jido.Flow.Inline.Owner do
     :ok
   end
 
+  @spec reserved_error!(Macro.Env.t()) :: no_return()
   defp reserved_error!(caller) do
     error!(
       caller,

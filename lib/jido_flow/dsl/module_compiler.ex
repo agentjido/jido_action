@@ -60,6 +60,14 @@ defmodule Jido.Flow.DSL.ModuleCompiler do
     end
   end
 
+  @doc false
+  @spec validate_options!(term(), Macro.Env.t()) :: :ok
+  def validate_options!(options, caller) do
+    {flow_options, _extensions} = split_options!(options, caller)
+    Jido.Authoring.Config.prepare!(:flow, flow_options, caller)
+    :ok
+  end
+
   defp split_options!(opts_ast, caller) when is_list(opts_ast) do
     if Keyword.keyword?(opts_ast) do
       case Keyword.get_values(opts_ast, :extensions) do
