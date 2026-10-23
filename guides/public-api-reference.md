@@ -1694,7 +1694,7 @@ known compile keys are also rejected through this unknown-option check.
 | `backoff` | `:none` | `:none`, `:linear`, `:exponential`, `:jitter`. Runic computes delay. |
 | `base_delay_ms` | `0` | Non-negative integer. |
 | `max_delay_ms` | `0` | Non-negative integer. Set both delay values for delayed retry. |
-| `max_concurrency` | `1` | Positive integer. Values above one enable Runic asynchronous execution. |
+| `max_concurrency` | Application configuration, or `min(System.schedulers_online(), 10)` | Positive integer. Values above one enable Runic asynchronous execution. |
 | `task_supervisor` | `Jido.Exec.TaskSupervisor` | Live local PID, registered atom, or via tuple. Remote processes and duplicate entries are rejected. |
 
 Unknown options and non-keyword options return `ConfigurationError`. Policy
@@ -1759,7 +1759,7 @@ accept these worker options, passed to Runic:
 
 | Option | Current default or rule |
 | --- | --- |
-| `max_concurrency` | `System.schedulers_online()` from Runic; positive integer. |
+| `max_concurrency` | Application configuration, or `min(System.schedulers_online(), 10)` from Jido; positive integer. |
 | `dispatch_mode` | `:automatic`; `:manual` enables `step`. |
 | `checkpoint_strategy` | `:every_cycle`; also `:on_complete`, `:manual`, or `{:every_n, positive_integer}`. |
 | `on_complete` | `nil`; Runic supports `fn id, workflow -> ... end` and `{module, function, extra_args}`. Jido does not validate this value. Completion does not prove persistence. |

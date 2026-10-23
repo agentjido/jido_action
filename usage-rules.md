@@ -53,8 +53,10 @@ API to use. See the guides on HexDocs for explanations and examples.
 - Pass only these `run/4` options: `timeout`, `max_attempts`, `backoff`,
   `base_delay_ms`, `max_delay_ms`, `max_concurrency`, and `task_supervisor`.
   Unknown options return a configuration error.
-- Defaults: `timeout: :infinity`, `max_attempts: 1`, `max_concurrency: 1`
-  (serial).
+- Defaults: `timeout: :infinity`, `max_attempts: 1`, and `max_concurrency`
+  from `config :jido_action, max_concurrency: value`. Without this
+  configuration, `max_concurrency` is the smaller value of
+  `System.schedulers_online()` and `10`.
 - `timeout` applies to each attempt of each runnable (every Action call and
   every internal Flow node), not to the whole call. A timeout returns
   `Jido.Action.Error.TimeoutError`.
@@ -63,8 +65,9 @@ API to use. See the guides on HexDocs for explanations and examples.
   `details.retry: true` only when another attempt is safe.
 - Set both `base_delay_ms` and `max_delay_ms` when you use `backoff`. Both
   default to `0`, which means no delay.
-- Set `max_concurrency` above `1` to run independent Flow components and
-  collection items in parallel. Do not add a `parallel` block; there is none.
+- Independent Flow components and collection items can run in parallel up to
+  `max_concurrency`. An explicit `run/4` option overrides the package
+  configuration. Do not add a `parallel` block; there is none.
 - `Jido.Exec.run/4` runs the Action or Flow in a supervised task. It blocks
   the caller and stops work if the caller exits. The default supervisor is
   `Jido.Exec.TaskSupervisor`.
@@ -91,7 +94,7 @@ API to use. See the guides on HexDocs for explanations and examples.
   computed result can still have pending or failed persistence.
 - Keep managed params, context, Action outputs, and effects portable: no
   PIDs, ports, references, or functions. Managed execution rejects them.
-- Managed `max_concurrency` defaults to `System.schedulers_online()`, not `1`.
+- Managed `max_concurrency` uses the same capped package default as `run/4`.
   `task_supervisor` is not a managed option. Runic's default executor uses
   supervised tasks; custom executors define how their work runs.
 - Use `Runic.Runner.checkpoint/2` and `stop/3` for lifecycle control. Resume

@@ -56,8 +56,8 @@ after `"price"`. Use `needs: ["name"]` when one component must wait for
 another without reading its data.
 
 Source order never creates a dependency. Components that do not depend on each
-other can run at the same time when you pass `max_concurrency:` above `1`.
-Results and effects keep a deterministic order either way. See
+other can run at the same time, up to the `max_concurrency` limit. Results and
+effects keep a deterministic order either way. See
 [Dependencies And Parallel Work](flow-dependencies.livemd).
 
 ## Components

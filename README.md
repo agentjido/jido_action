@@ -139,8 +139,8 @@ end
 ![Welcome Flow: input name passes through greet and notify to the output](guides/assets/flows/welcome.svg)
 
 `"notify"` reads the result of `"greet"`, so it runs after it. Source order
-does not create dependencies. Independent steps can run concurrently when
-you pass `max_concurrency:`.
+does not create dependencies. Independent steps can run concurrently up to
+the `max_concurrency` limit.
 
 For small operations, a step can hold an inline body instead of a named
 Action. The body compiles to an ordinary Action:

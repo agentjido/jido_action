@@ -132,7 +132,7 @@ options:
 | `backoff` | `:none` | `:none`, `:linear`, `:exponential`, or `:jitter`. |
 | `base_delay_ms` | `0` | Base retry delay. |
 | `max_delay_ms` | `0` | Maximum retry delay. |
-| `max_concurrency` | `System.schedulers_online()` | Ready runnables that can run at once. |
+| `max_concurrency` | Application configuration, or `min(System.schedulers_online(), 10)` | Ready runnables that can run at once. |
 | `dispatch_mode` | `:automatic` | `:manual` enables `Jido.Exec.step/2`. |
 | `checkpoint_strategy` | `:every_cycle` | `:every_cycle`, `:on_complete`, `:manual`, or `{:every_n, n}`. |
 | `on_complete` | none | `fn execution_id, workflow -> ... end`, called when no work remains. |
@@ -140,7 +140,9 @@ options:
 | `scheduler`, `scheduler_opts` | Runic default | Replace how ready work is grouped. |
 | `hooks`, `promise_opts` | none | Runic worker hooks and promise settings. |
 
-The `max_concurrency` default differs from `run/4`, which defaults to `1`.
+Set the package value with `config :jido_action, max_concurrency: value`. The
+`max_concurrency` default is the same for managed execution and `run/4`. An
+explicit execution option overrides the configured value.
 `task_supervisor` is not a managed option; the default executor uses the
 Runner's own Task Supervisor. A custom executor defines how its work runs.
 Unknown options return a configuration error.

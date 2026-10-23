@@ -32,6 +32,7 @@ defmodule Jido.Exec do
   }
 
   @default_task_supervisor Jido.Exec.TaskSupervisor
+  @default_max_concurrency_ceiling 10
 
   @typedoc "A local Task Supervisor PID, registered name, or via reference."
   @type task_supervisor :: pid() | atom() | {:via, module(), term()}
@@ -111,7 +112,13 @@ defmodule Jido.Exec do
          {:ok, workflow} <- compile(instruction),
          :ok <- reject_waits(workflow),
          {:ok, workflow, observation} <-
-           run_workflow(workflow, execution_input(instruction), instruction.context, opts) do
+           run_workflow(
+             workflow,
+             execution_input(instruction),
+             instruction.context,
+             instruction.kind,
+             opts
+           ) do
       result(workflow, observation)
     else
       {:error, error} -> {:error, normalize_runtime_error(error)}
@@ -268,8 +275,8 @@ defmodule Jido.Exec do
     end
   end
 
-  defp run_workflow(workflow, input, context, opts) do
-    with {:ok, policy, react_opts} <- execution_options(opts) do
+  defp run_workflow(workflow, input, context, kind, opts) do
+    with {:ok, policy, react_opts} <- execution_options(opts, kind) do
       context = Jido.Exec.Runtime.context(context)
 
       {workflow, observation} =
@@ -456,7 +463,7 @@ defmodule Jido.Exec do
     })
   end
 
-  defp execution_options(opts) when is_list(opts) do
+  defp execution_options(opts, kind) when is_list(opts) do
     if Keyword.keyword?(opts) do
       allowed = [
         :timeout,
@@ -472,7 +479,7 @@ defmodule Jido.Exec do
           with {:ok, policy} <- build_policy(opts),
                {:ok, max_concurrency} <- max_concurrency(opts) do
             react_opts =
-              if max_concurrency > 1,
+              if kind == :flow and max_concurrency > 1,
                 do: [async: true, max_concurrency: max_concurrency],
                 else: []
 
@@ -582,7 +589,10 @@ defmodule Jido.Exec do
       case Keyword.keys(opts) -- (policy_keys ++ worker_keys) do
         [] ->
           with {:ok, policy} <- build_policy(Keyword.take(opts, policy_keys)),
-               worker_opts = Keyword.take(opts, worker_keys),
+               worker_opts =
+                 opts
+                 |> Keyword.take(worker_keys)
+                 |> Keyword.put_new_lazy(:max_concurrency, &default_max_concurrency/0),
                :ok <- validate_worker_options(worker_opts) do
             policy = %{policy | execution_mode: :durable}
 
@@ -604,7 +614,7 @@ defmodule Jido.Exec do
     do: {:error, Jido.Action.Error.config_error("execution options must be a keyword list")}
 
   defp max_concurrency(opts) do
-    case Keyword.get(opts, :max_concurrency, 1) do
+    case Keyword.get_lazy(opts, :max_concurrency, &default_max_concurrency/0) do
       value when is_integer(value) and value > 0 ->
         {:ok, value}
 
@@ -615,6 +625,14 @@ defmodule Jido.Exec do
            value: value
          })}
     end
+  end
+
+  defp default_max_concurrency do
+    Application.get_env(
+      :jido_action,
+      :max_concurrency,
+      min(System.schedulers_online(), @default_max_concurrency_ceiling)
+    )
   end
 
   # Runic accepts these values. Other worker options pass through to Runic.

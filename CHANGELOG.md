@@ -26,6 +26,8 @@ entries return to the normal automated changelog process.
 
 ### Breaking Changes:
 
+- Run immediate and managed work with a configured `max_concurrency` default.
+  The fallback is the smaller value of the online scheduler count and `10`.
 - Replace `Jido.Flow.Registry` with the owner-neutral
   `Jido.Authoring.Registry`. Use `Jido.Flow.Codec.encode/1` when temporary
   generated identifiers are sufficient.

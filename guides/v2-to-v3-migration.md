@@ -398,7 +398,7 @@ Map each version 2 option to its version 3 form:
 | `context_propagators:`, `context_propagator_failure_mode:` | Removed. Pass Action data explicitly in the context map; manage process-local tracing in the application integration. |
 | `error_normalization:` | Removed. Use the V3 structured error contract. |
 | `jido:` | Removed. For immediate task isolation, pass `task_supervisor:`. For managed work, select the Runner. |
-| `:jido_action` application config defaults | Removed. Pass options on each call. |
+| `:jido_action` application config defaults | Only `max_concurrency` is supported. Pass other options on each call. |
 
 Check these behavior changes:
 
@@ -408,8 +408,9 @@ Check these behavior changes:
   Set `details.retry: true` only when another attempt is safe.
 - `base_delay_ms` and `max_delay_ms` both default to `0`. Set both to get a
   delay between attempts.
-- `max_concurrency` defaults to `1`. Raise it to run independent Flow
-  components in parallel.
+- `max_concurrency` reads `config :jido_action, max_concurrency: value`. Without
+  this configuration, it defaults to the smaller value of
+  `System.schedulers_online()` and `10`. Set it to `1` for serial execution.
 
 Unknown options return a `Jido.Action.Error.ConfigurationError`. See
 [Execution](execution.md) for the complete option list.
@@ -584,8 +585,9 @@ Check these behavior changes:
 
 - `timeout:` applies to each attempt of each runnable, including internal Flow
   nodes. There is no whole-call timeout.
-- `max_concurrency` for `run/4` now defaults to `1`, not `8`. `start/6`
-  defaults to `System.schedulers_online()`.
+- `max_concurrency` for `run/4` and `start/6` reads the `:jido_action`
+  application configuration. Its fallback is the smaller value of
+  `System.schedulers_online()` and `10`.
 - An Action no longer runs in its own fresh Task under a private supervisor.
   `run/4` runs the whole call in one task under `Jido.Exec.TaskSupervisor`.
 - `max_attempts`, `backoff`, `base_delay_ms`, and `max_delay_ms` are new retry

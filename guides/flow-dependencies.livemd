@@ -104,7 +104,8 @@ dependencies. `references` lists components read through result references.
 
 ## Execute Independent Work
 
-Pass `max_concurrency:` to let independent components run at the same time:
+Independent components run at the same time up to the package default. Pass
+`max_concurrency:` to change the limit:
 
 ```elixir
 {:ok, %{joined: %{left: 4, right: 4}}} =

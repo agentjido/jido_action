@@ -299,8 +299,10 @@ Map.new(dependencies, fn {name, info} -> {name, info.effective} end)
 time. The items inside `"lines"` are independent too. `"subtotal"`,
 `"pricing"`, and `"receipt"` must wait for the results they read.
 
-Exec runs one unit of work at a time by default. Pass `max_concurrency:` to
-run independent work in parallel. The result is the same:
+Exec runs independent work in parallel by default. The package configuration
+sets the limit. Without this configuration, the limit is the smaller value of
+`System.schedulers_online()` and `10`. Pass `max_concurrency:` to override the
+limit. The result is the same:
 
 ```elixir
 {:ok, ^receipt} = Jido.Exec.run(FirstFlow.Checkout, order, %{}, max_concurrency: 4)
@@ -336,8 +338,8 @@ partial result. See
 - A `step` can call an Action, a whole Flow, or an inline body.
 - `map`, `reduce`, and `choice` call Action modules for collections and
   decisions.
-- Independent work runs in parallel when you pass `max_concurrency:`, with the
-  same result.
+- Independent work runs in parallel up to `max_concurrency`, with the same
+  result.
 
 ## Next
 

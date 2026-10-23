@@ -79,8 +79,7 @@ authoritative result.
   Flow passed.
 - Call the Action's `validate_params/1` and `validate_output/1` to separate
   schema problems from callback problems.
-- Set `max_concurrency: 1` (the default) to make the order of side effects
-  easier to follow.
+- Set `max_concurrency: 1` to make the order of side effects easier to follow.
 - Attach a handler to `Jido.Exec.Telemetry.event_names/0` to see each Action
   attempt with its `component`, `node_path`, and `attempt`. See
   [Execution](execution.md#telemetry).

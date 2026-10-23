@@ -160,6 +160,26 @@ defmodule Jido.Exec.Runner.ManagedTest do
     assert {:error, :not_found} = Runic.Runner.get_workflow(runner, {:options, :max_concurrency})
   end
 
+  test "managed execution uses the package concurrency configuration" do
+    previous = Application.fetch_env(:jido_action, :max_concurrency)
+    Application.put_env(:jido_action, :max_concurrency, 2)
+
+    on_exit(fn ->
+      case previous do
+        {:ok, value} -> Application.put_env(:jido_action, :max_concurrency, value)
+        :error -> Application.delete_env(:jido_action, :max_concurrency)
+      end
+    end)
+
+    runner = start_runner!(__MODULE__.DefaultConcurrencyRunner)
+    id = {:default_concurrency, System.unique_integer([:positive])}
+
+    assert {:ok, worker} =
+             Exec.start(runner, id, Echo, %{value: 1}, %{}, dispatch_mode: :manual)
+
+    assert %{max_concurrency: 2} = :sys.get_state(worker)
+  end
+
   test "the default executor uses a partitioned Runner Task Supervisor" do
     runner = start_runner!(__MODULE__.PartitionRunner, task_supervisor: {:partition, 2})
     id = {:partition, System.unique_integer([:positive])}

@@ -135,7 +135,7 @@ snapshot form and includes historical failure and uncertainty events.
 | `backoff` | `:none` | `:none`, `:linear`, `:exponential`, or `:jitter`. |
 | `base_delay_ms` | `0` | Non-negative retry delay base. |
 | `max_delay_ms` | `0` | Non-negative retry delay limit. |
-| `max_concurrency` | `1` | Positive integer. Ready Runnable concurrency for immediate execution. |
+| `max_concurrency` | Application configuration, or `min(System.schedulers_online(), 10)` | Positive integer. Ready Runnable concurrency for immediate execution. |
 | `task_supervisor` | `Jido.Exec.TaskSupervisor` | Local Task Supervisor for the execution task. |
 
 Exec converts these options to `Runic.Workflow.SchedulerPolicy`. Runic performs
@@ -222,9 +222,9 @@ does not encode runtime progress into Instructions or Flow JSON.
 Managed execution accepts Runic worker options such as `checkpoint_strategy`,
 `on_complete`, `executor`, `scheduler`, and their option lists. It also accepts
 the policy options listed above, except `task_supervisor`. Managed
-`max_concurrency` is a worker option and defaults to
-`System.schedulers_online()`. See [Managed Execution](managed-execution.md#options)
-for the complete option list.
+`max_concurrency` is a worker option and uses the same capped default. See
+[Managed Execution](managed-execution.md#options) for the complete option
+list.
 
 ## Stepwise Execution
 
@@ -327,9 +327,16 @@ Jido.Exec.run(MyApp.Actions.FetchQuote, %{symbol: "ACME"}, %{},
 
 ### Concurrency
 
-With the default `max_concurrency: 1`, ready work runs one runnable at a
-time. With a larger value, independent Flow components and collection items
-run concurrently, up to that limit.
+Set a package default in application configuration:
+
+```elixir
+config :jido_action, max_concurrency: 6
+```
+
+Without this configuration, the default is the smaller value of
+`System.schedulers_online()` and `10`. Independent Flow components and
+collection items run concurrently, up to that limit. Set the value to `1` for
+serial execution. An explicit `run/4` option overrides the configured value.
 
 ```elixir
 Jido.Exec.run(MyApp.Flows.BuildReport, input, %{}, max_concurrency: 4)
