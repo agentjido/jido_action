@@ -58,6 +58,7 @@ defmodule Jido.Authoring.ConfigTest do
         options <- [
           "id: \"\", name: \"invalid\"",
           "id: \"bad id\", name: \"invalid\"",
+          "id: :invalid, name: \"invalid\"",
           "vsn: 0, name: \"invalid\""
         ] do
       assert_raise CompileError, fn -> compile_module(kind, options) end

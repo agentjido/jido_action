@@ -83,6 +83,9 @@ defmodule JidoActionTest.Action.ValidationTest do
       codec = Zoi.codec(from, to, decode: &Function.identity/1, encode: &Function.identity/1)
       assert Validation.map_schema?(codec) == false
     end
+
+    legacy_default = %{__struct__: Zoi.Types.Default, inner: map}
+    assert Validation.map_schema?(legacy_default)
   end
 
   describe "parse/3" do
