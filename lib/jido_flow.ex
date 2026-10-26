@@ -329,3 +329,13 @@ defmodule Jido.Flow do
     end)
   end
 end
+
+defimpl Runic.Identity.Projectable, for: Jido.Flow do
+  def identity_document(flow) do
+    %{
+      kind: :jido_flow,
+      version: 1,
+      digest: Jido.Flow.Identity.semantic_digest(flow)
+    }
+  end
+end

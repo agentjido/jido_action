@@ -39,6 +39,24 @@ defmodule Jido.Exec.Node.DispatchTest do
     def run(%{mode: "effects", value: value}, _context),
       do: {:continue, %{value: value, effects: true}, Finalize}
 
+    def run(%{mode: "runtime_flow", value: value}, _context) do
+      flow =
+        Jido.Flow.new!(%{
+          name: "dispatch_runtime_flow",
+          components: [
+            %{
+              kind: :step,
+              name: "finalize",
+              action: Finalize,
+              params: %{value: Jido.Flow.Ref.input(:value)}
+            }
+          ],
+          output: Jido.Flow.Ref.result("finalize")
+        })
+
+      {:continue, %{value: value}, flow}
+    end
+
     def run(%{mode: "invalid_input", value: value}, _context),
       do: {:continue, %{value: value}, JidoActionTest.Fixtures.Actions.Add}
 
@@ -87,6 +105,11 @@ defmodule Jido.Exec.Node.DispatchTest do
   @tag obligation: "jido_action.boundary.I8"
   test "an expander continuation runs the selected target" do
     assert Exec.run(flow(), %{mode: "continue", value: 4}) == {:ok, %{final: 4}}
+  end
+
+  @tag obligation: "jido_action.boundary.I8"
+  test "an expander continuation runs a runtime Flow target" do
+    assert Exec.run(flow(), %{mode: "runtime_flow", value: 4}) == {:ok, %{final: 4}}
   end
 
   @tag obligation: ["jido_action.boundary.I4", "jido_action.boundary.I8"]
