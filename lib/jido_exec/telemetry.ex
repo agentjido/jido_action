@@ -58,6 +58,7 @@ defmodule Jido.Exec.Telemetry do
       attempt: context.attempt_number
     }
     |> Map.merge(flow_component_metadata(flow))
+    |> Map.merge(runtime_correlation(context.runtime))
   end
 
   @doc false
@@ -124,6 +125,18 @@ defmodule Jido.Exec.Telemetry do
 
   defp default_node_path(nil), do: nil
   defp default_node_path(component), do: [component]
+
+  defp runtime_correlation(runtime) when is_map(runtime) do
+    trace = Map.get(runtime, :trace_context, %{})
+
+    runtime
+    |> Map.take([:agent_id, :agent_module, :turn_id])
+    |> Map.merge(Map.take(trace, [:trace_id, :span_id, :parent_span_id]))
+    |> Enum.reject(fn {_key, value} -> is_nil(value) end)
+    |> Map.new()
+  end
+
+  defp runtime_correlation(_runtime), do: %{}
 
   defp action_name(action) do
     if function_exported?(action, :name, 0), do: action.name(), else: Atom.to_string(action)
