@@ -50,12 +50,12 @@ defmodule JidoActionTest.Authoring.RejectionsTest do
          ],
          fallback: JidoActionTest.FlowComponent.fallback!(action: child)
        ), :fallback},
-      {JidoActionTest.FlowComponent.dispatch!(
+      {JidoActionTest.FlowComponent.invoke!(
          name: "node",
          decision: child,
          expander: Components.Expand
        ), :decision},
-      {JidoActionTest.FlowComponent.dispatch!(
+      {JidoActionTest.FlowComponent.invoke!(
          name: "node",
          decision: Components.Decide,
          expander: child
@@ -224,29 +224,29 @@ defmodule JidoActionTest.Authoring.RejectionsTest do
     end
   end
 
-  test "Dispatch rejects a second sink, a second Dispatch, and a partial output" do
-    dispatch = definition(Components.DispatchFlow, "route")
+  test "Handoff rejects a second sink, a second Handoff, and a partial output" do
+    handoff =
+      JidoActionTest.FlowComponent.handoff!(name: "route", selector: Components.Expand)
 
     tail =
       JidoActionTest.FlowComponent.step!(name: "tail", action: Components.Echo, needs: ["route"])
 
     second =
-      JidoActionTest.FlowComponent.dispatch!(
+      JidoActionTest.FlowComponent.handoff!(
         name: "again",
-        decision: Components.Decide,
-        expander: Components.Expand
+        selector: Components.Expand
       )
 
     cases = [
-      {[dispatch, tail], Ref.result("tail"), "Dispatch must be the final component"},
-      {[dispatch, second], Ref.result("route"), "only one Dispatch"},
-      {[dispatch], %{value: Ref.result("route", :value)}, "complete Dispatch result"}
+      {[handoff, tail], Ref.result("tail"), "Handoff must be the final component"},
+      {[handoff, second], Ref.result("route"), "only one Handoff"},
+      {[handoff], %{value: Ref.result("route", :value)}, "complete Handoff result"}
     ]
 
     for {components, output, message} <- cases do
       assert {:error, error} =
                JidoActionTest.FlowBuilder.new(
-                 name: "invalid_dispatch",
+                 name: "invalid_handoff",
                  components: components,
                  output: output
                )
@@ -256,9 +256,12 @@ defmodule JidoActionTest.Authoring.RejectionsTest do
 
     parent =
       JidoActionTest.FlowBuilder.new!(
-        name: "dispatch_parent",
+        name: "handoff_parent",
         components: [
-          JidoActionTest.FlowComponent.subflow!(name: "child", flow: Components.DispatchFlow)
+          JidoActionTest.FlowComponent.subflow!(
+            name: "child",
+            flow: Components.HandoffFlow
+          )
         ],
         output: Ref.result("child")
       )
@@ -316,19 +319,19 @@ defmodule JidoActionTest.Authoring.RejectionsTest do
     refute_received {:hostile_action, _}
   end
 
-  test "Dispatch and ordinary Steps reject a decision or Step continuation" do
-    dispatch =
-      JidoActionTest.FlowComponent.dispatch!(
+  test "Invoke decisions and ordinary Steps reject continuations" do
+    invoke =
+      JidoActionTest.FlowComponent.invoke!(
         name: "route",
         decision: Hostile.Continues,
         expander: Hostile.Watch,
         params: %{value: Ref.input(:value)}
       )
 
-    dispatch_flow =
+    invoke_flow =
       JidoActionTest.FlowBuilder.new!(
         name: "illegal_decision",
-        components: [dispatch],
+        components: [invoke],
         output: Ref.result("route")
       )
 
@@ -345,7 +348,7 @@ defmodule JidoActionTest.Authoring.RejectionsTest do
         output: Ref.result("early")
       )
 
-    for flow <- [dispatch_flow, step_flow] do
+    for flow <- [invoke_flow, step_flow] do
       assert {:error, error} = Exec.run(flow, %{value: 1}, %{observer: self()})
       assert error.message == "Action continuations are not supported by Runic execution"
       assert error.details.reason == :unsupported_continuation
@@ -354,13 +357,13 @@ defmodule JidoActionTest.Authoring.RejectionsTest do
     end
   end
 
-  test "Dispatch targets and their parent Flow validate their outputs" do
-    dispatch = definition(Components.DispatchFlow, "route")
+  test "Invoke targets and their parent Flow validate their outputs" do
+    invoke = definition(Components.InvokeFlow, "route")
 
     strict_root =
       JidoActionTest.FlowBuilder.new!(
-        name: "strict_dispatch_root",
-        components: [dispatch],
+        name: "strict_invoke_root",
+        components: [invoke],
         output: Ref.result("route"),
         output_schema: Zoi.object(%{value: Zoi.string()})
       )
@@ -390,10 +393,10 @@ defmodule JidoActionTest.Authoring.RejectionsTest do
     end
   end
 
-  test "a Dispatch target cannot start an Action continuation chain" do
+  test "an Invoke target cannot start an Action continuation chain" do
     assert {:error, error} =
              Exec.run(
-               Components.DispatchFlow,
+               Components.InvokeFlow,
                %{mode: :continue, value: 5, target: Hostile.Loop},
                %{observer: self()}
              )

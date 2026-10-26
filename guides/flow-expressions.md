@@ -42,7 +42,7 @@ end
 
 The same syntax works in Step and Subflow params, Choice conditions and
 params, Map, Parallel, and Reduce fields, Iterate State, `update`, and
-`while`, Dispatch params, and Flow output. Each field keeps its reference
+`while`, Invoke params, and Flow output. Each field keeps its reference
 scope and result-shape rules.
 
 Inline Action binding sources are the exception. The right side of `<-`
@@ -146,8 +146,8 @@ a replacement for Flow validation; it does not check Flow reference scopes.
 
 ## Stored JSON
 
-`Jido.Authoring` stores each operation under a `$expr` tag. All current features use
-document `vsn` 1:
+`Jido.Authoring` stores each operation under a `$expr` tag. Flow documents use
+document `vsn` 2:
 
 ```elixir
 registry =
@@ -163,7 +163,7 @@ registry =
 
 opts = [registry: registry, codec: Jido.Flow.Codec]
 {:ok, document} = Jido.Authoring.encode(built, opts)
-1 = document["vsn"]
+2 = document["vsn"]
 json = JSON.encode!(document)
 {:ok, restored} = Jido.Authoring.decode(JSON.decode!(json), opts)
 true = restored == built

@@ -16,7 +16,7 @@ component in detail. Run the cells from top to bottom.
 ## Install The Package
 
 ```elixir
-Mix.install([{:jido_action, "~> 3.0.0-beta.21"}])
+Mix.install([{:jido_action, "~> 3.0.0-beta.22"}])
 ```
 
 ## Define Small Actions
@@ -58,16 +58,17 @@ A `flow` block contains component declarations and one `output`:
 | `parallel` | Runs different named Actions and joins their ordered results. | [Flows](flows.md#components) |
 | `reduce` | Folds a list through one Action. | [Map And Reduce](flow-collections.livemd) |
 | `iterate` | Runs one Action in a bounded loop with State. | [Iterate And State](flow-iterate-state.livemd) |
-| `dispatch` | Selects work at runtime. | [Dynamic Flows](dynamic-flows.md) |
+| `invoke` | Selects an Action or Flow at runtime in the current graph. | [Dynamic Flows](dynamic-flows.md) |
+| `handoff` | Requests a validated successor for a new Turn. | [Dynamic Flows](dynamic-flows.md) |
 | `output` | Builds the Flow result. Required and last. | [Steps And Output](flow-steps.livemd) |
 
 A `step` whose target is a Flow module becomes a Subflow. See
 [Nested Flows](nested-flows.livemd).
 
-A Flow can contain at most one `dispatch`. It must be the sole graph terminal,
-and the Flow output must be its complete result, such as
-`output result("route")`. Source declaration order does not determine the
-terminal.
+A Flow can contain more than one `invoke` when its dependency graph permits
+it. A `handoff` must be the sole graph terminal, and the Flow output must be
+its complete result, such as `output result("route")`. Source declaration
+order does not determine the terminal.
 
 ```elixir
 defmodule FlowLanguage.Example do
@@ -188,8 +189,9 @@ body:
   `MyApp.Helpers.output(value)`.
 
 `step` and named Action calls inside `parallel` accept inline bodies. Use
-`inline:` on that declaration for Action settings. Map, Reduce, Choice
-targets, Iterate, and Dispatch use Action modules. See
+`inline:` on that declaration for Action settings. Map, Reduce, Choice, and
+Iterate targets, Invoke decision and expander calls, and Handoff selectors use
+Action modules. See
 [Steps And Output](flow-steps.livemd#write-an-inline-body) and
 [Inline Actions In Flows](inline-actions.md).
 

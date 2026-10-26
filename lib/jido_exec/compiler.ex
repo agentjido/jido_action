@@ -3,7 +3,8 @@ defmodule Jido.Exec.Compiler do
 
   alias Jido.Action.Error
 
-  alias Jido.Exec.Node.{Action, Choice, Dispatch, Input, Loop, Output, Parallel}
+  alias Jido.Exec.Node.{Action, Choice, Handoff, Input, Invoke, Loop, Output, Parallel}
+  alias Jido.Exec.Node.Invoke.Completion
   alias Jido.Exec.Node.Map, as: MapComponent
 
   alias Jido.Flow
@@ -425,7 +426,7 @@ defmodule Jido.Exec.Compiler do
 
   defp runtime_component(
          %{
-           kind: :dispatch,
+           kind: :invoke,
            decision: %{kind: :action} = decision,
            expander: %{kind: :action} = expander
          },
@@ -433,13 +434,21 @@ defmodule Jido.Exec.Compiler do
          _context
        ) do
     {:ok,
-     Dispatch.new(
+     Invoke.new(
        opts ++
          [
            decision: decision,
            expander: expander
          ]
      )}
+  end
+
+  defp runtime_component(
+         %{kind: :handoff, selector: %{kind: :action} = selector},
+         opts,
+         _context
+       ) do
+    {:ok, Handoff.new(opts ++ [selector: selector])}
   end
 
   defp runtime_component(
@@ -568,13 +577,8 @@ defmodule Jido.Exec.Compiler do
   defp add_component(workflow, component, []), do: Workflow.add(workflow, component)
 
   defp add_component(workflow, component, [parent]) do
-    case Workflow.get_component(workflow, parent) do
-      %Dispatch{} = source ->
-        Workflow.add(workflow, component, to: Dispatch.finished_condition(source))
-
-      _source ->
-        Workflow.add(workflow, component, to: parent)
-    end
+    {parent, _source} = completed_parent(workflow, parent)
+    Workflow.add(workflow, component, to: parent)
   end
 
   defp add_component(workflow, component, parents) do
@@ -584,8 +588,10 @@ defmodule Jido.Exec.Compiler do
       parents
       |> Enum.with_index()
       |> Enum.map(fn {parent, index} ->
+        {parent, source} = completed_parent(workflow, parent)
+
         {source_port, _schema} =
-          workflow |> Workflow.get_component(parent) |> Runic.Component.outputs() |> List.first()
+          source |> Runic.Component.outputs() |> List.first()
 
         [
           from: {parent, source_port},
@@ -595,6 +601,17 @@ defmodule Jido.Exec.Compiler do
       end)
 
     Workflow.add(workflow, component, connections: connections, input_mode: :all)
+  end
+
+  defp completed_parent(workflow, parent) do
+    case Workflow.get_component(workflow, parent) do
+      %Invoke{} = source ->
+        finished = Completion.new(source)
+        {finished, finished}
+
+      source ->
+        {parent, source}
+    end
   end
 
   defp add_flow_input(

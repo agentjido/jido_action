@@ -169,7 +169,7 @@ defmodule JidoAction.MixProject do
         {"guides/flow-collections.livemd", title: "Map And Reduce"},
         {"guides/flow-iterate-state.livemd", title: "Iterate And State"},
         {"guides/nested-flows.livemd", title: "Nested Flows"},
-        {"guides/dynamic-flows.md", title: "Dynamic Flows With Dispatch"},
+        {"guides/dynamic-flows.md", title: "Dynamic Flows With Invoke And Handoff"},
         {"guides/flow-modules.md", title: "Flow Modules And Extensions"},
         # Authoring And Storage
         {"guides/authoring.md", title: "Authoring Runtime Data"},

@@ -38,10 +38,10 @@ The five Runner fuzz cases use current public APIs:
   stops it, and resumes it with `Jido.Exec.resume`. The cut varies from one
   completed Action to the penultimate Action. Generated commands read,
   checkpoint, or stop and resume again. Completion uses manual steps or
-  `Runic.Runner.continue`. Chain, Map, Iterate, nested Flow, and Dispatch cases
+  `Runic.Runner.continue`. Chain, Map, Iterate, nested Flow, and Invoke cases
   check exact calls and prove that completed Actions do not run again.
   Each sample also checks the managed portable-data boundary.
-- `dispatch_chains` compares immediate, automatic, and manual execution.
+- `invoke_chains` compares immediate, automatic, and manual execution.
   Chains select Action or Flow terminals and check success, returned errors,
   timeout, exact calls, and ordered or discarded effects.
 - `runner_telemetry` varies retry counts and terminal outcomes across all

@@ -8,6 +8,10 @@ The initial review used local Runic at `../runic`, commit `de170d8`.
 The implementation check record below identifies the later dependency build.
 Results apply to these source combinations, not to every published release.
 
+The 2026-10-26 implementation check is a separate review of the beta
+Dispatch-to-Invoke/Handoff change. The 2026-10-14 review and its saved results
+did not cover the new nodes, stored Flow version 2, or host capability API.
+
 Read the [detailed public API reference](public-api-reference.md) for exact
 entry points, generated APIs, callbacks, data, defaults, errors, ordering,
 effects, identity, storage, telemetry, and source/test evidence. This review
@@ -40,20 +44,20 @@ a passing tag alone does not establish the entire group or matrix.
 | Candidate | Proposed behavior obligation | Required acceptance matrix and limits |
 | --- | --- | --- |
 | P01. Definitions and descriptions | Valid static Action and Flow configuration produces the documented metadata, schemas, callbacks, and kind. Action requires `run/2`. Tool descriptions preserve the declared meaning or report a projection error. | Action and Flow; missing callback; all config fields; invalid/static schemas; one-time evaluation; absent schemas; JSON projection success and delayed failure. Successful compilation does not imply `authoring_contract/0` can succeed. |
-| P02. Shared validation | Input validation precedes work; output validation follows successful work. Defaults, coercion, transforms, preparation, and root unknown-key policy retain their declared meaning at Action and Flow boundaries. | Root Action, root Flow, nested Flow, and Dispatch-selected Flow; direct object/struct versus nested/wrapped schema; strict/typed keys; custom validator failures and invalid returns; transformed shape and exactly one application per boundary. Direct validator calls do not provide all Exec containment. |
+| P02. Shared validation | Input validation precedes work; output validation follows successful work. Defaults, coercion, transforms, preparation, and root unknown-key policy retain their declared meaning at Action and Flow boundaries. | Root Action, root Flow, nested Flow, and Invoke-selected Flow; direct object/struct versus nested/wrapped schema; strict/typed keys; custom validator failures and invalid returns; transformed shape and exactly one application per boundary. Direct validator calls do not provide all Exec containment. |
 | P03. Calls and targets | Instructions retain call data and resolve the current target contract. Overrides are shallow; metadata cannot choose execution policy. Inert templates and binding keep their separate input rules. | Module and Flow values; nested Instructions; each merge layer; constructor, template, binding, callback checks, reload and stale kind, removed fields, failure variants. Resolution can load trusted modules but does not run Action work. |
 | P04. Results and errors | Exec preserves supported success/envelope forms, contains callback failures, and retains useful public error type, reason, location, and retry classification. | All four Output kinds and stream laziness; invalid raw output; raise/throw/exit/kill; invalid validators/returns; Action and Flow maps; grouped errors; retry hints; top-level versus detail stacktraces. Native managed lookup/control errors can be atoms. Error maps are not JSON transport data. |
-| P05. Deferred effects | Successful execution returns ordered effect requests without dispatch. It preserves duplicates; rejected/failed output exposes no executable batch. Logical effect identity excludes attempt identity. | Action, independent/dependent components, unselected output branches, nested Flow, Map successes/collected failures, Reduce, Iterate, Dispatch; proper/improper lists; rejected output; timeout/cancel/uncertainty; effect identity with fixed execution/activation/output/index. A changed output ID can change the effect ID. |
-| P06. Graph rules | References and `needs` define dependencies; source order does not. Every Flow has an explicit output. Invalid graph structure and reference scope fail with useful diagnostics. | Required final DSL output and non-nil data output; missing names; duplicates; cycles; reference scopes; Dispatch terminal/output rule; stable diagnostic order for the documented phases. Dispatch is the sole graph terminal, not necessarily the final source component. |
-| P07. Component meaning | Choice, Map, Reduce, Iterate, nested Flow, and Dispatch keep their declared value, selection, state, and failure rules. | A separate case family for each component, including empty collections, duplicate items, fail-fast/collect-errors, serial folds/iterations, state validation/exhaustion, nested boundaries, direct/continued Dispatch. The Choice `"fallback"` collision is repaired with distinct internal routes and a regression test for matching and nonmatching conditions in serial and concurrent execution. |
+| P05. Deferred effects | Successful execution returns ordered effect requests without dispatch. It preserves duplicates; rejected/failed output exposes no executable batch. Logical effect identity excludes attempt identity. | Action, independent/dependent components, unselected output branches, nested Flow, Map successes/collected failures, Reduce, Iterate, Invoke; proper/improper lists; rejected output; timeout/cancel/uncertainty; effect identity with fixed execution/activation/output/index. A changed output ID can change the effect ID. |
+| P06. Graph rules | References and `needs` define dependencies; source order does not. Every Flow has an explicit output. Invalid graph structure and reference scope fail with useful diagnostics. | Required final DSL output and non-nil data output; missing names; duplicates; cycles; reference scopes; Handoff terminal/output rule; stable diagnostic order for the documented phases. Handoff is the sole graph terminal, not necessarily the final source component. |
+| P07. Component meaning | Choice, Map, Reduce, Iterate, nested Flow, and Invoke keep their declared value, selection, state, and failure rules. | A separate case family for each component, including empty collections, duplicate items, fail-fast/collect-errors, serial folds/iterations, state validation/exhaustion, nested boundaries, direct/continued Invoke. The Choice `"fallback"` collision is repaired with distinct internal routes and a regression test for matching and nonmatching conditions in serial and concurrent execution. |
 | P08. Authoring equivalence | DSL, data definitions, and stored documents express the same supported Flow meaning. Inline Steps act as ordinary Actions with owner scope. Extensions lower to supported declarations. | Equivalent graphs with refs/expressions/schema transforms/all components; Inline lexical scope, lookup, reuse and build deployment; extension versus direct declarations; rejected declarations. Equal meaning does not require identical generated module names or AST. |
 | P09. Expressions | Fixed operations keep their documented Elixir results and short-circuit rules. Parsing, host callbacks, validation, and evaluation keep a closed grammar and apply their stated resource limits. | Every operator/arity, term ordering, strict membership, right-value Boolean returns, skipped operands, parser rejection, pins/host values, callback failures/paths, cumulative depth/node/binary/integer bounds. `new/2` checks operator and arity only. A constructor example cannot establish bounded evaluation. |
-| P10. Stored documents | Portable authoring primitives provide owner-neutral resource limits, a closed value grammar, and typed host identifiers. Document `vsn` 1 preserves Flow meaning and deterministic stored-map representation. Registry lookup creates no atoms. Invalid or oversized documents return useful errors. | Shared Registry, Value, Document, and second-owner composition; every Flow field/component/value tag; explicit `vsn` values and kind mismatch; unknown ID atom safety; map-key ordering/duplicates; round trips; safety limits; independent diagnostics and phase order. JSON byte order, generated-ID stability across changed registries, and deployed code snapshots are excluded. |
+| P10. Stored documents | Portable authoring primitives provide owner-neutral resource limits, a closed value grammar, and typed host identifiers. Document `vsn` 2 preserves Flow meaning and deterministic stored-map representation. Registry lookup creates no atoms. Invalid or oversized documents return useful errors. | Shared Registry, Value, Document, and second-owner composition; every Flow field/component/value tag; explicit `vsn` values and kind mismatch; version 1 migration rejection; unknown ID atom safety; map-key ordering/duplicates; round trips; safety limits; independent diagnostics and phase order. JSON byte order, generated-ID stability across changed registries, and deployed code snapshots are excluded. |
 | P11. Inert inspection and identity | Flow validation, inspection, and Exec compilation do not run Action work. Diagnostics retain useful locations. Semantic identity reflects canonical graph data and distinguishes refs/expressions from literals. | validate/dependencies/explain/identity/compile; target-contract check versus inert structural check; identity sensitivity and exclusions; Codec round trip; DSL source paths. Trusted metadata/schema/Flow builders may run during compilation. Identity does not identify deployed Action code. |
 | P12. Execution policy | Timeout is per attempt. Only eligible errors retry. Failure stops new admission while admitted work can finish. Concurrency preserves defined result, effect, and failure order. | Serial and concurrent runs; nested and collection work; each retry policy; non-retryable failures; timeout zero/finite/infinite; failure ordering after active work drains; malformed options. Runtime scheduling and admission are Runic-owned. |
 | P13. Process ownership | Immediate work cannot crash its live caller and is stopped when that caller dies. Owned tasks are released on completion and termination. Managed work follows Runner ownership. | Caller normal/abnormal exit; timed and untimed work; group leaders; injected and partitioned supervisors; task crash; managed stop/cancel/worker death; failed persistent stop. Custom executors and unlinked user processes need their own contracts. |
 | P14. Managed result and recovery | Managed and manual execution preserve the same Flow meaning. Results respect the admitted input scope and distinguish active, failed, stopped, and uncertain work. Recovery preserves acknowledged stored progress; context and policy must be supplied again. | Manual units, busy/complete states, live observations, later input occurrences, foreign results, resume snapshot fallback, checkpoint and Store failure, each recoverable component, portable params/metadata/context/results/effects, duplicate and rejected starts. Computed success is separate from Store acknowledgement. Work after the last acknowledged checkpoint can repeat. |
-| P15. Telemetry | Jido emits the documented Action-attempt and immediate-Flow event shapes with stable correlation fields and bounded start/stop metadata. Runic owns managed runtime events. | Event list/measurements; success/error/retry; nested and Dispatch metadata; immediate versus managed events; privacy keys; timeout/kill paths. Action start does not guarantee Action stop on timeout or process death. |
+| P15. Telemetry | Jido emits the documented Action-attempt and immediate-Flow event shapes with stable correlation fields and bounded start/stop metadata. Runic owns managed runtime events. | Event list/measurements; success/error/retry; nested and Invoke metadata; immediate versus managed events; privacy keys; timeout/kill paths. Action start does not guarantee Action stop on timeout or process death. |
 
 These candidates can use many ordinary tests. They are small in number, not
 small in evidence needs. P07 and P14 in particular require a visible matrix;
@@ -61,7 +65,7 @@ a single example of Choice or a ten-step checkpoint is insufficient.
 
 ## Active Covenant mapping
 
-The implementation now uses **54 focused obligations in 15 promise groups**.
+The implementation now uses **55 focused obligations in 15 promise groups**.
 It merges overlapping detailed requirements, removes the 36 duplicate public
 register requirements, and adds focused graph, storage, policy, ownership,
 recovery, effect, and telemetry evidence. Existing normal tests remain.
@@ -87,7 +91,7 @@ All IDs below have the `jido_action.` prefix.
 | P09 | Expressions | `expression.I1–I4` |
 | P10 | Stored documents | `authoring.I1–I3, codec.I5–I7` |
 | P11 | Inspection and identity | `flow.I9–I10, boundary.I5` |
-| P12 | Execution policy | `execution.I18, boundary.I6` |
+| P12 | Execution policy and host capabilities | `execution.I18, execution.I25, boundary.I6` |
 | P13 | Process ownership | `execution.I20` |
 | P14 | Managed results and recovery | `execution.I21–I22, boundary.I10` |
 | P15 | Telemetry | `execution.I23` |
@@ -165,7 +169,7 @@ of a regression test or change of public behavior.
 | `jido_action.boundary.I5` | P03/P11 for native protocol behavior and rebuild meaning. Normal for exact struct, one-node layout, private hash and source AST. |
 | `jido_action.boundary.I6` | P03/P12/P14 invalid target/policy handling. Native control atoms must remain exceptions to the blanket structured-error wording. |
 | `jido_action.boundary.I7` | P07 Map values/errors/item identity; P05 item effects. Normal for parent-Fact layout and linear storage checks. |
-| `jido_action.boundary.I8` | P07 Dispatch; P05 effects. Normal for private reconstruction helpers; retain public rebuild integration evidence. |
+| `jido_action.boundary.I8` | P07 Invoke and Handoff; P05 effects. Normal for private reconstruction helpers; retain public rebuild integration evidence. |
 | `jido_action.boundary.I9` | P07 Reduce/Iterate state and positions; P04 failure details. |
 | `jido_action.boundary.I10` | P14 portability, rejected-start cleanup, duplicate worker protection; P13 cleanup lifetime. |
 | `jido_action.errors.I1` | P04 constructor data and concrete error types; use a constructor table test. |
@@ -206,7 +210,7 @@ of a regression test or change of public behavior.
 | Broad open-schema rules omit strict, typed, nested and wrapped cases. | [Usage rules](../usage-rules.md), [shared validation](../lib/jido_action/validation.ex), [schema boundary tests](../test/jido_action/parse_contract_test.exs). | Fixed: direct, nested, and wrapped schemas use their declared Zoi policy. Runtime transforms and validators still meet the map/envelope boundary. Parsed root structs become complete plain maps. |
 | Boolean wording is too strict in usage rules. | [Expression runtime](https://github.com/agentjido/jido_action/blob/0374d195915c91e4097803c404f02b00d76573cb/lib/jido_expr/runtime.ex), [Elixir conformance tests](https://github.com/agentjido/jido_action/blob/0374d195915c91e4097803c404f02b00d76573cb/test/jido_expr/elixir_conformance_test.exs). | `and`/`or` require a Boolean left operand, then return the evaluated right value unchanged. Flow condition slots separately require a Boolean final value. |
 | Expression construction does not always enforce full limits. | [Expression facade](https://github.com/agentjido/jido_action/blob/0374d195915c91e4097803c404f02b00d76573cb/lib/jido_expr.ex), [parser](https://github.com/agentjido/jido_action/blob/0374d195915c91e4097803c404f02b00d76573cb/lib/jido_expr/parser.ex), [expression tests](https://github.com/agentjido/jido_action/blob/0374d195915c91e4097803c404f02b00d76573cb/test/jido_expr_test.exs). | `new/2` checks operator/arity only. Trusted parser leaves and macro pins require later validation. P09 must name the entry point. |
-| Dispatch “last component” wording implies source order. | [Flows guide](flows.md), [usage rules](https://github.com/agentjido/jido_action/blob/0374d195915c91e4097803c404f02b00d76573cb/usage-rules.md), [graph validation](https://github.com/agentjido/jido_action/blob/0374d195915c91e4097803c404f02b00d76573cb/lib/jido_flow/graph_validation.ex). | Dispatch must be the sole graph terminal and the complete Flow output. Dependency order is authoritative. |
+| Handoff “last component” wording implies source order. | [Flows guide](flows.md), [usage rules](https://github.com/agentjido/jido_action/blob/0374d195915c91e4097803c404f02b00d76573cb/usage-rules.md), [graph validation](https://github.com/agentjido/jido_action/blob/0374d195915c91e4097803c404f02b00d76573cb/lib/jido_flow/graph_validation.ex). | Handoff must be the sole graph terminal and the complete Flow output. Dependency order is authoritative. |
 | Collection and Reduce initial rules are narrower in guides than in source. | [Map collection](https://github.com/agentjido/jido_action/blob/0374d195915c91e4097803c404f02b00d76573cb/lib/jido_exec/node/map/collection.ex), [Loop](https://github.com/agentjido/jido_action/blob/0374d195915c91e4097803c404f02b00d76573cb/lib/jido_exec/node/loop.ex), [error-path tests](https://github.com/agentjido/jido_action/blob/0374d195915c91e4097803c404f02b00d76573cb/test/jido_exec/error_paths_test.exs). | Runtime accepts Enumerables; only lists give the stated input order independently of an Enumerable implementation. Reduce initial can be an Output envelope. Avoid promising an arbitrary Enumerable's order or resource bound. |
 | “Completed Actions do not run again” is unqualified. | [Managed guide](managed-execution.md), [recovery tests](https://github.com/agentjido/jido_action/blob/0374d195915c91e4097803c404f02b00d76573cb/test/jido_exec/runner/durability_test.exs), [Exec](https://github.com/agentjido/jido_action/blob/0374d195915c91e4097803c404f02b00d76573cb/lib/jido_exec.ex). | Only completed work in acknowledged stored progress is preserved. A crash before checkpoint can repeat work. No exactly-once execution or effect delivery. |
 | A computed result can coexist with failed persistence. | [Observation tests](https://github.com/agentjido/jido_action/blob/0374d195915c91e4097803c404f02b00d76573cb/test/jido_exec/observation_test.exs), [failed persistent stop](https://github.com/agentjido/jido_action/blob/0374d195915c91e4097803c404f02b00d76573cb/test/jido_exec/runner/task_ownership_test.exs). | P14 must require separate Store-status evidence. The synthetic observation test does not prove every failing Store path. Default Store durability is adapter-specific. |
@@ -310,7 +314,7 @@ and the same results after reconstruction from a Runic build log.
 
 Fresh checks on 2026-10-14 passed:
 
-- Focused Choice, reconstruction, Map, Dispatch, and authoring checks: 44 tests.
+- Focused Choice, reconstruction, Map, Invoke, and authoring checks: 44 tests.
 - Default suite: 919 tests passed, 132 excluded.
 - `mix test.all --cover --warnings-as-errors`: 1,051 passed
   (29 properties and 1,022 tests), with 95.13% coverage. All required fuzz
@@ -333,6 +337,63 @@ Covenant remains optional. Normal tests still run in default CI. Mutation
 checks were not run; saved survivor records do not prove the current source
 has been checked again.
 
+### 2026-10-26 Invoke and Handoff implementation check
+
+This check covers the replacement of Dispatch with separate Invoke and
+Handoff components. It also covers stored Flow document version 2,
+`Jido.Exec.supports?/2`, the reserved capability context key, and explicit
+Handoff recovery evidence. Earlier records above are historical and are not
+evidence for these new boundaries.
+
+The final checks passed:
+
+- `mix test`: 1,131 passed and 160 excluded.
+- `mix test.contracts`: 1,189 passed (29 properties and 1,160 tests),
+  102 excluded, and all 55 active obligations had evidence from 696 tagged
+  tests in 60 modules.
+- `mix test.authoring`: 87 passed (2 properties and 85 tests).
+- `mix test.property`: 56 passed (27 properties and 29 tests), with 15
+  excluded.
+- `mix test.fuzz`: 15 passed and 56 excluded; all required fuzz cases
+  completed.
+- `mix test.system` and `mix test.load`: one test passed in each suite.
+- Warnings-as-errors compilation, dependency hygiene, format, Doctor, ExDoc,
+  Credo, Dialyzer, and `mix quality` passed.
+
+Fresh Covenant matrices are stored only under the ignored
+`tmp/covenant/mutate/` path. The broad module results are:
+
+| Scope | Total | Killed | Survived | Invalid | Timeout |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| `Jido.Exec.Node.Action` | 249 | 174 | 42 | 33 | 0 |
+| `Jido.Exec.Node.Invoke` | 156 | 105 | 42 | 9 | 0 |
+| `Jido.Exec.Node.Invoke.Finish` | 27 | 7 | 13 | 7 | 0 |
+| `Jido.Exec.Node.Handoff` | 38 | 20 | 12 | 6 | 0 |
+| `Jido.Exec.Compiler` with boundary tests | 298 | 145 | 124 | 28 | 1 |
+| `Jido.Exec.Node.Output` with boundary tests | 64 | 38 | 20 | 6 | 0 |
+| `Jido.Exec.Runtime` | 28 | 19 | 9 | 0 | 0 |
+| `Jido.Exec.Telemetry` | 114 | 72 | 33 | 9 | 0 |
+| `Jido.Flow.Component` | 413 | 192 | 196 | 25 | 0 |
+| `Jido.Flow.Definition` | 261 | 138 | 87 | 36 | 0 |
+| `Jido.Flow.GraphValidation` | 75 | 59 | 13 | 3 | 0 |
+| `Jido.Flow.DSL.Lowerer` | 123 | 26 | 77 | 20 | 0 |
+| `Jido.Flow.Codec` | 42 | 12 | 27 | 3 | 0 |
+| `Jido.Flow.Codec.Reader` | 174 | 120 | 48 | 6 | 0 |
+| `Jido.Flow.Codec.Writer` | 64 | 52 | 12 | 0 | 0 |
+
+The broad matrices include unchanged private and legacy code. Focused reruns
+killed all selected changed sites in `Jido.Exec`, Invoke and Handoff telemetry,
+Flow definition projection, DSL lowering, and Codec version handling. The one
+Compiler timeout is the unchanged Loop `max_iterations` path, not an Invoke or
+Handoff path.
+
+The accepted new-node survivors are precise private-contract decisions. Invoke
+has 33 unpromised internal layout or naming changes and 9 equivalent changes.
+Invoke Finish has 13 unpromised private layout, naming, or identity changes.
+Handoff has 12 of the same private type. The Action matrix has 27 current
+annotations: 14 unpromised, 7 equivalent, and 6 dead-code decisions. Its other
+15 survivors are unchanged Parallel paths. They are not accepted as evidence
+for this change.
 
 The checkpoint check also included the local Fact fix for improper lists and
 its four regression tests. `mix quality` passed. The full

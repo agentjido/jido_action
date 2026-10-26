@@ -1,6 +1,6 @@
 # Public API Reference
 
-This reference documents `jido_action` `3.0.0-beta.21`. Execution uses Runic
+This reference documents `jido_action` `3.0.0-beta.22`. Execution uses Runic
 `~> 0.1.0-alpha.12` from Hex. The contract register and Covenant obligations
 record the evidence for the public promises.
 
@@ -147,14 +147,15 @@ represented by a tool schema.
 | `{:ok, output, effects}` | `effects` must be a proper list. Validate output; retain requests in order. An empty list becomes two-element success. |
 | `{:error, reason}` | Keep an exception reason as an exception. Convert other reasons to `ExecutionFailureError` with `action`, `phase: :run`, and the original `reason`. |
 | `{:error, reason, ignored}` | Use the same error rule and discard the third value. The implementation does not require this discarded value to be a proper list. |
-| `{:continue, input, target}` | Allowed only for a Dispatch expander. Input must resolve to a map. The target can be an Action, Flow module, Flow value, or bound Instruction. |
-| `{:handoff, input, target}` | Allowed only for a root terminal Dispatch expander. Returns a validated successor Instruction and predecessor effects without running the successor. Every host must handle this result. Bound context and metadata are rejected. See [Dynamic Flows](dynamic-flows.md#terminal-handoff-to-a-new-turn). |
+| `{:continue, input, target}` | Allowed only for an Invoke expander. Input must resolve to a map. The target can be an Action, Flow module, Flow value, or bound Instruction. |
+| `{:handoff, input, target}` | Allowed only for a root terminal Handoff selector. Returns a validated successor Instruction and predecessor effects without running the successor. Every host must handle this result. Bound context and metadata are rejected. See [Dynamic Flows](dynamic-flows.md#handoff-to-a-new-turn). |
 | Any other value | `ExecutionFailureError`, with `reason: :invalid_return` and `return: value`. |
 
 An invalid success effects list gives `ExecutionFailureError`, with
 `reason: :invalid_effects`, `action`, `phase: :run`, and `effects`. A continuation
 in another position gives `reason: :unsupported_continuation` and preserves
-its tuple in `return`. The final Dispatch target owns its output validation.
+its tuple in `return`. The final Invoke target owns its output validation.
+A Handoff has no normal output value.
 A continuation does not resume the expander. Error and output-validation
 failure return no executable effect batch. Exec carries requests; it never
 dispatches them. An Action body can still perform I/O itself.
@@ -345,7 +346,7 @@ authoring API.
 
 Instructions are call data, not a durable or JSON format. They carry module
 atoms and can carry runtime context. A Flow data definition rejects bound
-Instructions; Exec accepts them as direct targets and Dispatch continuation
+Instructions; Exec accepts them as direct targets and Invoke continuation
 targets. No Instruction function dispatches work.
 
 Source: [Instruction](https://github.com/agentjido/jido_action/blob/v3.0.0-beta.21/lib/jido_instruction.ex).
@@ -709,7 +710,8 @@ Declaration source order does not create an execution dependency.
 | `otherwise/1` | Keyword fields or field block: required `action` and `params`. It is a routing fallback, not an error recovery handler. |
 | `iterate/2` | Name and required field block. Requires `state/2`, `action`, `params`, and one termination form. `update` defaults to `body_result()`. |
 | `state/2` | Iterate declaration: schema as the first argument, plus required `initial` in keyword or block form. This declaration differs from the `state()` reference. |
-| `dispatch/2` | Name plus keyword fields or field block: required `decision`, `expander`, and `params`. Both targets are Actions. |
+| `invoke/2` | Name plus keyword fields or field block: required `decision`, `expander`, and `params`. Both targets are Actions. |
+| `handoff/2` | Name plus keyword fields or field block: required `selector` and `params`. The selector is an Action. |
 | `output/1` | One value expression. No field block. Must be the final declaration. |
 
 Every component accepts `needs` and `meta`. In the DSL, `needs` defaults to
@@ -794,7 +796,8 @@ are rejected, including internal `call` fields mixed into public data authoring.
 | `:parallel` | non-empty `actions` | `on_error: :fail_fast` or `:collect_errors` |
 | `:reduce` | `collection`, `initial`, `action` | `params` |
 | `:iterate` | `action`, `state`, `completion`, `max_iterations` | `params` |
-| `:dispatch` | `decision`, `expander` | `params` for the decision |
+| `:invoke` | `decision`, `expander` | `params` for the decision |
+| `:handoff` | `selector` | `params` for the selector |
 
 A Choice needs a non-empty proper options list. Each option is a plain map
 with `name`, `condition`, `action`, and optional `params`. The fallback is a
@@ -810,16 +813,17 @@ The data form has no `repeat`, `while`, or implicit update shorthand.
 Targets must be module atoms other than `nil`, `true`, or `false`.
 Construction does not load them. Exec compilation checks the declared kind
 and target contract. Only `:subflow` accepts a Flow in data authoring. Choice,
-Map, Parallel, Reduce, Iterate, and both static Dispatch positions require
-Actions.
+Map, Parallel, Reduce, Iterate, both static Invoke positions, and a Handoff
+selector require Actions.
 
 The canonical component map stores names as keys and omits each inner
 `name`. Step and Subflow become `kind: :call` with
 `call: %{kind: :action | :flow, target: module, params: value}`. Choice retains
 `options`, but each option has `name`, `condition`, and `call`; `fallback` is
 one call record. Map, Reduce, and Iterate also use `call`. Each Parallel Action
-stores `name` and `call`. Dispatch stores a full `decision` call and
-`expander: %{kind: :action, target: module}` without params. Every canonical
+stores `name` and `call`. Invoke stores a full `decision` call and
+`expander: %{kind: :action, target: module}` without params. Handoff stores a
+full `selector` call. Every canonical
 component includes `needs` and `meta`. Canonical validation requires all
 fields and does not fill defaults or normalize names.
 
@@ -914,9 +918,10 @@ Canonical component order uses the longest dependency-path level first,
 then the component name. This is the order for inspection and component
 effect collection. It is not a promise about task start or finish order.
 Output can select an earlier component, but completion still waits for the
-graph's terminals. A Dispatch is permitted only once, must be the sole graph
-terminal, and requires output to be exactly its complete result reference
-with an empty path. Its source declaration need not be last.
+graph's terminals. Invoke can occur more than once and can have downstream
+components. A Handoff is permitted only once, must be the sole graph terminal,
+and requires output to be exactly its complete result reference with an empty
+path. Its source declaration need not be last.
 
 Identity version 1 includes the Flow name, input and output schemas,
 canonical components, and output. It excludes the Flow description and
@@ -936,7 +941,7 @@ across all OTP versions; do not claim a language-neutral graph identity format.
 Definition field errors are checked before graph errors. Data component
 field paths use list indexes; canonical component field paths use names.
 Graph checks report missing output, duplicate names, unknown references,
-then cycles or Dispatch constraints as applicable. Cycles report all blocked
+then cycles or Handoff constraints as applicable. Cycles report all blocked
 components, which can include descendants of a cycle. Module compilation
 attaches available source locations and normally raises at the owning
 declaration. Do not treat internal diagnostic record layouts as public APIs.
@@ -974,7 +979,8 @@ expose a child's internal component names as parent result references.
 | Parallel with `:collect_errors` | Joins ordered `%{name: name, status: :ok, value: output}` or `%{name: name, status: :error, error: error_map}` records. Collected failures do not retry as failed Runnables. Successful effects remain in Action declaration order. |
 | Reduce | Processes each item serially. `initial` becomes the first accumulator; each Action output replaces it. Empty input returns `initial`. The initial value must resolve to a plain map or `Jido.Action.Output`. Failure stops the loop. |
 | Iterate | Validates the initial plain-map state, then tests completion. If complete, runs no body. Otherwise it resolves params, runs the body, resolves the replacement state, validates it, increments the completed count, and tests completion again. State is replaced, not merged. Returns `%{kind: :jido_flow_iterate_result, iterations: count, state: state, output: last_body_output}`; zero calls means `output: nil`. |
-| Dispatch | Runs the decision Action, passes its complete result as expander params, then accepts a final expander result or `{:continue, input, target}`. Only the expander can continue. The selected Action or Flow is resolved and validated at runtime. It cannot create a general continuation loop at an ordinary Action position. |
+| Invoke | Runs the decision Action, passes its complete result as expander params, then accepts a final expander result or `{:continue, input, target}`. Only the expander can continue. The selected Action or Flow is resolved and validated at runtime. It cannot create a general continuation loop at an ordinary Action position. |
+| Handoff | Runs the selector Action and requires `{:handoff, input, target}`. It validates and schema-normalizes portable successor input, then returns a fresh Instruction with empty context and metadata without running it. A bound target with context or metadata fails. It must finish the root Flow. |
 
 Map and Reduce currently accept any value with an `Enumerable`
 implementation and use `Enum.to_list/1`. Lists retain input order; other accepted Enumerables use
@@ -1000,8 +1006,9 @@ Choice condition failures use `:choice_condition` and identify the option.
 Effects keep multiplicity. Flow output collects successful component effects
 in canonical component order; a nested Flow occupies its parent position.
 Map uses item order, Parallel uses Action declaration order, Reduce and Iterate
-use call order, and Dispatch places decision effects before final expander or
-target effects. A failing execution returns no executable effect list. Exec
+use call order, and Invoke places decision effects before final expander or
+target effects. Handoff retains predecessor effects before its selector. A
+failing execution returns no executable effect list. Exec
 does not dispatch effect requests. A `:collect_errors` Map or Parallel can
 still be a successful execution with error data.
 
@@ -1009,7 +1016,8 @@ Source: [Choice selection](https://github.com/agentjido/jido_action/blob/v3.0.0-
 [Map](https://github.com/agentjido/jido_action/blob/v3.0.0-beta.21/lib/jido_exec/node/map.ex),
 [Map collection](https://github.com/agentjido/jido_action/blob/v3.0.0-beta.21/lib/jido_exec/node/map/collection.ex),
 [Reduce and Iterate](https://github.com/agentjido/jido_action/blob/v3.0.0-beta.21/lib/jido_exec/node/loop.ex),
-[Dispatch](https://github.com/agentjido/jido_action/blob/v3.0.0-beta.21/lib/jido_exec/node/dispatch.ex),
+[Invoke](https://github.com/agentjido/jido_action/blob/release/v3/lib/jido_exec/node/invoke.ex),
+[Handoff](https://github.com/agentjido/jido_action/blob/release/v3/lib/jido_exec/node/handoff.ex),
 [Flow output](https://github.com/agentjido/jido_action/blob/v3.0.0-beta.21/lib/jido_exec/node/output.ex),
 [frame effect order](https://github.com/agentjido/jido_action/blob/v3.0.0-beta.21/lib/jido_exec/frame.ex). Evidence:
 [Choice](https://github.com/agentjido/jido_action/blob/v3.0.0-beta.21/test/jido_exec/node/choice_test.exs),
@@ -1019,7 +1027,8 @@ Source: [Choice selection](https://github.com/agentjido/jido_action/blob/v3.0.0-
 [loop error fields and Output initial values](https://github.com/agentjido/jido_action/blob/v3.0.0-beta.21/test/jido_exec/error_paths_test.exs),
 [authoring parity and serial state](https://github.com/agentjido/jido_action/blob/v3.0.0-beta.21/test/authoring/components_test.exs),
 [component behavior properties](https://github.com/agentjido/jido_action/blob/v3.0.0-beta.21/test/property/flow/component_contract_test.exs),
-[Dispatch paths and effects](https://github.com/agentjido/jido_action/blob/v3.0.0-beta.21/test/jido_exec/node/dispatch_test.exs),
+[Invoke paths and effects](https://github.com/agentjido/jido_action/blob/release/v3/test/jido_exec/node/invoke_test.exs),
+[Handoff](https://github.com/agentjido/jido_action/blob/release/v3/test/jido_exec/handoff_test.exs),
 [Flow joins and nested boundaries](https://github.com/agentjido/jido_action/blob/v3.0.0-beta.21/test/jido_exec/flow_execution_test.exs),
 [boundary transformations](https://github.com/agentjido/jido_action/blob/v3.0.0-beta.21/test/jido_exec/validation_contract_test.exs).
 
@@ -1074,13 +1083,14 @@ shapes as Flow definitions.
 | Jido.Exec.Node.Map.Collection | `new/1`, `resolve/3`, `run/3`. |
 | Jido.Exec.Node.Loop | `new/1`, `connect/3`, `start/3`, `run_action/6`, `continue?/1`, `complete?/1`, `finish/3`, `condition/3`. |
 | Jido.Exec.Node.Loop.Start | `new/1`, `run/3`. |
-| Jido.Exec.Node.Dispatch | `new/1`, `connect/3`, `finished_condition/1,3`, `finished?/2`, `expansion/4`, `finish/1`, `target_component_key/1`. |
-| Jido.Exec.Node.Dispatch.Finish | `new/2`, `finish/2`, `run/3`. |
+| Jido.Exec.Node.Invoke | `new/1`, `connect/3`, `finished_condition/1,3`, `finished?/2`, `expansion/5`, `finish/1`, `target_component_key/2`, `target?/2`, `target_condition/3`. |
+| Jido.Exec.Node.Invoke.Finish | `new/2`, `finish/2`, `run/3`. |
+| Jido.Exec.Node.Handoff | `new/1`, `connect/3`. |
 
 Runic protocol implementations for these nodes expose the standard
 `Runic.Component` functions `connectable?/2`, `connect/3`, `source/1`,
 `hash/1`, `inputs/1`, and `outputs/1`, plus
-`Runic.Identity.Projectable.identity_document/1`. Loop, Dispatch, and Output
+`Runic.Identity.Projectable.identity_document/1`. Loop, Invoke, Handoff, and Output
 also supply explicit `Runic.Workflow.Invokable` implementations with
 `match_or_execute/1`, `invoke/3`, `prepare/3`, and `execute/2`. Nodes that use
 `Runic.Workflow.SingleOutput` obtain that integration and marker exports from
@@ -1095,7 +1105,7 @@ Source: [Action node](https://github.com/agentjido/jido_action/blob/v3.0.0-beta.
 [Choice node](https://github.com/agentjido/jido_action/blob/v3.0.0-beta.21/lib/jido_exec/node/choice.ex),
 [Choice branch](https://github.com/agentjido/jido_action/blob/v3.0.0-beta.21/lib/jido_exec/node/choice/branch.ex),
 [Loop start](https://github.com/agentjido/jido_action/blob/v3.0.0-beta.21/lib/jido_exec/node/loop/start.ex),
-[Dispatch finish](https://github.com/agentjido/jido_action/blob/v3.0.0-beta.21/lib/jido_exec/node/dispatch/finish.ex).
+[Invoke finish](https://github.com/agentjido/jido_action/blob/release/v3/lib/jido_exec/node/invoke/finish.ex).
 The remaining node source links appear in the component section.
 
 These helpers need normal tests for parser shape, compiler records, generated
@@ -1106,8 +1116,8 @@ No single mixed-graph example establishes every component rule.
 
 ### Flow corrections and evidence limits
 
-Dispatch must be the sole graph terminal, independent of source declaration
-order. Map and Reduce accept finite Enumerables; lists retain input order and
+Handoff must be the sole graph terminal, independent of source declaration
+order. Invoke can have downstream components. Map and Reduce accept finite Enumerables; lists retain input order and
 other Enumerables use their own enumeration order. Reduce initial accepts a
 plain map or Output envelope. `Ref.select/2` validates its existing source and
 can raise; other reference constructors defer validation to the Flow boundary.
@@ -1392,16 +1402,18 @@ manually built Registry. There are no raising variants. Supply a Registry
 built with `Jido.Authoring.Registry.new/1`; a manually forged Registry struct
 is not fully revalidated.
 
-### `vsn` 1 root and component records
+### `vsn` 2 root and component records
 
 The writer emits the required root fields and non-default schema fields. The
-reader accepts only the listed fields. It requires `"type": "jido.flow"` and integer `"vsn": 1`.
-Document `vsn` 1 is separate from semantic identity versions.
+reader accepts only the listed fields. It requires `"type": "jido.flow"` and integer `"vsn": 2`.
+Document `vsn` 2 is separate from Registry reference and semantic identity
+versions. Version 1 contained Dispatch and requires an application migration;
+the reader cannot decide whether a stored Dispatch means Invoke or Handoff.
 
 | Root field | Stored form and read rule |
 | --- | --- |
 | `type` | Required string `"jido.flow"`. |
-| `vsn` | Required integer `1`. |
+| `vsn` | Required integer `2`. Version 1 is rejected with a Dispatch migration error. |
 | `name` | Required valid Flow name: non-blank UTF-8 string, at most 256 bytes. |
 | `description` | UTF-8 string or null. Defaults to nil when absent. |
 | `schema` | Registry schema reference when present. Defaults to `Zoi.map()` when absent. An explicit null is invalid. |
@@ -1422,7 +1434,8 @@ No references or expressions are permitted in metadata.
 | `"map"` | `collection`: encoded Flow value; `call`: Action call record; `on_error`: `"fail_fast"` or `"collect_errors"`. Omission defaults to `"fail_fast"`; explicit null fails. |
 | `"reduce"` | `collection`, `initial`: encoded Flow values; `call`: Action call record. |
 | `"iterate"` | `call`: Action call record; `state`: state record; `completion`: encoded Boolean/reference/expression; `max_iterations`: integer 1 through 10,000. State has `schema`, `initial`, and `update`. Its omitted schema defaults to `Zoi.map()`; its present schema is a Registry reference. |
-| `"dispatch"` | `decision`: Action call record; `expander`: Action target record without params. |
+| `"invoke"` | `decision`: Action call record; `expander`: Action target record without params. |
+| `"handoff"` | `selector`: Action call record. |
 
 A call record has `kind`, `target`, and `params`. The target is a Registry
 reference with `id` and `vsn` for the selected kind. Params use expression encoding. Missing or null
@@ -1437,7 +1450,7 @@ name. It preserves Choice option order and list order. A decoded component
 list is normalized through the same lowered Flow validation used by other
 authoring forms. Thus list order cannot create a dependency. Result
 references and `needs` create dependencies. Validation also checks reference
-scope, unique names, cycles, required output, and Dispatch placement.
+scope, unique names, cycles, required output, and Handoff placement.
 
 ### Tagged values
 
@@ -1500,7 +1513,8 @@ Failures use `Jido.Flow.Error.InvalidDefinitionError` and the documented
 Flow error types. Examples of matchable messages are
 `"stored Flow document must be a map"`,
 `"stored Flow document type must be jido.flow"`,
-`"stored Flow document vsn must be 1"`,
+`"stored Flow document vsn must be 2"`,
+`"stored Flow document vsn 1 requires migration to vsn 2; Dispatch cannot be migrated automatically"`,
 `"stored Flow exceeds its nesting limit"`,
 `"stored Flow collection exceeds its size limit"`,
 `"stored Flow exceeds its total node limit"`,
@@ -1665,11 +1679,16 @@ Evidence: [API tests](https://github.com/agentjido/jido_action/blob/v3.0.0-beta.
 | `result(workflow, %Runic.Workflow.Execution{} = observation)` | Projects one input occurrence. Checks active work, failures, uncertainty, and stopped admission before selecting its result. |
 | `result(runner, execution_id)` | Reads the occurrence admitted by `start`. The Runner argument is an atom. Missing lookup returns `{:error, :not_found}` unchanged. After resume, checks current active/ready work, then uses the snapshot fallback. |
 | `effect_id(execution_id, activation_id, output_id, index)` | A `Runic.Identity` for a non-negative integer index. The index is zero-based. Invalid indices do not match the function clause. |
+| `supports?(context, capability)` | Returns `true` only when the map Action context contains a proper host-supplied capability list with that capability. The public capability is `:waits`. Missing, malformed, and unknown capabilities return `false`; a non-map context does not match the function clauses. |
 
 `task_supervisor/0` is the type `pid() | atom() | {:via, module(), term()}`.
 `exec_result/0` permits the two success shapes, `{:handoff, Instruction.t(), [term()]}`,
 and `{:error, term()}`;
 `step_result/0` permits the two workflow shapes and `{:error, term()}`.
+`capability/0` is `:waits`. The context key `:jido_exec_capabilities` is
+reserved. Exec removes caller and bound values at this key. A host can add its
+own capability list at the Action callback boundary; callers cannot claim a
+host capability through context.
 The managed specs accept a Runner module/name and an execution ID of any
 term. A stable ID must meet Runic's identity and Store requirements. These
 functions do not make arbitrary unavailable Runners safe: GenServer exits
@@ -1912,7 +1931,7 @@ Telemetry handlers run synchronously in the emitting process.
 | Start measurements | `monotonic_time`, `system_time` in native time units. |
 | Stop measurements | `monotonic_time`, `duration` in native time units. |
 | Action metadata | `action`, `action_name`, `node_name`, `runnable_id`, `activation_id`, `attempt_id`, zero-based `attempt`. |
-| Flow component metadata | When available: `component`, `node_path`, `component_kind` (`:step`, `:choice`, `:map`, `:parallel`, `:reduce`, `:iterate`, `:dispatch`), `dispatch_phase` (`:decision`, `:expander`, `:target`). |
+| Flow component metadata | When available: `component`, `node_path`, `component_kind` (`:step`, `:choice`, `:map`, `:parallel`, `:reduce`, `:iterate`, `:invoke`, `:handoff`), `invoke_phase` (`:decision`, `:expander`, `:target`). |
 | Flow metadata | `kind: :flow`, `flow` name, and `target` only for a module target. |
 | Successful stop additions | `outcome: :ok`, `effect_count`. Counts the span's returned list; a Flow component can carry effects in its frame, so its Action count need not equal the final Flow effect count. |
 | Failed stop additions | `outcome: :error`, `error_type`, `retryable?`. |
@@ -1976,7 +1995,7 @@ APIs. Their source files use `@moduledoc false` or `@doc false`:
 | Jido.Exec.Fact and `.LocalValue` | `local_root/1`, `child/2`, `child_options/3`, `result/3,4`, `value/1`, `unwrap/1`, `local_value/1`; local term wrapper and identity projection. |
 | `Jido.Exec.Telemetry` helpers | `span/3`, `action_metadata/2`, `flow_metadata/1`, `result_metadata/2`. |
 | Jido.Exec.Node.Action | `new/1,2`, `run/3`, `execute/3,4`, plus generated Runic hooks. |
-| Other `Jido.Exec.Node.*` modules | Constructors, connectors, selectors, loop/dispatch helpers, protocol functions, and runtime structs listed with the Flow component review. |
+| Other `Jido.Exec.Node.*` modules | Constructors, connectors, selectors, loop/Invoke helpers, protocol functions, and runtime structs listed with the Flow component review. |
 
 The native one-node Action layout, generated node names, component hashes,
 frame layout, local identity wrapping, fact size, and parser/compiler records

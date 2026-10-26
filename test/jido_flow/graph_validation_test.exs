@@ -27,7 +27,7 @@ defmodule Jido.Flow.GraphValidationTest do
   defp stored(components, output) do
     %{
       "type" => "jido.flow",
-      "vsn" => 1,
+      "vsn" => 2,
       "name" => "graph",
       "description" => nil,
       "components" => components,
@@ -156,7 +156,7 @@ end
     assert first.details == hd(errors).details
   end
 
-  test "duplicates and missing references aggregate without cycle or Dispatch cascades" do
+  test "duplicates and missing references aggregate without cycle or Handoff cascades" do
     components = [stored_step("same", ["z_missing", "a_missing"]), stored_step("same", ["same"])]
     output = [stored_ref("out_z"), stored_ref("out_a"), stored_ref("out_z")]
 
@@ -293,41 +293,49 @@ end
              Flow.validate(%{flow | components: Map.drop(flow.components, dependencies)})
   end
 
-  test "Dispatch checks use graph sinks and the complete result" do
-    dispatch =
-      JidoActionTest.FlowComponent.dispatch!(
+  test "Handoff checks use graph sinks and the complete result" do
+    handoff =
+      JidoActionTest.FlowComponent.handoff!(
         name: "next",
-        decision: ProbeAction,
-        expander: ProbeAction
+        selector: ProbeAction
       )
 
     flow =
       JidoActionTest.FlowBuilder.new!(
         name: "graph",
-        components: [dispatch],
+        components: [handoff],
         output: Ref.result("next")
       )
 
     assert {:ok, document} = Codec.encode(flow, registry())
-    [stored_dispatch] = document["components"]
+    [stored_handoff] = document["components"]
 
     invalid = %{
       document
-      | "components" => [stored_dispatch, stored_step("independent", [])],
+      | "components" => [stored_handoff, stored_step("independent", [])],
         "output" => [stored_ref("next")]
     }
 
     assert {:error, %Error.Invalid{errors: errors}} = Codec.diagnose(invalid, registry())
 
     assert Enum.map(errors, &{&1.message, &1.details.path}) == [
-             {"Dispatch must be the final component in the Flow", ["components", 0]},
-             {"Flow output must be the complete Dispatch result", ["output"]}
+             {"Handoff must be the final component in the Flow", ["components", 0]},
+             {"Flow output must be the complete Handoff result", ["output"]}
            ]
 
-    assert {:error, %{message: "Dispatch must be the final component in the Flow"}} =
+    assert {:error,
+            %{
+              message: "Handoff must be the final component in the Flow",
+              details: %{
+                component: "next",
+                handoff: "next",
+                terminal_components: ["independent", "next"],
+                path: [:components, 0]
+              }
+            }} =
              JidoActionTest.FlowBuilder.new(
                name: "graph",
-               components: [dispatch, step("independent", [])],
+               components: [handoff, step("independent", [])],
                output: [Ref.result("next")]
              )
 
@@ -335,22 +343,53 @@ end
              Codec.diagnose(
                %{
                  document
-                 | "components" => [stored_dispatch, %{stored_dispatch | "name" => "second"}]
+                 | "components" => [stored_handoff, %{stored_handoff | "name" => "second"}]
                },
                registry()
              )
 
-    assert multiple.details.path == ["components", 1]
+    assert multiple.message == "Flow can contain only one Handoff component"
 
-    assert {:error, %{message: "Dispatch must be the final component in the Flow"}} =
+    assert multiple.details == %{
+             component: "second",
+             components: ["next", "second"],
+             path: ["components", 1]
+           }
+
+    handoff_after_other =
+      JidoActionTest.FlowComponent.handoff!(
+        name: "next",
+        selector: ProbeAction,
+        needs: ["other"]
+      )
+
+    invalid_outputs = [
+      {[handoff], Ref.input(:value)},
+      {[step("other", []), handoff_after_other], Ref.result("other")},
+      {[handoff], Ref.result("next", :value)}
+    ]
+
+    for {components, output} <- invalid_outputs do
+      assert {:error,
+              %{
+                message: "Flow output must be the complete Handoff result",
+                details: %{handoff: "next", path: [:output]}
+              }} =
+               JidoActionTest.FlowBuilder.new(
+                 name: "graph",
+                 components: components,
+                 output: output
+               )
+    end
+
+    assert {:error, %{message: "Handoff must be the final component in the Flow"}} =
              JidoActionTest.FlowBuilder.new(%{
                output: [Ref.result("next")],
                components: [
                  %{
-                   kind: :dispatch,
+                   kind: :handoff,
                    name: "next",
-                   decision: ProbeAction,
-                   expander: ProbeAction,
+                   selector: ProbeAction,
                    params: %{}
                  },
                  %{kind: :step, name: "independent", action: ProbeAction, params: %{}}
@@ -358,10 +397,10 @@ end
                name: "graph"
              })
 
-    source = "defmodule Jido.Flow.GraphValidationTest.NonterminalDispatch do
+    source = "defmodule Jido.Flow.GraphValidationTest.NonterminalHandoff do
   use Jido.Flow, name: \"graph\"
   flow do
-    dispatch \"next\", decision: #{inspect(ProbeAction)}, expander: #{inspect(ProbeAction)}, params: %{}
+    handoff \"next\", selector: #{inspect(ProbeAction)}, params: %{}
     step \"independent\", action: #{inspect(ProbeAction)}, params: %{}
     output([result(\"next\")])
   end
@@ -369,32 +408,31 @@ end
 "
 
     error =
-      assert_raise CompileError, ~r/Dispatch must be the final component/, fn ->
-        Code.compile_string(source, "nonterminal_dispatch.ex")
+      assert_raise CompileError, ~r/Handoff must be the final component/, fn ->
+        Code.compile_string(source, "nonterminal_handoff.ex")
       end
 
-    assert error.file == "nonterminal_dispatch.ex"
+    assert error.file == "nonterminal_handoff.ex"
     assert error.line == 4
   end
 
-  test "Dispatch parameter references precede terminal graph rules" do
-    dispatch =
-      JidoActionTest.FlowComponent.dispatch!(
+  test "Handoff parameter references precede terminal graph rules" do
+    handoff =
+      JidoActionTest.FlowComponent.handoff!(
         name: "next",
-        decision: ProbeAction,
-        expander: ProbeAction,
+        selector: ProbeAction,
         params: Expr.new!(:and, [false, Ref.result("missing")])
       )
 
     assert {:error, error} =
-             JidoActionTest.FlowBuilder.new(name: "graph", components: [dispatch], output: %{})
+             JidoActionTest.FlowBuilder.new(name: "graph", components: [handoff], output: %{})
 
     assert error.details == %{owner: "next", component: "missing", path: [:components, 0]}
 
     flow =
       JidoActionTest.FlowBuilder.new!(
         name: "graph",
-        components: [step("missing", []), dispatch],
+        components: [step("missing", []), handoff],
         output: Ref.result("next")
       )
 

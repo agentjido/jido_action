@@ -1,4 +1,4 @@
-defmodule Jido.Exec.Node.Dispatch.Finish do
+defmodule Jido.Exec.Node.Invoke.Finish do
   @moduledoc false
 
   use Runic.Workflow.SingleOutput, batch_parent: false
@@ -6,38 +6,35 @@ defmodule Jido.Exec.Node.Dispatch.Finish do
   alias Runic.Identity
   alias Runic.Workflow.SingleOutput.{Context, Result}
 
-  @enforce_keys [:id, :name, :hash, :dispatch_id, :dispatch_name, :component, :target_component]
-  defstruct [:id, :name, :hash, :dispatch_id, :dispatch_name, :component, :target_component]
+  @enforce_keys [:id, :name, :hash, :invoke_id, :invoke_name, :component, :target_component]
+  defstruct [:id, :name, :hash, :invoke_id, :invoke_name, :component, :target_component]
 
   @type t :: %__MODULE__{}
 
   @doc false
-  @spec new(Jido.Exec.Node.Dispatch.t(), term()) :: t()
-  def new(%Jido.Exec.Node.Dispatch{} = dispatch, target_id) do
-    id = {dispatch.id, :finish, target_id}
+  @spec new(Jido.Exec.Node.Invoke.t(), term()) :: t()
+  def new(%Jido.Exec.Node.Invoke{} = invoke, target_id) do
+    id = {invoke.id, :finish, target_id}
 
     %__MODULE__{
       id: id,
-      name: "__jido_dispatch__/#{dispatch.name}/finish/#{target_id}",
+      name: "__jido_invoke__/#{invoke.name}/finish/#{target_id}",
       hash:
         Identity.digest(:component_definition, %{
-          kind: "jido_dispatch_finish",
+          kind: "jido_invoke_finish",
           version: 1,
           id: inspect(id)
         }),
-      dispatch_id: dispatch.id,
-      dispatch_name: dispatch.name,
-      component: dispatch.component,
-      target_component: Jido.Exec.Node.Dispatch.target_component_key(dispatch)
+      invoke_id: invoke.id,
+      invoke_name: invoke.name,
+      component: invoke.component,
+      target_component: Jido.Exec.Node.Invoke.target_component_key(invoke, target_id)
     }
   end
 
   @doc false
   @spec finish(t(), term()) :: {:ok, term()} | {:error, term()}
-  def finish(
-        %__MODULE__{} = _node,
-        {:jido_dispatch_target_result, frame, component, output, effects}
-      ) do
+  def finish(%__MODULE__{}, {:jido_invoke_target_result, frame, component, output, effects}) do
     {:ok, Jido.Exec.Frame.put_result(frame, component, output, effects)}
   end
 
@@ -61,23 +58,22 @@ defmodule Jido.Exec.Node.Dispatch.Finish do
   end
 end
 
-defimpl Runic.Identity.Projectable, for: Jido.Exec.Node.Dispatch.Finish do
-  def identity_document(node) do
-    %{kind: :jido_dispatch_finish, version: 1, id: inspect(node.id)}
-  end
+defimpl Runic.Identity.Projectable, for: Jido.Exec.Node.Invoke.Finish do
+  def identity_document(node),
+    do: %{kind: :jido_invoke_finish, version: 1, id: inspect(node.id)}
 end
 
-defimpl Runic.Component, for: Jido.Exec.Node.Dispatch.Finish do
+defimpl Runic.Component, for: Jido.Exec.Node.Invoke.Finish do
   def connectable?(_node, _other), do: true
-  # Connect to the Dispatch output Condition here, so durable replay keeps the edge.
+
   def connect(node, to, workflow) do
     workflow
     |> Runic.Workflow.add_step(to, node)
     |> Runic.Workflow.add_step(
       node,
-      Jido.Exec.Node.Dispatch.finished_condition(
-        node.dispatch_id,
-        node.dispatch_name,
+      Jido.Exec.Node.Invoke.finished_condition(
+        node.invoke_id,
+        node.invoke_name,
         node.component
       )
     )
@@ -85,12 +81,12 @@ defimpl Runic.Component, for: Jido.Exec.Node.Dispatch.Finish do
 
   def source(node) do
     quote do
-      %Jido.Exec.Node.Dispatch.Finish{
+      %Jido.Exec.Node.Invoke.Finish{
         id: unquote(Macro.escape(node.id)),
         name: unquote(node.name),
         hash: unquote(Macro.escape(node.hash)),
-        dispatch_id: unquote(Macro.escape(node.dispatch_id)),
-        dispatch_name: unquote(node.dispatch_name),
+        invoke_id: unquote(Macro.escape(node.invoke_id)),
+        invoke_name: unquote(node.invoke_name),
         component: unquote(node.component),
         target_component: unquote(node.target_component)
       }

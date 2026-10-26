@@ -15,7 +15,8 @@ locals_without_parens = [
   reduce: 2,
   iterate: 2,
   state: 2,
-  dispatch: 2,
+  invoke: 2,
+  handoff: 2,
   output: 1,
   action: 1,
   action: 3,
@@ -32,7 +33,8 @@ locals_without_parens = [
   repeat: 1,
   max_iterations: 1,
   decision: 1,
-  expander: 1
+  expander: 1,
+  selector: 1
 ]
 
 [

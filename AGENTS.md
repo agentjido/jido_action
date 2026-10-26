@@ -141,9 +141,12 @@ for validation, return normalization, and error behavior.
 
 - An Action callback returns `{:ok, result}`, `{:ok, result, effects}`,
   `{:error, reason}`, or `{:error, reason, effects}`.
-- Only a Dispatch expander can return `{:continue, input, target}`. It selects
-  the next Action or Flow for that Dispatch. A root Action and other Flow
+- Only an Invoke expander can return `{:continue, input, target}`. It selects
+  the next Action or Flow for that Invoke. A root Action and other Flow
   positions reject a continuation.
+- Only a Handoff selector can return `{:handoff, input, target}`. It selects a
+  validated successor and ends the root Flow. A root Action and other Flow
+  positions reject a handoff.
 - A normal success result is a map. Other intentional success values use
   `Jido.Action.Output`.
 - Input validation runs before the callback. Output validation runs after it.

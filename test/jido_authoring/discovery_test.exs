@@ -152,7 +152,7 @@ defmodule Jido.Authoring.DiscoveryTest do
     assert %{target: AlphaFlow, vsn: 3} =
              Registry.get(catalog, :flow, "tests/flows/alpha", 3)
 
-    assert Registry.codec(catalog, "jido.flow", 1) == {:ok, Jido.Flow.Codec}
+    assert Registry.codec(catalog, "jido.flow", 2) == {:ok, Jido.Flow.Codec}
     assert %Registry{} = registry = Discovery.registry()
 
     assert Registry.resolve(registry, {"tests/actions/alpha", 2}, :action) ==
@@ -367,7 +367,7 @@ defmodule Jido.Authoring.DiscoveryTest do
 
     assert :ok = Discovery.initialize()
     catalog = Discovery.registry()
-    assert Registry.codec(catalog, "jido.flow", 1) == {:ok, Jido.Flow.Codec}
+    assert Registry.codec(catalog, "jido.flow", 2) == {:ok, Jido.Flow.Codec}
   end
 
   defp manifest(id, kind, target) do

@@ -48,8 +48,14 @@ API to use. See the guides on HexDocs for explanations and examples.
 
 - Use `Jido.Exec.run(target, params, context, opts)`. The target can be an
   Action module, Flow module, `%Jido.Flow{}`, or `%Jido.Instruction{}`.
-- Match all three result shapes: `{:ok, value}`, `{:ok, value, effects}`, and
-  `{:error, exception}`.
+- Match all four result shapes: `{:ok, value}`, `{:ok, value, effects}`,
+  `{:handoff, successor_instruction, effects}`, and `{:error, exception}`.
+- Use `Jido.Exec.supports?(context, :waits)` inside an Action to test a
+  capability supplied by the current host. The context must be a map. Missing,
+  unknown, and malformed capability lists return `false`.
+- Treat `:jido_exec_capabilities` as a reserved context key. Exec removes
+  caller and bound values at this key. Only the host can supply the value that
+  an Action receives.
 - Do not call `MyAction.run/2` directly in application code. It skips
   validation and error normalization. Direct calls are fine in unit tests.
 - Pass only these `run/4` options: `timeout`, `max_attempts`, `backoff`,
@@ -101,6 +107,10 @@ API to use. See the guides on HexDocs for explanations and examples.
   supervised tasks; custom executors define how their work runs.
 - Use `Runic.Runner.checkpoint/2` and `stop/3` for lifecycle control. Resume
   with `Jido.Exec.resume/4` and the same context and options.
+- Do not resume checkpoints created by an earlier beta graph that contains
+  `Jido.Exec.Node.Dispatch`. Finish or drain that work before this upgrade.
+  Resume also rejects an Action node when its stored code digest differs from
+  the loaded Action module.
 - For manual stepping, start with `dispatch_mode: :manual` and call
   `Jido.Exec.step(runner, execution_id)`. It returns `{:ok, workflow}`,
   `{:complete, workflow}`, or `{:error, reason}` (`:busy`,
@@ -131,6 +141,9 @@ API to use. See the guides on HexDocs for explanations and examples.
 - Use `Jido.Exec.compile/2` to also check all Flow target contracts.
 - Use `Jido.Authoring.encode/2` and `Jido.Authoring.decode/2` with a trusted
   `Jido.Authoring.Registry` for stored JSON data.
+- Store new Flow documents as `vsn` 2. Version 1 documents require an
+  application migration that decides whether each Dispatch becomes Invoke or
+  Handoff.
 - Use the ordered issues from `Jido.Authoring.decode/2` when an editor needs
   stored document and graph errors.
 
@@ -149,16 +162,18 @@ API to use. See the guides on HexDocs for explanations and examples.
 - Use `step` for one Action or child Flow, `choice` for ordered conditions
   with a required fallback, `map` for per-item work, `parallel` for a named
   group of different Action calls, `reduce` for an ordered fold, `iterate`
-  for a bounded loop with state, and `dispatch` for runtime target selection.
-- Use Action modules for `map`, `reduce`, `choice`, `iterate`, and `dispatch`
-  targets. Inline bodies are supported in `step` and in named `action`
-  declarations inside `parallel`.
-- Use at most one `dispatch`. It must be the sole graph terminal, and `output`
-  must be its complete result. Source order does not determine the terminal.
-- Every execution host must handle the standard terminal Dispatch result
+  for a bounded loop with state, `invoke` for runtime target selection, and
+  `handoff` for a terminal successor request.
+- Use Action modules for `map`, `reduce`, `choice`, and `iterate` targets, for
+  Invoke decision and expander calls, and for Handoff selectors. Inline bodies
+  are supported in `step` and in named `action` declarations inside `parallel`.
+- A Flow can contain more than one `invoke` when its dependency graph permits
+  it. A `handoff` must be the sole graph terminal, and `output` must be its
+  complete result. Source order does not determine the terminal.
+- Every execution host must handle the standard terminal Handoff result
   `{:handoff, %Jido.Instruction{}, effects}` as predecessor completion
   and atomic successor acceptance. See `guides/dynamic-flows.md` for host rules.
-- Return `{:continue, input, target}` only from a Dispatch expander. Every
+- Return `{:continue, input, target}` only from an Invoke expander. Every
   other Action, including a root Action, fails with
   `reason: :unsupported_continuation`.
 - Bound `iterate` with `repeat` or `while` plus `max_iterations`.
@@ -210,12 +225,13 @@ API to use. See the guides on HexDocs for explanations and examples.
 - Use `kind: :parallel` with an ordered, non-empty `actions:` list. Each entry
   has a unique `name`, an `action`, and optional `params`. Use `on_error:`
   with `:fail_fast` or `:collect_errors`.
-- Dispatch uses modules in `decision:` and `expander:`, with `params:` for
-  the decision.
+- Invoke uses modules in `decision:` and `expander:`, with `params:` for the
+  decision. Handoff uses a module in `selector:`, with `params:` for the call.
 - Data definitions use only these authoring fields. `Jido.Flow.new/1` rejects
   internal call records.
-- Store all current features with document `vsn` 1. Other `vsn` values are
-  rejected. Data and JSON use the same validation error order.
+- Store all current features with document `vsn` 2. Other `vsn` values are
+  rejected. Version 1 requires the explicit Dispatch migration described
+  above. Data and JSON use the same validation error order.
 - Use `Jido.Authoring.encode/2` and `decode/2` with an application-owned
   `Jido.Authoring.Registry` for stored or transported Flows. Keep Registry
   IDs and `vsn` values stable.
@@ -291,7 +307,7 @@ API to use. See the guides on HexDocs for explanations and examples.
 - Use `Jido.Flow.validate/1` and `Jido.Exec.compile/2` to check wait definitions
   without executing them. Normal Exec rejects waits. Use a durable host with
   `Jido.Exec.Waits` operations and native Runic execution instead.
-  A Dispatch-selected waiting Flow is rejected before child Action work.
+  An Invoke-selected waiting Flow is rejected before child Action work.
 - Use the driver and ETS Store in `test/support` only for package tests.
   They are not shipped APIs. `Jido.Exec.Waits` supplies request inspection,
   matching, and resolution without Action or hook execution. The host owns

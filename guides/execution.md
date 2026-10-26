@@ -85,9 +85,9 @@ The value is the validated Action output or Flow output. Effects are opaque
 deferred requests. Exec does not dispatch them. Flow effect order follows
 canonical dependency order. Collection effects follow item order.
 
-A terminal Dispatch can also return `{:handoff, successor_instruction, effects}`.
+A terminal Handoff can also return `{:handoff, successor_instruction, effects}`.
 Every host must handle this standard result. Exec validates the successor but
-does not execute it. See [Dynamic Flows](dynamic-flows.md#terminal-handoff-to-a-new-turn)
+does not execute it. See [Dynamic Flows](dynamic-flows.md#handoff-to-a-new-turn)
 for successor acceptance and execution rules.
 
 Failed execution returns:
@@ -419,8 +419,8 @@ start, and `monotonic_time` and `duration` on stop.
 
 Action metadata includes `action`, `action_name`, `node_name`, `runnable_id`,
 `activation_id`, `attempt_id`, and `attempt`. Inside a Flow it also includes
-`component`, `node_path`, `component_kind`, and, for Dispatch,
-`dispatch_phase`. Flow metadata includes `flow` (the name) and, for Flow
+`component`, `node_path`, `component_kind`, and, for Invoke,
+`invoke_phase`. Flow metadata includes `flow` (the name) and, for Flow
 modules, `target`.
 
 Stop metadata adds `outcome`. A success adds `outcome: :ok` and

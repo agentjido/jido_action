@@ -112,7 +112,7 @@ defmodule Jido.Authoring.RuntimeCodecTest do
               %Issue{
                 code: :missing_document_vsn,
                 path: ["vsn"],
-                details: %{supported_vsns: [1]}
+                details: %{supported_vsns: [2]}
               }
             ]} = Jido.Authoring.decode(Map.delete(document, "vsn"), registry: registry)
   end

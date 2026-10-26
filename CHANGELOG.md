@@ -11,21 +11,24 @@ entries return to the normal automated changelog process.
 
 <!-- changelog -->
 
-## [v3.0.0-beta.22](https://github.com/agentjido/jido_action/compare/v3.0.0-beta.21...v3.0.0-beta.22) (2026-10-22)
-
-
-
-
-### Refactoring:
-
-* authoring: centralize runtime authoring by mikehostetler
-
-* authoring: consolidate portable codec support by mikehostetler
-
 ## Unreleased
 
 ### Breaking Changes:
 
+- Replace the beta `Dispatch` Flow component with `Invoke` and `Handoff`.
+  Invoke continues the current Flow with a runtime Action or Flow. Handoff
+  returns one validated successor Instruction and ends the root Flow.
+- Rename the Action telemetry phase for dynamic selection from
+  `dispatch_phase` to `invoke_phase`.
+- Change stored Flow documents from `vsn` 1 to `vsn` 2. Version 1 documents
+  are rejected because a stored Dispatch cannot be mapped to Invoke or
+  Handoff without an application decision.
+- Require users of earlier beta managed execution to finish or drain saved
+  Dispatch workflows before upgrade. Removed Dispatch nodes are not restored,
+  and changed Action code is rejected as `:incompatible_target`.
+- Reserve the Action context key `:jido_exec_capabilities` for capabilities
+  supplied by the execution host. Caller and bound values at this key are
+  removed.
 - Run immediate and managed work with a configured `max_concurrency` default.
   The fallback is the smaller value of the online scheduler count and `10`.
 - Replace `Jido.Flow.Registry` with the owner-neutral
@@ -37,8 +40,20 @@ entries return to the normal automated changelog process.
 
 ### Features:
 
+- Add `Jido.Exec.supports?/2` so an Action can test a host-supplied capability.
 - Add shared portable value encoding and complete-document limits for Flow,
   Agent, and other authoring document owners.
+
+## [v3.0.0-beta.22](https://github.com/agentjido/jido_action/compare/v3.0.0-beta.21...v3.0.0-beta.22) (2026-10-22)
+
+
+
+
+### Refactoring:
+
+* authoring: centralize runtime authoring by mikehostetler
+
+* authoring: consolidate portable codec support by mikehostetler
 
 ## [v3.0.0-beta.21](https://github.com/agentjido/jido_action/compare/v3.0.0-beta.20...v3.0.0-beta.21) (2026-10-19)
 

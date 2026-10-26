@@ -1,34 +1,19 @@
-defmodule Jido.Exec.Node.Dispatch do
+defmodule Jido.Exec.Node.Invoke do
   @moduledoc false
 
   require Runic
 
-  alias Jido.Exec.Frame
+  alias Jido.Exec.{Frame, Runtime}
   alias Jido.Exec.Node.Action
-  alias Jido.Exec.Node.Dispatch.Finish
+  alias Jido.Exec.Node.Invoke.Completion
+  alias Jido.Exec.Node.Invoke.Finish
   alias Jido.Instruction
   alias Runic.Identity
   alias Runic.Workflow
   alias Runic.Workflow.{Call, ChildInvocation}
 
-  @enforce_keys [
-    :id,
-    :name,
-    :hash,
-    :component,
-    :decision,
-    :expander
-  ]
-  defstruct [
-    :id,
-    :name,
-    :hash,
-    :component,
-    :decision,
-    :expander,
-    :location,
-    :node_path
-  ]
+  @enforce_keys [:id, :name, :hash, :component, :decision, :expander]
+  defstruct [:id, :name, :hash, :component, :decision, :expander, :location, :node_path]
 
   @type t :: %__MODULE__{}
 
@@ -53,7 +38,7 @@ defmodule Jido.Exec.Node.Dispatch do
       name: Keyword.fetch!(opts, :name),
       hash:
         Identity.digest(:component_definition, %{
-          kind: "jido_dispatch",
+          kind: "jido_invoke",
           version: 1,
           id: inspect(id)
         }),
@@ -70,22 +55,22 @@ defmodule Jido.Exec.Node.Dispatch do
   def connect(%__MODULE__{} = node, parents, %Workflow{} = workflow) do
     decision = action(node, :decision, node.decision, node.decision.params)
     expander = action(node, :expander, node.expander, nil)
+    condition = finished_condition(node)
+    completion = Completion.new(node)
 
     workflow
     |> connect_from(parents, decision)
     |> Workflow.add_step(decision, expander)
     |> Workflow.add_step(expander, node)
-    |> Workflow.add_step(node, finished_condition(node))
-    |> Workflow.register_component(finished_condition(node))
-    |> Workflow.draw_connection(node, node, :component_of, properties: %{kind: :dispatch})
+    |> Workflow.add_step(node, condition)
+    |> Workflow.add_step(condition, completion)
+    |> Workflow.register_component(condition)
+    |> Workflow.register_component(completion)
+    |> Workflow.draw_connection(node, node, :component_of, properties: %{kind: :invoke})
     |> Workflow.register_component(node)
   end
 
-  @doc """
-  Returns the Condition that passes finished Dispatch frames to the Flow output.
-
-  A continued Dispatch stores a `nil` result until its selected target finishes.
-  """
+  @doc false
   @spec finished_condition(t()) :: Runic.Workflow.Condition.t()
   def finished_condition(%__MODULE__{} = node),
     do: finished_condition(node.id, node.name, node.component)
@@ -95,7 +80,7 @@ defmodule Jido.Exec.Node.Dispatch do
   def finished_condition(id, name, component) do
     source =
       quote do
-        Jido.Exec.Node.Dispatch.finished_condition(
+        Jido.Exec.Node.Invoke.finished_condition(
           unquote(Macro.escape(id)),
           unquote(name),
           unquote(component)
@@ -106,7 +91,7 @@ defmodule Jido.Exec.Node.Dispatch do
       name: internal_name(%{name: name}, "finished"),
       hash:
         Identity.digest(:component_definition, %{
-          kind: "jido_dispatch_finished",
+          kind: "jido_invoke_finished",
           version: 1,
           id: inspect(id)
         }),
@@ -133,13 +118,19 @@ defmodule Jido.Exec.Node.Dispatch do
   @spec expansion(t(), term(), term(), term(), map()) ::
           {term(), (Workflow.t() -> Workflow.t())} | no_return()
   def expansion(node, target, input, frame, runtime) do
-    case Instruction.resolve(target) do
-      {:ok, %Instruction{kind: :action} = instruction} ->
-        action_target(node, instruction, input, frame)
+    with {:ok, target_instruction} <- Instruction.resolve(target),
+         {:ok, instruction} <- Instruction.resolve(target_instruction, input) do
+      target_id = target_id(node, target_instruction)
 
-      {:ok, %Instruction{kind: :flow} = instruction} ->
-        {frame, flow_target(node, instruction, input, runtime)}
+      case instruction do
+        %Instruction{kind: :action} ->
+          action_target(node, instruction, frame, target_id)
 
+        %Instruction{kind: :flow} ->
+          {{:jido_invoke_flow_target, target_id, frame},
+           flow_target(node, instruction, runtime, target_id)}
+      end
+    else
       {:error, %{details: details} = error} when is_map(details) ->
         raise %{
           error
@@ -147,49 +138,66 @@ defmodule Jido.Exec.Node.Dispatch do
               Map.merge(details, %{
                 node: node.component,
                 node_path: node.node_path,
-                phase: :dispatch
+                phase: :invoke
               })
         }
     end
   end
 
   @doc false
-  @spec finish(term()) :: {:ok, term()} | {:continue, term()} | {:handoff, term()}
-  def finish({:jido_dispatch_handoff, frame, component, request, effects}) do
-    {:handoff, Frame.put_result(frame, component, request, effects)}
-  end
-
-  def finish({:jido_dispatch_finish, frame, component, output, effects}) do
+  @spec finish(term()) :: {:ok, term()} | {:continue, term()}
+  def finish({:jido_invoke_finish, frame, component, output, effects}) do
     {:ok, Frame.put_result(frame, component, output, effects)}
   end
 
-  def finish({:jido_dispatch_continue, _frame, _component, _input, _target, _effects} = value),
+  def finish({:jido_invoke_continue, _frame, _component, _input, _target, _effects} = value),
     do: {:continue, value}
 
   @doc false
-  @spec target_component_key(t()) :: String.t()
-  def target_component_key(%__MODULE__{} = node) do
-    "__jido_dispatch_target__/#{node.component}"
+  @spec target_component_key(t(), term()) :: String.t()
+  def target_component_key(%__MODULE__{} = node, target_id),
+    do: "__jido_invoke_target__/#{node.component}/#{target_id}"
+
+  @doc false
+  @spec target?(term(), term()) :: boolean()
+  def target?({:jido_invoke_flow_target, target_id, _frame}, target_id), do: true
+  def target?(_value, _target_id), do: false
+
+  @doc false
+  @spec target_condition(term(), term(), term()) :: Runic.Workflow.Condition.t()
+  def target_condition(id, name, target_id) do
+    source =
+      quote do
+        Jido.Exec.Node.Invoke.target_condition(
+          unquote(Macro.escape(id)),
+          unquote(name),
+          unquote(target_id)
+        )
+      end
+
+    %Runic.Workflow.Condition{
+      name: internal_name(%{name: name}, "route/#{target_id}"),
+      hash:
+        Identity.digest(:component_definition, %{
+          kind: "jido_invoke_target_route",
+          version: 1,
+          id: inspect({id, target_id})
+        }),
+      work: fn value -> target?(value, target_id) end,
+      arity: 1,
+      closure: Runic.Closure.new(source, %{}, nil),
+      meta_refs: []
+    }
   end
 
   defp action(node, phase, instruction, params, target_id \\ nil) do
     flow = %{
       component: node.component,
-      mode: {:dispatch, phase},
+      mode: {:invoke, phase},
       params: params,
       location: node.location,
       node_path: node.node_path
     }
-
-    instruction =
-      case instruction do
-        %Instruction{} ->
-          {:ok, bound} = Instruction.bind(instruction, %{}, %{})
-          bound
-
-        call ->
-          call
-      end
 
     id = if target_id, do: {node.id, phase, target_id}, else: {node.id, phase}
     suffix = if target_id, do: "#{phase}/#{target_id}", else: Atom.to_string(phase)
@@ -197,10 +205,8 @@ defmodule Jido.Exec.Node.Dispatch do
     Action.new(instruction, flow: flow, id: id, name: internal_name(node, suffix))
   end
 
-  defp action_target(node, instruction, input, frame) do
-    target_id = target_id(node, instruction.target)
-
-    target = action(node, :target, instruction, input, target_id)
+  defp action_target(node, instruction, frame, target_id) do
+    target = action(node, :target, instruction, instruction.params, target_id)
     request = ChildInvocation.new(target: target, input: frame)
 
     call =
@@ -219,21 +225,29 @@ defmodule Jido.Exec.Node.Dispatch do
     {request, apply_fn}
   end
 
-  defp flow_target(node, instruction, input, runtime) do
-    target_id = target_id(node, instruction.target)
-    target_key = target_component_key(node)
-
+  defp flow_target(node, instruction, runtime, target_id) do
+    target_key = target_component_key(node, target_id)
     base_name = internal_name(node, "target/#{target_id}")
+    route = target_condition(node.id, node.name, target_id)
 
-    target =
+    compiled_target =
       Jido.Exec.Compiler.compile_nested!(instruction,
         namespace: base_name,
         boundary_name: base_name,
         parent_component: target_key,
-        input_params: input,
+        input_params: instruction.params,
         boundary_location: node.location,
         node_path_prefix: node.node_path
       )
+
+    target =
+      Workflow.new(
+        name: "#{base_name}/invocation",
+        input_ports: [in: [type: :any]],
+        output_ports: [result: [type: :any, from: compiled_target.name]]
+      )
+      |> Workflow.add(route)
+      |> Workflow.add(compiled_target, to: route)
 
     case Jido.Exec.Node.Wait.validate_host(target, runtime) do
       :ok -> :ok
@@ -243,38 +257,74 @@ defmodule Jido.Exec.Node.Dispatch do
     finish = Finish.new(node, target_id)
 
     fn workflow ->
+      context =
+        instruction.context
+        |> Runtime.caller_context()
+        |> Map.merge(runtime)
+
       workflow
       |> Workflow.add(target, to: node)
+      |> put_target_context(target, context)
       |> Workflow.add(finish, connections: [[from: {target.name, :result}, to: :in]])
     end
   end
 
-  defp target_id(node, target) do
+  defp target_id(node, %Instruction{} = instruction) do
     Identity.digest(:component_definition, %{
-      kind: "jido_dispatch_target",
+      kind: "jido_invoke_target",
       version: 1,
-      dispatch: inspect(node.id),
-      target: inspect(target)
+      invoke: inspect(node.id),
+      target: target_identity(instruction.target),
+      call_data: call_data_identity(instruction)
     })
     |> to_string()
+  end
+
+  defp call_data_identity(%Instruction{} = instruction) do
+    {instruction.params, instruction.context}
+    |> :erlang.term_to_binary([:deterministic])
+    |> then(&:crypto.hash(:sha256, &1))
+  end
+
+  defp target_identity(%Jido.Flow{} = flow),
+    do: %{flow: Jido.Flow.Identity.semantic_digest(flow)}
+
+  defp target_identity(target) when is_atom(target) do
+    version =
+      if function_exported?(target, :module_info, 1), do: target.module_info(:md5), else: nil
+
+    %{module: target, version: version}
+  end
+
+  defp put_target_context(workflow, _target, context) when map_size(context) == 0,
+    do: workflow
+
+  defp put_target_context(workflow, target, context) do
+    scoped =
+      target.graph
+      |> Multigraph.vertices()
+      |> Enum.reduce(%{}, fn
+        %{name: name}, acc when is_atom(name) or is_binary(name) -> Map.put(acc, name, context)
+        _node, acc -> acc
+      end)
+
+    Workflow.put_run_context(workflow, scoped)
   end
 
   defp connect_from(workflow, [], child), do: Workflow.add_step(workflow, child)
   defp connect_from(workflow, [parent], child), do: Workflow.add_step(workflow, parent, child)
   defp connect_from(workflow, parents, child), do: Workflow.add_step(workflow, parents, child)
 
-  defp internal_name(node, suffix), do: "__jido_dispatch__/#{node.name}/#{suffix}"
+  defp internal_name(node, suffix), do: "__jido_invoke__/#{node.name}/#{suffix}"
 end
 
-defimpl Runic.Identity.Projectable, for: Jido.Exec.Node.Dispatch do
-  def identity_document(node) do
-    %{kind: :jido_dispatch, version: 1, id: inspect(node.id)}
-  end
+defimpl Runic.Identity.Projectable, for: Jido.Exec.Node.Invoke do
+  def identity_document(node), do: %{kind: :jido_invoke, version: 1, id: inspect(node.id)}
 end
 
-defimpl Runic.Workflow.Invokable, for: Jido.Exec.Node.Dispatch do
+defimpl Runic.Workflow.Invokable, for: Jido.Exec.Node.Invoke do
   alias Jido.Exec.Frame
-  alias Jido.Exec.Node.Dispatch
+  alias Jido.Exec.Node.Invoke
   alias Runic.Workflow
   alias Runic.Workflow.{CausalContext, Runnable}
   alias Runic.Workflow.Events.{ActivationConsumed, FactProduced}
@@ -299,16 +349,13 @@ defimpl Runic.Workflow.Invokable, for: Jido.Exec.Node.Dispatch do
   end
 
   def execute(node, %Runnable{input_fact: fact, context: context} = runnable) do
-    case Dispatch.finish(Jido.Exec.Fact.value(fact)) do
+    case Invoke.finish(Jido.Exec.Fact.value(fact)) do
       {:ok, value} ->
         complete(runnable, node, fact, value, context, [])
 
-      {:handoff, value} ->
-        complete(runnable, node, fact, value, context, [], %{jido: %{control: :handoff}})
-
-      {:continue, {:jido_dispatch_continue, frame, component, input, target, effects}} ->
+      {:continue, {:jido_invoke_continue, frame, component, input, target, effects}} ->
         frame = Frame.put_result(frame, component, nil, effects)
-        {value, apply_fn} = Dispatch.expansion(node, target, input, frame, context.run_context)
+        {value, apply_fn} = Invoke.expansion(node, target, input, frame, context.run_context)
         complete(runnable, node, fact, value, context, [apply_fn])
     end
   rescue
@@ -317,9 +364,8 @@ defimpl Runic.Workflow.Invokable, for: Jido.Exec.Node.Dispatch do
     kind, reason -> Runnable.fail(runnable, {kind, reason})
   end
 
-  defp complete(runnable, node, fact, value, context, apply_fns, meta \\ %{}) do
-    result =
-      Jido.Exec.Fact.child(fact, value: value, meta: meta, ancestry: {node.hash, fact.hash})
+  defp complete(runnable, node, fact, value, context, apply_fns) do
+    result = Jido.Exec.Fact.child(fact, value: value, ancestry: {node.hash, fact.hash})
 
     Runnable.complete(
       runnable,
@@ -333,15 +379,15 @@ defimpl Runic.Workflow.Invokable, for: Jido.Exec.Node.Dispatch do
   end
 end
 
-defimpl Runic.Component, for: Jido.Exec.Node.Dispatch do
-  alias Jido.Exec.Node.Dispatch
+defimpl Runic.Component, for: Jido.Exec.Node.Invoke do
+  alias Jido.Exec.Node.Invoke
 
   def connectable?(_node, _other), do: true
-  def connect(node, to, workflow), do: Dispatch.connect(node, List.wrap(to), workflow)
+  def connect(node, to, workflow), do: Invoke.connect(node, List.wrap(to), workflow)
 
   def source(node) do
     quote do
-      Jido.Exec.Node.Dispatch.new(
+      Jido.Exec.Node.Invoke.new(
         id: unquote(Macro.escape(node.id)),
         name: unquote(node.name),
         component: unquote(node.component),

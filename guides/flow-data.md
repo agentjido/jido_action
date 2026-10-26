@@ -80,7 +80,8 @@ defaults to `%{}`.
 | `:parallel` | `action` inside each entry | `actions`, `on_error` |
 | `:reduce` | `action` | `collection`, `initial`, `params` |
 | `:iterate` | `action` | `params`, `state`, `completion`, `max_iterations` |
-| `:dispatch` | `decision`, `expander` | `params` |
+| `:invoke` | `decision`, `expander` | `params` |
+| `:handoff` | `selector` | `params` |
 
 List order matters for Choice options, which are tested in order. Component
 list order does not create dependencies; result references and `needs` do.
@@ -279,12 +280,14 @@ The data form differs from the DSL:
 
 See [Iterate And State](flow-iterate-state.livemd) for the State rules.
 
-### Dispatch
+### Invoke And Handoff
 
-A Dispatch has `decision`, `expander`, and `params`. A Flow can contain one
-Dispatch. It must be the sole graph terminal, and the Flow output must be its
-complete result. Source declaration order does not determine the terminal.
-See [Dynamic Flows](dynamic-flows.md).
+An Invoke has `decision`, `expander`, and `params`. A Flow can contain more
+than one Invoke. An Invoke can have downstream components.
+
+A Handoff has `selector` and `params`. It must be the sole graph terminal, and
+the Flow output must be its complete result. Source declaration order does not
+determine the terminal. See [Dynamic Flows](dynamic-flows.md).
 
 ## References And Expressions
 
@@ -376,7 +379,7 @@ expression:
 } = flow.components["send"]
 ```
 
-Choice, Map, Parallel, Reduce, Iterate, and Dispatch use the same small call
+Choice, Map, Parallel, Reduce, Iterate, and Invoke use the same small call
 records.
 Canonical components contain no Instructions or bound runtime context.
 `Jido.Exec` creates Instructions at the execution boundary, evaluates parameter

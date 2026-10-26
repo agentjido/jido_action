@@ -144,8 +144,8 @@ defmodule Jido.Flow.ValuePreparationContractTest do
          max_iterations: 1
        }, :iterate, :iterate_params},
       {%{
-         kind: :dispatch,
-         name: "dispatch",
+         kind: :invoke,
+         name: "invoke",
          decision: Add,
          expander: Add,
          params: params

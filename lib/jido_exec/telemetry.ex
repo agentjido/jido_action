@@ -102,7 +102,7 @@ defmodule Jido.Exec.Telemetry do
     |> maybe_put(:component, component)
     |> maybe_put(:node_path, Map.get(metadata, :node_path, default_node_path(component)))
     |> maybe_put(:component_kind, component_kind(metadata))
-    |> maybe_put(:dispatch_phase, dispatch_phase(metadata))
+    |> maybe_put(:invoke_phase, invoke_phase(metadata))
   end
 
   defp flow_component_metadata(_metadata), do: %{}
@@ -113,13 +113,14 @@ defmodule Jido.Exec.Telemetry do
     do: :parallel
 
   defp component_kind(%{mode: {:loop, %{kind: kind}}}) when kind in [:reduce, :iterate], do: kind
-  defp component_kind(%{mode: {:dispatch, _phase}}), do: :dispatch
+  defp component_kind(%{mode: {:invoke, _phase}}), do: :invoke
+  defp component_kind(%{mode: :handoff}), do: :handoff
   defp component_kind(%{mode: :choice}), do: :choice
   defp component_kind(%{component: component}) when not is_nil(component), do: :step
   defp component_kind(_metadata), do: nil
 
-  defp dispatch_phase(%{mode: {:dispatch, phase}}), do: phase
-  defp dispatch_phase(_metadata), do: nil
+  defp invoke_phase(%{mode: {:invoke, phase}}), do: phase
+  defp invoke_phase(_metadata), do: nil
 
   defp default_node_path(nil), do: nil
   defp default_node_path(component), do: [component]

@@ -49,7 +49,7 @@ defmodule Jido.Flow.UnknownKeyValidationTest do
       {%{kind: :map, name: "map", collection: [], action: Add}, "map"},
       {%{kind: :parallel, name: "parallel", actions: [%{name: "add", action: Add}]}, "parallel"},
       {%{kind: :reduce, name: "reduce", collection: [], initial: %{}, action: Add}, "reduce"},
-      {%{kind: :dispatch, name: "dispatch", decision: Add, expander: Add}, "dispatch"},
+      {%{kind: :invoke, name: "invoke", decision: Add, expander: Add}, "invoke"},
       {%{
          kind: :iterate,
          name: "iterate",

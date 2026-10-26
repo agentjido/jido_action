@@ -24,9 +24,16 @@ end
 Wait definitions, validation, and compilation are implemented.
 `Jido.Exec.Waits` provides shared wait operations for execution hosts.
 Normal `Jido.Exec.run/4` and `start/6` reject static waits before Action work.
-Dispatch checks a selected Flow before any Action in that child graph runs.
+Invoke checks a selected Flow before any Action in that child graph runs.
 Its decision and expander have already run
 to select the target. Do not use the test driver as an AgentServer runtime.
+
+An Action can call `Jido.Exec.supports?(context, :waits)` when its decision
+must depend on the execution host. The context comes from the Action callback.
+An ordinary Exec run returns `false`. A wait host returns `true`.
+The input must be a map. A missing key, an unknown capability, or a malformed
+capability list returns `false`. The key `:jido_exec_capabilities` is reserved:
+Exec removes caller and bound values, and only the current host can add it.
 
 ## One Wait Model
 
@@ -117,7 +124,7 @@ rejects waiting Flows in these graph shapes.
 | Form | Tested behavior and limits |
 | --- | --- |
 | Nested Flow | Each wait path includes every parent component. Native snapshots preserve completed Actions, partial results, pending waits, and effect order. Parent cancellation closes all descendants. |
-| Dispatch-selected Flow | A selected Flow can wait in the test driver. Its path includes the Dispatch and all outer parents. Snapshot and native event replay preserve the selected graph without repeating the decision, expander, or completed child work. |
+| Invoke-selected Flow | A selected Flow can wait in the test driver. Its path includes the Invoke and all outer parents. Snapshot and native event replay preserve the selected graph without repeating the decision, expander, or completed child work. |
 | Independent parallel waits | Each occurrence has its own activation ID. Either input order produces the same final value and canonical effect order. This does not race Actions. |
 | Parallel waits at different depths | Opening a later wait preserves earlier join input. Snapshot and event replay preserve partial joins, completed Actions, and canonical effects with early or active input in either completion order. |
 | Map with a Flow body | Unsupported. Map accepts an Action module. The DSL fails at compilation; map and Codec definitions fail target validation before any Action starts. Separate waiting Map items are unsupported. |
@@ -127,7 +134,7 @@ A path identifies a component. The full wait ID identifies one activation and
 its input occurrence in one execution. Use that ID for active input. Equal
 component names in sibling nested Flows do not share input. Input from an old
 execution cannot release a new occurrence. Early path input is limited to the
-first static occurrence; it cannot address a future Dispatch target.
+first static occurrence; it cannot address a future Invoke target.
 
 The tests in `test/jido_exec/composed_waits_test.exs` cover these graph shapes
 with the test driver. The companion Jido package owns AgentServer tests
@@ -136,7 +143,7 @@ Nested Flow tests do not establish Map or Iterate wait support.
 
 The wait-to-handoff test saves and restores the waiting graph, accepts input,
 retries an equal save and duplicate input, and checks cancellation before the
-Dispatch. It returns a successor Instruction without running it. This covers
+Handoff. It returns a successor Instruction without running it. This covers
 package result composition. Atomic Agent state and successor acceptance,
 queue order, and caller-chain completion require AgentServer integration tests.
 

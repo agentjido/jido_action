@@ -10,7 +10,7 @@ Run the cells from top to bottom.
 ## Install The Package
 
 ```elixir
-Mix.install([{:jido_action, "~> 3.0.0-beta.21"}])
+Mix.install([{:jido_action, "~> 3.0.0-beta.22"}])
 ```
 
 ## Write An Inline Body
@@ -187,7 +187,8 @@ A `result("name")` reference reads the value in this table:
 | `map` | An ordered list of Action results. With `on_error: :collect_errors`, each entry is `%{status: :ok, value: result}` or `%{status: :error, error: %{type: type, message: message}}`. |
 | `reduce` | The final accumulator. |
 | `iterate` | `%{kind: :jido_flow_iterate_result, iterations: count, state: state, output: last_body_result}` |
-| `dispatch` | The expander result, or the result of its continuation target. |
+| `invoke` | The expander result, or the result of its continuation target. |
+| `handoff` | A validated successor Instruction and the predecessor effects. |
 
 An Action can also return deferred effect requests as
 `{:ok, output, requests}`. See

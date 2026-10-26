@@ -4,23 +4,24 @@ defmodule Jido.Exec.Node.Action do
   use Runic.Workflow.SingleOutput, batch_parent: false
 
   alias Jido.Action.Error
-  alias Jido.Exec.{Frame, Portable, Validation, ValueResolver}
+  alias Jido.Exec.{Frame, Portable, Runtime, Validation, ValueResolver}
   alias Jido.Exec.Node.Loop
   alias Jido.Exec.Telemetry
   alias Jido.Instruction
   alias Runic.Identity
   alias Runic.Workflow.SingleOutput.{Context, Result}
 
-  @enforce_keys [:id, :name, :hash, :instruction, :inputs, :outputs]
+  @enforce_keys [:id, :name, :hash, :instruction, :target_version, :inputs, :outputs]
   # `flow` holds the Flow component data for a Flow-created node. Caller
   # Instruction metadata stays an annotation with no execution meaning.
-  defstruct [:id, :name, :hash, :instruction, :inputs, :outputs, :flow]
+  defstruct [:id, :name, :hash, :instruction, :target_version, :inputs, :outputs, :flow]
 
   @type t :: %__MODULE__{
           id: term(),
           name: atom() | String.t(),
           hash: Identity.t(),
           instruction: Instruction.t(),
+          target_version: term(),
           inputs: keyword(),
           outputs: keyword(),
           flow: map() | nil
@@ -39,7 +40,7 @@ defmodule Jido.Exec.Node.Action do
   end
 
   def new(%Instruction{kind: :action, target: action} = instruction, opts) do
-    opts = Keyword.validate!(opts, [:id, :name, :flow])
+    opts = Keyword.validate!(opts, [:id, :name, :flow, :target_version])
 
     case Instruction.validate_resolved(instruction) do
       :ok -> :ok
@@ -48,13 +49,15 @@ defmodule Jido.Exec.Node.Action do
 
     name = Keyword.get_lazy(opts, :name, fn -> action_name(action) end)
     id = Keyword.get(opts, :id, name)
+    target_version = Keyword.get_lazy(opts, :target_version, fn -> target_version(action) end)
 
     hash =
       Identity.digest(:component_definition, %{
         kind: "jido_action",
         version: 1,
         id: identity_value(id),
-        target: Atom.to_string(action)
+        target: Atom.to_string(action),
+        target_version: target_version
       })
 
     %__MODULE__{
@@ -62,6 +65,7 @@ defmodule Jido.Exec.Node.Action do
       name: name,
       hash: hash,
       instruction: instruction,
+      target_version: target_version,
       inputs: ports(:input, action),
       outputs: ports(:output, action),
       flow: Keyword.get(opts, :flow)
@@ -105,7 +109,7 @@ defmodule Jido.Exec.Node.Action do
   @doc false
   @spec execute(t(), term(), map(), map()) :: {:ok, term(), [term()]} | {:error, Exception.t()}
   def execute(
-        %__MODULE__{instruction: instruction, flow: flow_metadata},
+        %__MODULE__{instruction: instruction, flow: flow_metadata} = node,
         input,
         run_context,
         meta \\ %{}
@@ -113,45 +117,50 @@ defmodule Jido.Exec.Node.Action do
     {durable?, run_context} = Map.pop(run_context, :__jido_exec_durable__, false)
 
     result =
-      case flow_metadata do
-        %{mode: {:loop, %Loop{} = loop}} ->
-          Loop.run_action(
-            loop,
-            instruction,
-            input,
-            Map.get(meta, :jido_loop, %{}),
-            run_context,
-            &execute_action/3
-          )
+      with :ok <- compatible_target(node) do
+        case flow_metadata do
+          %{mode: {:loop, %Loop{} = loop}} ->
+            Loop.run_action(
+              loop,
+              instruction,
+              input,
+              Map.get(meta, :jido_loop, %{}),
+              run_context,
+              &execute_action/3
+            )
 
-        %{mode: {:dispatch, phase}, component: component, params: params} ->
-          execute_dispatch(instruction, phase, component, params, input, run_context)
+          %{mode: {:invoke, phase}, component: component, params: params} ->
+            execute_invoke(instruction, phase, component, params, input, run_context)
 
-        %{component: component, mode: {:map, on_error}, params: params} ->
-          execute_map_component(instruction, component, params, on_error, input, run_context)
+          %{mode: :handoff, component: component, params: params} ->
+            execute_handoff(instruction, component, params, input, run_context)
 
-        %{
-          component: component,
-          mode: {:parallel, on_error, index, name},
-          params: params
-        } ->
-          execute_parallel_component(
-            instruction,
-            component,
-            params,
-            on_error,
-            index,
-            name,
-            input,
-            run_context
-          )
+          %{component: component, mode: {:map, on_error}, params: params} ->
+            execute_map_component(instruction, component, params, on_error, input, run_context)
 
-        %{component: component, params: params} ->
-          execute_flow_component(instruction, component, params, input, run_context)
+          %{
+            component: component,
+            mode: {:parallel, on_error, index, name},
+            params: params
+          } ->
+            execute_parallel_component(
+              instruction,
+              component,
+              params,
+              on_error,
+              index,
+              name,
+              input,
+              run_context
+            )
 
-        nil ->
-          params = merge_params(instruction.params, input)
-          execute_action(instruction, params, run_context)
+          %{component: component, params: params} ->
+            execute_flow_component(instruction, component, params, input, run_context)
+
+          nil ->
+            params = merge_params(instruction.params, input)
+            execute_action(instruction, params, run_context)
+        end
       end
 
     result
@@ -276,7 +285,7 @@ defmodule Jido.Exec.Node.Action do
     end
   end
 
-  defp execute_dispatch(instruction, :decision, component, params, input, run_context) do
+  defp execute_invoke(instruction, :decision, component, params, input, run_context) do
     with {:ok, frame} <- Frame.merge(input),
          {:ok, params} <-
            ValueResolver.resolve(
@@ -284,33 +293,28 @@ defmodule Jido.Exec.Node.Action do
              Frame.resolver_state(frame, run_context)
            ),
          {:ok, output, effects} <- execute_action(instruction, params, run_context) do
-      {:ok, {:jido_dispatch_decision, frame, component, output, effects}, []}
+      {:ok, {:jido_invoke_decision, frame, component, output, effects}, []}
     end
   end
 
-  defp execute_dispatch(
+  defp execute_invoke(
          instruction,
          :expander,
-         _dispatch,
+         _invoke,
          _params,
-         {:jido_dispatch_decision, frame, component, decision, effects},
+         {:jido_invoke_decision, frame, component, decision, effects},
          run_context
        ) do
-    context = Map.merge(instruction.context, run_context)
+    context = action_context(instruction, run_context)
     action = instruction.target
 
     with {:ok, params} <- Validation.callback(action, :validate_params, decision, :input) do
-      case call_action(action, params, context, true) do
-        {:handoff, input, target} ->
-          with {:ok, handoff} <- Jido.Exec.Handoff.new(target, input) do
-            {:ok, {:jido_dispatch_handoff, frame, component, handoff, effects}, []}
-          end
-
+      case call_action(action, params, context, :invoke) do
         {:continue, input, target} ->
-          {:ok, {:jido_dispatch_continue, frame, component, input, target, effects}, []}
+          {:ok, {:jido_invoke_continue, frame, component, input, target, effects}, []}
 
         {:ok, output, requests} ->
-          dispatch_output(instruction, frame, component, output, effects, requests, run_context)
+          invoke_output(instruction, frame, component, output, effects, requests, run_context)
 
         {:error, error} ->
           {:error, error}
@@ -318,7 +322,7 @@ defmodule Jido.Exec.Node.Action do
     end
   end
 
-  defp execute_dispatch(
+  defp execute_invoke(
          instruction,
          :target,
          component,
@@ -329,15 +333,47 @@ defmodule Jido.Exec.Node.Action do
     with {:ok, frame} <- Frame.merge(frame),
          effects = Frame.effects_for(frame, component),
          {:ok, output, requests} <- execute_action(instruction, params, run_context) do
-      {:ok, {:jido_dispatch_target_result, frame, component, output, effects ++ requests}, []}
+      {:ok, {:jido_invoke_target_result, frame, component, output, effects ++ requests}, []}
     end
   end
 
-  defp dispatch_output(instruction, frame, component, output, effects, requests, _run_context) do
+  defp invoke_output(instruction, frame, component, output, effects, requests, _run_context) do
     action = instruction.target
 
     with {:ok, output} <- Validation.callback(action, :validate_output, output, :output) do
-      {:ok, {:jido_dispatch_finish, frame, component, output, effects ++ requests}, []}
+      {:ok, {:jido_invoke_finish, frame, component, output, effects ++ requests}, []}
+    end
+  end
+
+  defp execute_handoff(instruction, component, params, input, run_context) do
+    with {:ok, frame} <- Frame.merge(input),
+         {:ok, params} <-
+           ValueResolver.resolve(params, Frame.resolver_state(frame, run_context)),
+         result <-
+           call_action(
+             instruction.target,
+             params,
+             action_context(instruction, run_context),
+             :handoff
+           ) do
+      case result do
+        {:handoff, successor_input, target} ->
+          with {:ok, handoff} <- Jido.Exec.Handoff.new(target, successor_input) do
+            {:ok, {:jido_handoff, frame, component, handoff, []}, []}
+          end
+
+        {:error, error} ->
+          {:error, error}
+
+        other ->
+          {:error,
+           Error.execution_error("Handoff selector must return a handoff control result", %{
+             action: instruction.target,
+             phase: :run,
+             return: other,
+             reason: :invalid_handoff_return
+           })}
+      end
     end
   end
 
@@ -346,7 +382,7 @@ defmodule Jido.Exec.Node.Action do
   defp unwrap_flow_input(input), do: input
 
   defp execute_action(instruction, params, run_context) do
-    context = Map.merge(instruction.context, run_context)
+    context = action_context(instruction, run_context)
     action = instruction.target
 
     with {:ok, validated_params} <- Validation.callback(action, :validate_params, params, :input),
@@ -356,12 +392,18 @@ defmodule Jido.Exec.Node.Action do
     end
   end
 
-  # Only a Dispatch expander can select the next executable.
-  defp call_action(action, params, context, continue? \\ false) do
+  defp action_context(instruction, run_context) do
+    instruction.context
+    |> Runtime.caller_context()
+    |> Map.merge(run_context)
+  end
+
+  # Invoke and Handoff are the only components that accept control returns.
+  defp call_action(action, params, context, control \\ :none) do
     case Validation.apply(
            action,
            :run,
-           [params, Jido.Exec.Runtime.user_context(context)],
+           [params, Runtime.user_context(context)],
            :run
          ) do
       {:ok, {:ok, output}} ->
@@ -383,18 +425,18 @@ defmodule Jido.Exec.Node.Action do
       {:ok, {:error, reason, _effects}} ->
         {:error, normalize_action_error(action, reason)}
 
-      {:ok, {:handoff, input, target}} when continue? ->
+      {:ok, {:handoff, input, target}} when control == :handoff ->
         {:handoff, input, target}
 
       {:ok, {:handoff, _input, _target}} ->
         {:error,
-         Error.execution_error("only a Dispatch expander can hand off", %{
+         Error.execution_error("only a Handoff selector can hand off", %{
            action: action,
            phase: :run,
            reason: :unsupported_handoff
          })}
 
-      {:ok, {:continue, input, target}} when continue? ->
+      {:ok, {:continue, input, target}} when control == :invoke ->
         {:continue, input, target}
 
       {:ok, {:continue, _input, _target} = continuation} ->
@@ -465,6 +507,24 @@ defmodule Jido.Exec.Node.Action do
   defp action_name(action) do
     if function_exported?(action, :name, 0), do: action.name(), else: Atom.to_string(action)
   end
+
+  defp compatible_target(%__MODULE__{instruction: instruction, target_version: expected}) do
+    actual = target_version(instruction.target)
+
+    if actual == expected do
+      :ok
+    else
+      {:error,
+       Error.config_error("Action target code changed after the graph was built", %{
+         target: instruction.target,
+         expected: expected,
+         actual: actual,
+         reason: :incompatible_target
+       })}
+    end
+  end
+
+  defp target_version(action), do: action.module_info(:md5)
 
   defp identity_value(value) when is_atom(value), do: Atom.to_string(value)
   defp identity_value(value) when is_binary(value), do: value
@@ -540,13 +600,15 @@ defimpl Runic.Component, for: Jido.Exec.Node.Action do
     instruction = :erlang.term_to_binary(node.instruction)
     id = :erlang.term_to_binary(node.id)
     flow = :erlang.term_to_binary(node.flow)
+    target_version = :erlang.term_to_binary(node.target_version)
 
     quote do
       Jido.Exec.Node.Action.new(
         :erlang.binary_to_term(unquote(instruction)),
         id: :erlang.binary_to_term(unquote(id)),
         name: unquote(node.name),
-        flow: :erlang.binary_to_term(unquote(flow))
+        flow: :erlang.binary_to_term(unquote(flow)),
+        target_version: :erlang.binary_to_term(unquote(target_version))
       )
     end
   end

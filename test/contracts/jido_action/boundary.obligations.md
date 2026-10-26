@@ -19,7 +19,7 @@ callers. This does not establish complete Flow contract coverage.
 
 ### jido_action.boundary.I2 — Callback failures retain public failure data
 - **scope:** `Jido.Exec.Node.Action`, `Jido.Exec.Validation`
-- **must:** Contain callback raises, throws, exits, returned errors and unsupported return shapes as the documented Jido error types. Preserve useful reason, phase, Action and source details and original stacktraces. Failed callbacks expose no executable effects. Only a Dispatch expander can return a continuation.
+- **must:** Contain callback raises, throws, exits, returned errors and unsupported return shapes as the documented Jido error types. Preserve useful reason, phase, Action and source details and original stacktraces. Failed callbacks expose no executable effects. Only an Invoke expander can return a continuation. Only a Handoff selector can return a handoff.
 - **kind:** functional
 - **status:** active
 
@@ -53,9 +53,9 @@ callers. This does not establish complete Flow contract coverage.
 - **kind:** functional
 - **status:** active
 
-### jido_action.boundary.I8 — Dispatch Action calls preserve continuation and effect rules
+### jido_action.boundary.I8 — Invoke and Handoff Action calls preserve control and effect rules
 - **scope:** `Jido.Exec.Node.Action`
-- **must:** A Dispatch expander can select a valid Action or Flow target through a continuation. Reject invalid targets with the Dispatch node detail. Returned expander errors keep their reason and expose no effects. Successful expander effects must form a proper list. Reconstructed Dispatch components retain equivalent behavior.
+- **must:** An Invoke expander can select a valid Action or Flow target through a continuation. Reject invalid targets with the Invoke node detail. Invoke cannot hand off. Handoff validates one successor Instruction and cannot continue the current graph. Returned callback errors keep their reason and expose no effects. Successful effects must form a proper list. Reconstructed Invoke and Handoff components retain equivalent behavior.
 - **kind:** functional
 - **status:** active
 

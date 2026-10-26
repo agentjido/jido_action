@@ -10,7 +10,7 @@ defmodule Jido.Flow.Codec do
 
   @doc false
   @spec __jido_authoring_codec__() :: %{type: String.t(), vsn: pos_integer(), encoder: module()}
-  def __jido_authoring_codec__, do: %{type: "jido.flow", vsn: 1, encoder: Jido.Flow}
+  def __jido_authoring_codec__, do: %{type: "jido.flow", vsn: 2, encoder: Jido.Flow}
 
   @doc false
   @spec encode_document(term(), term()) :: {:ok, document()} | {:error, Exception.t()}

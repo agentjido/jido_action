@@ -46,13 +46,13 @@ defmodule Jido.Flow.ModelRefactorTest do
       })
 
     assert {:ok, document, registry} = Codec.encode(flow)
-    assert document["vsn"] == 1
+    assert document["vsn"] == 2
 
     assert [%{"kind" => "call", "call" => %{"kind" => "action", "target" => _, "params" => _}}] =
              document["components"]
 
     assert Codec.decode(document, registry) == {:ok, flow}
-    assert {:error, _} = Codec.decode(%{document | "vsn" => 2}, registry)
+    assert {:error, _} = Codec.decode(%{document | "vsn" => 3}, registry)
   end
 
   test "data and JSON use the same ordered graph diagnostics" do
@@ -96,14 +96,14 @@ defmodule Jido.Flow.ModelRefactorTest do
     assert Enum.map(errors, &Map.get(&1.details, :component)) == [nil, "z_missing", "a_missing"]
   end
 
-  test "Dispatch expanders have only a target record" do
+  test "Invoke expanders have only a target record" do
     flow =
       Flow.new!(%{
         name: "target_only",
         components: [
           %{
             name: "next",
-            kind: :dispatch,
+            kind: :invoke,
             decision: EchoParamsAction,
             expander: EchoParamsAction
           }

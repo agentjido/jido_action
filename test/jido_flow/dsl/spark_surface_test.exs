@@ -5,7 +5,7 @@ defmodule Jido.Flow.DSL.SparkSurfaceTest do
     [section] = Jido.Flow.DSL.Extension.sections()
     {:docs_v1, _, _, _, %{"en" => docs}, _, _} = Code.fetch_docs(Jido.Flow)
     assert docs =~ "## DSL field reference"
-    assert docs =~ "dependency graph, regardless of declaration order"
+    assert docs =~ "Flow can contain more than one Invoke"
     refute docs =~ "__source__"
 
     entities =
@@ -14,7 +14,7 @@ defmodule Jido.Flow.DSL.SparkSurfaceTest do
         &[&1 | Enum.flat_map(&1.entities, fn {_, children} -> children end)]
       )
 
-    assert length(entities) == 17
+    assert length(entities) == 18
 
     for entity <- entities do
       schema = Keyword.delete(entity.schema, :__source__)
@@ -70,7 +70,7 @@ defmodule Jido.Flow.DSL.SparkSurfaceTest do
     end
   end
 
-  test "the linked Dispatch example supports final results and continuations" do
+  test "the linked Invoke example supports final results and continuations" do
     {guide, blocks} = guide_blocks("dynamic-flows.md")
 
     evaluate_example(Enum.fetch!(blocks, 1), guide, [

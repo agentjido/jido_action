@@ -156,8 +156,11 @@ defmodule Jido.Flow.Definition do
   def calls(%{kind: :parallel, actions: actions}),
     do: Enum.map(actions, &{&1.name, &1.call, &1.call.params})
 
-  def calls(%{kind: :dispatch, decision: decision, expander: expander}),
+  def calls(%{kind: :invoke, decision: decision, expander: expander}),
     do: [{:decision, decision, decision.params}, {:expander, expander, nil}]
+
+  def calls(%{kind: :handoff, selector: selector}),
+    do: [{:selector, selector, selector.params}]
 
   @doc false
   @spec values(component_node()) :: [Value.t()]
@@ -178,7 +181,8 @@ defmodule Jido.Flow.Definition do
   def values(%{kind: :iterate, call: call, state: state, completion: completion}),
     do: [call.params, state.initial, state.update, completion]
 
-  def values(%{kind: :dispatch, decision: decision}), do: [decision.params]
+  def values(%{kind: :invoke, decision: decision}), do: [decision.params]
+  def values(%{kind: :handoff, selector: selector}), do: [selector.params]
 
   @doc false
   @spec reference_dependencies(component_node()) :: [String.t()]

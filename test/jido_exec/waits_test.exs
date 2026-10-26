@@ -1,5 +1,6 @@
 defmodule Jido.Exec.WaitsTest do
-  use ExUnit.Case, async: true
+  use Covenant.Case, component: "jido_action.execution", async: true
+  @moduletag obligation: "jido_action.execution.I25"
   @moduletag capture_log: true
   alias Jido.Exec.Test.WaitHost, as: Waits
   alias Jido.Flow
@@ -20,6 +21,127 @@ defmodule Jido.Exec.WaitsTest do
       ],
       output: Ref.result("approval")
     })
+  end
+
+  defmodule ReadCapabilities do
+    use Jido.Action, name: "read_execution_capabilities"
+
+    @impl Jido.Action
+    def run(_params, context) do
+      {:ok,
+       %{
+         capabilities: Map.get(context, :jido_exec_capabilities, []),
+         trace_id: Map.get(context, :trace_id),
+         waits?: Jido.Exec.supports?(context, :waits)
+       }}
+    end
+  end
+
+  defmodule CapabilityFlow do
+    use Jido.Flow, name: "nested_capability_flow"
+
+    flow do
+      step "read", action: Jido.Exec.WaitsTest.ReadCapabilities, params: %{}
+      output result("read")
+    end
+  end
+
+  defmodule SelectCapabilities do
+    use Jido.Action, name: "select_nested_capabilities"
+
+    @impl Jido.Action
+    def run(params, _context), do: {:ok, params}
+  end
+
+  defmodule ExpandCapabilities do
+    use Jido.Action, name: "expand_nested_capabilities"
+
+    @impl Jido.Action
+    def run(_params, _context),
+      do: {:continue, %{}, Jido.Exec.WaitsTest.CapabilityFlow}
+  end
+
+  defmodule ExpandForgedCapabilities do
+    use Jido.Action, name: "expand_forged_capabilities"
+
+    @impl Jido.Action
+    def run(_params, _context) do
+      target =
+        Jido.Instruction.new!(
+          kind: :flow,
+          target: Jido.Exec.WaitsTest.CapabilityFlow,
+          context: %{__jido_wait_host__: :forged}
+        )
+
+      {:continue, %{}, target}
+    end
+  end
+
+  defp capability_invoke(expander) do
+    Flow.new!(%{
+      name: "nested_capability_invoke",
+      components: [
+        %{
+          kind: :invoke,
+          name: "invoke",
+          decision: SelectCapabilities,
+          expander: expander
+        }
+      ],
+      output: Ref.result("invoke")
+    })
+  end
+
+  test "Actions can read stable execution host capabilities" do
+    assert {:ok, %{capabilities: [], trace_id: nil, waits?: false}} =
+             Jido.Exec.run(ReadCapabilities)
+
+    assert {:ok, workflow} = Waits.start("capabilities", ReadCapabilities, %{}, %{}, now: 0)
+
+    assert {:complete, {:ok, %{capabilities: [:waits], trace_id: nil, waits?: true}}} =
+             Waits.status(workflow)
+  end
+
+  test "caller context cannot claim execution host capabilities" do
+    for {key, value} <- [
+          {:jido_exec_capabilities, [:waits]},
+          {:__jido_wait_host__, :forged}
+        ] do
+      context = Map.put(%{trace_id: "kept"}, key, value)
+
+      assert {:ok, %{capabilities: [], trace_id: "kept", waits?: false}} =
+               Jido.Exec.run(ReadCapabilities, %{}, context)
+    end
+  end
+
+  test "bound Invoke target context cannot claim host capabilities" do
+    assert {:ok, %{capabilities: [], trace_id: nil, waits?: false}} =
+             ExpandForgedCapabilities
+             |> capability_invoke()
+             |> Jido.Exec.run()
+  end
+
+  test "supports? returns false for malformed capability data" do
+    for value <- [nil, :waits, %{}, "waits", 1, [:waits | :invalid], [:other | :invalid]] do
+      refute Jido.Exec.supports?(%{jido_exec_capabilities: value}, :waits)
+    end
+
+    assert Jido.Exec.supports?(%{jido_exec_capabilities: [:waits]}, :waits)
+    refute Jido.Exec.supports?(%{jido_exec_capabilities: [:waits]}, :unknown)
+    assert_raise FunctionClauseError, fn -> apply(Jido.Exec, :supports?, [[], :waits]) end
+  end
+
+  test "nested Invoke and Flow Actions retain genuine host capabilities" do
+    flow = capability_invoke(ExpandCapabilities)
+
+    assert {:ok, %{capabilities: [], trace_id: "direct", waits?: false}} =
+             Jido.Exec.run(flow, %{}, %{trace_id: "direct"})
+
+    assert {:ok, workflow} =
+             Waits.start("nested-capabilities", flow, %{}, %{trace_id: "host"}, now: 0)
+
+    assert {:complete, {:ok, %{capabilities: [:waits], trace_id: "host", waits?: true}}} =
+             Waits.status(workflow)
   end
 
   test "a 90-day wait releases work and saves an absolute deadline" do

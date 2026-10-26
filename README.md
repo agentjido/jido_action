@@ -1,6 +1,6 @@
 # Jido Action
 
-[![Hex.pm](https://img.shields.io/badge/hex-3.0.0--beta.20-714a96.svg)](https://hex.pm/packages/jido_action)
+[![Hex.pm](https://img.shields.io/badge/hex-3.0.0--beta.22-714a96.svg)](https://hex.pm/packages/jido_action)
 [![Hex Docs](https://img.shields.io/badge/hex-docs-lightgreen.svg)](https://hexdocs.pm/jido_action/)
 [![CI](https://github.com/agentjido/jido_action/actions/workflows/ci.yml/badge.svg)](https://github.com/agentjido/jido_action/actions/workflows/ci.yml)
 [![License](https://img.shields.io/hexpm/l/jido_action.svg)](https://github.com/agentjido/jido_action/blob/main/LICENSE)
@@ -153,7 +153,7 @@ end
 
 Flows also support choices, named groups of parallel Actions, map and reduce
 over collections, bounded iteration with state, nested Flows, and runtime
-dispatch.
+target selection.
 
 ### Build Or Load A Flow As Data
 

@@ -54,6 +54,13 @@ defmodule Jido.Exec.Node.Input do
 
   @doc false
   @spec resolve(t(), term(), map()) :: {:ok, Frame.nested_t()} | {:error, Exception.t()}
+  def resolve(
+        %__MODULE__{} = node,
+        {:jido_invoke_flow_target, _target_id, input},
+        context
+      ),
+      do: resolve(node, input, context)
+
   def resolve(%__MODULE__{} = node, input, context) do
     with {:ok, parent} <- Frame.merge(input),
          {:ok, params} <-

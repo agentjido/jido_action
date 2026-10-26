@@ -38,7 +38,7 @@ defmodule Jido.Flow.Codec.Writer do
          {:ok, output} <- Value.encode_expression(flow.output, registry, 0) do
       document = %{
         "type" => "jido.flow",
-        "vsn" => 1,
+        "vsn" => 2,
         "name" => flow.name,
         "description" => flow.description,
         "components" => components,

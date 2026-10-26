@@ -25,6 +25,28 @@ defmodule JidoActionTest.Authoring.GuidesTest do
 
   @livebooks Path.wildcard("guides/*.livemd")
 
+  @current_flow_docs [
+    "README.md",
+    "guides/action-effects.livemd",
+    "guides/build-your-first-flow.livemd",
+    "guides/flow-language.livemd",
+    "guides/flow-steps.livemd",
+    "guides/nested-flows.livemd"
+  ]
+
+  test "current Flow documentation does not name the removed Dispatch component" do
+    for filename <- @current_flow_docs do
+      text = File.read!(filename)
+      refute text =~ ~r/`dispatch`|\bDispatch\b/, filename
+    end
+
+    refute File.read!("usage-rules.md") =~ ~r/`dispatch`|kind:\s*:dispatch/
+
+    for filename <- ["guides/execution.md", "guides/managed-execution.md"] do
+      refute File.read!(filename) =~ "#terminal-handoff-to-a-new-turn", filename
+    end
+  end
+
   for {filename, selection} <- @examples ++ Enum.map(@livebooks, &{&1, :all}) do
     test "#{filename} examples run against the package source" do
       filename = Path.expand(unquote(filename))

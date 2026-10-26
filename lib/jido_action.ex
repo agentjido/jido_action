@@ -165,14 +165,14 @@ defmodule Jido.Action do
 
   - `{:ok, result}` where `result` is a map or a `Jido.Action.Output` value.
   - `{:ok, result, effects}` where `effects` is a proper list of effect requests.
-  - `{:continue, continuation_input, continuation_target}` only from a Dispatch
+  - `{:continue, continuation_input, continuation_target}` only from an Invoke
     expander, where the target becomes the next executable. Exec rejects it
     from a root Action and other Flow positions.
   - `{:error, reason}` where `reason` describes why the Action failed.
   - `{:error, reason, effects}` is accepted, but Exec discards the effects.
 
-  - `{:handoff, successor_input, successor_target}` only from a terminal Dispatch
-    expander. Every execution host must handle the handoff result.
+  - `{:handoff, successor_input, successor_target}` only from a terminal Handoff
+    selector. Every execution host must handle the handoff result.
     See [Dynamic Flows](dynamic-flows.md).
 
   Effects are optional for both maps and Output values. An empty list returns

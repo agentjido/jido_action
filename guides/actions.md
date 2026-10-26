@@ -113,7 +113,7 @@ the list with the result and never performs it. Error results discard their
 effects. See [Outputs And Effects](action-effects.livemd) for ordering and
 examples.
 
-A Dispatch expander, and only a Dispatch expander, can also return
+An Invoke expander, and only an Invoke expander, can also return
 `{:continue, input, target}` to select the next Action or Flow. Any other
 Action that returns it fails with `reason: :unsupported_continuation`. See
 [Dynamic Flows](dynamic-flows.md).

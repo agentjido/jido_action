@@ -26,7 +26,8 @@ defmodule Jido.Flow.Component do
       completion: {:condition, :iterate_completion},
       max_iterations: :maximum_iterations
     ],
-    dispatch: [decision: {:call, [:action], :flow}, expander: {:target, [:action]}]
+    invoke: [decision: {:call, [:action], :flow}, expander: {:target, [:action]}],
+    handoff: [selector: {:call, [:action], :flow}]
   }
   @wait_option [name: :name, event: :event, match: {:value, :flow}, after_ms: :delay]
   @option [name: :name, condition: {:condition, :flow}, call: {:call, [:action], :flow}]
@@ -171,7 +172,7 @@ defmodule Jido.Flow.Component do
     |> Map.update(:fallback, nil, &authoring_target_call/1)
   end
 
-  def authoring(%{kind: :dispatch} = attrs) do
+  def authoring(%{kind: :invoke} = attrs) do
     attrs
     |> Map.delete(:params)
     |> Map.put(:decision, %{
@@ -180,6 +181,16 @@ defmodule Jido.Flow.Component do
       params: Map.get(attrs, :params, %{})
     })
     |> Map.put(:expander, %{kind: :action, target: Map.get(attrs, :expander)})
+  end
+
+  def authoring(%{kind: :handoff} = attrs) do
+    attrs
+    |> Map.delete(:params)
+    |> Map.put(:selector, %{
+      kind: :action,
+      target: Map.get(attrs, :selector),
+      params: Map.get(attrs, :params, %{})
+    })
   end
 
   def authoring(attrs), do: attrs

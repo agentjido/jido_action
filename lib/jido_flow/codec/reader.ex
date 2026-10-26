@@ -30,10 +30,17 @@ defmodule Jido.Flow.Codec.Reader do
 
   def decode(_document, _registry), do: failure("stored Flow document must be a map", [])
 
-  defp envelope(%{"type" => "jido.flow", "vsn" => 1}), do: :ok
+  defp envelope(%{"type" => "jido.flow", "vsn" => 2}), do: :ok
+
+  defp envelope(%{"type" => "jido.flow", "vsn" => 1}),
+    do:
+      failure(
+        "stored Flow document vsn 1 requires migration to vsn 2; Dispatch cannot be migrated automatically",
+        ["vsn"]
+      )
 
   defp envelope(%{"type" => "jido.flow"}),
-    do: failure("stored Flow document vsn must be 1", ["vsn"])
+    do: failure("stored Flow document vsn must be 2", ["vsn"])
 
   defp envelope(_document), do: failure("stored Flow document type must be jido.flow", ["type"])
 
@@ -140,7 +147,7 @@ defmodule Jido.Flow.Codec.Reader do
   defp component(%{"kind" => kind} = value, registry, stored, canonical) do
     kind =
       Enum.find(
-        [:call, :choice, :map, :parallel, :reduce, :iterate, :dispatch, :wait],
+        [:call, :choice, :map, :parallel, :reduce, :iterate, :invoke, :handoff, :wait],
         &(Atom.to_string(&1) == kind)
       )
 

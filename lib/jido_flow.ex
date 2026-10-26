@@ -90,7 +90,7 @@ defmodule Jido.Flow do
   Use `inline:` to set the Action name, description, schemas, or
   `context: ctx`. Keep `needs:` and `meta:` at the Step level. Flow supports
   inline Actions for Step and for named Action calls inside Parallel. Map,
-  Reduce, Choice targets, Iterate, and Dispatch use Action modules. All
+  Reduce, Choice targets, Iterate, Invoke, and Handoff use Action modules. All
   targets use normal Exec validation and result rules. See
   [Inline Actions](inline-actions.md).
 
@@ -201,11 +201,12 @@ defmodule Jido.Flow do
   Builds and validates one canonical Flow value from a data definition.
 
   Components use a `kind` of `:step`, `:subflow`, `:choice`, `:map`,
-  `:parallel`, `:reduce`, `:iterate`, `:dispatch`, `:timer`, `:await`, or
+  `:parallel`, `:reduce`, `:iterate`, `:invoke`, `:handoff`, `:timer`, `:await`, or
   `:selection`. Action targets use `action` and `params`; Subflow targets use
   `flow` and `params`. Parallel uses an ordered `actions` list of named Action
-  calls. Dispatch uses module targets in `decision` and `expander`, with
-  `params` for the decision. Validation is inert.
+  calls. Invoke uses module targets in `decision` and `expander`, with
+  `params` for the decision. Handoff uses a `selector` module and `params`.
+  Validation is inert.
   See the [data guide](flow-data.md) for component fields.
   """
   @spec new(map()) :: {:ok, t()} | {:error, Exception.t()}

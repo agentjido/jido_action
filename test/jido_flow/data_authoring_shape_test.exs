@@ -13,7 +13,7 @@ defmodule Jido.Flow.DataAuthoringShapeTest do
       flow = Flow.new!(definition(component))
       assert Flow.validate(flow) == {:ok, flow}
       assert {:ok, document, registry} = Codec.encode(flow)
-      assert document["vsn"] == 1
+      assert document["vsn"] == 2
       assert Codec.decode(document, registry) == {:ok, flow}
     end
   end
@@ -86,7 +86,8 @@ defmodule Jido.Flow.DataAuthoringShapeTest do
         completion: true,
         max_iterations: 1
       },
-      %{kind: :dispatch, name: "dispatch", decision: EchoParamsAction, expander: EchoParamsAction}
+      %{kind: :invoke, name: "invoke", decision: EchoParamsAction, expander: EchoParamsAction},
+      %{kind: :handoff, name: "handoff", selector: EchoParamsAction}
     ]
   end
 end

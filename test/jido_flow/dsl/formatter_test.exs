@@ -25,7 +25,7 @@ defmodule Jido.Flow.DSL.FormatterTest do
         action: Merge,
         params: accumulator()
 
-      dispatch "next", decision: Decide, expander: Expand, params: result("combined")
+      invoke "next", decision: Decide, expander: Expand, params: result("combined")
       output result("next")
     end
   end
@@ -79,7 +79,7 @@ defmodule Jido.Flow.DSL.FormatterTest do
       repeat 3
     end
 
-    dispatch "next" do
+    invoke "next" do
       decision Decide
       expander Expand
       params result("fixed")

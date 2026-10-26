@@ -161,33 +161,33 @@ defmodule JidoActionTest.Flow.CanonicalDataTest do
     assert_invalid_canonical(invalid_state)
   end
 
-  test "canonical Dispatch requires an exact target-only expander" do
+  test "canonical Invoke requires an exact target-only expander" do
     flow =
       Flow.new!(%{
-        name: "canonical_dispatch",
+        name: "canonical_invoke",
         components: [
           %{
-            kind: :dispatch,
-            name: "dispatch",
+            kind: :invoke,
+            name: "invoke",
             decision: Add,
             expander: Add,
             params: %{value: 1, amount: 1}
           }
         ],
-        output: Ref.result("dispatch")
+        output: Ref.result("invoke")
       })
 
     assert Flow.validate(flow) == {:ok, flow}
 
-    expander = flow.components["dispatch"].expander
+    expander = flow.components["invoke"].expander
 
     invalid =
-      put_in(flow.components["dispatch"].expander, Map.put(expander, :params, %{bound: true}))
+      put_in(flow.components["invoke"].expander, Map.put(expander, :params, %{bound: true}))
 
     assert_invalid_canonical(invalid)
 
     invalid =
-      put_in(flow.components["dispatch"], Map.put(flow.components["dispatch"], :extra, true))
+      put_in(flow.components["invoke"], Map.put(flow.components["invoke"], :extra, true))
 
     assert_invalid_canonical(invalid)
   end

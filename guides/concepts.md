@@ -128,7 +128,8 @@ inline body. An inline body compiles to an ordinary Action.
 | `map` | Run one Action for each item in a collection. |
 | `reduce` | Fold a collection through one Action, in order. |
 | `iterate` | Repeat one Action with local state until a bounded condition ends. |
-| `dispatch` | Let runtime data select the next Action or Flow, at the end of a Flow. |
+| `invoke` | Let runtime data select the next Action or Flow in the same Flow. |
+| `handoff` | Finish the root Flow and request a successor Turn. |
 
 Conditions and small calculations use `Jido.Expr`, a restricted, data-only
 expression grammar. Real work belongs in Actions.

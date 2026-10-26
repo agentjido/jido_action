@@ -27,7 +27,7 @@ defmodule Jido.Instruction do
   with shallow, right-biased call data. Metadata remains an annotation and has
   no meaning to the target or to Exec.
 
-  Bound Instructions can be direct Exec targets and Dispatch continuation
+  Bound Instructions can be direct Exec targets or Invoke continuation
   targets.
   Public constructors accept map parameters. Flow can resolve any portable
   value before Action input validation, so an internal bound call can hold a

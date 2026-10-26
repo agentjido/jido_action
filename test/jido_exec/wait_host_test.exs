@@ -88,8 +88,8 @@ defmodule Jido.Exec.WaitHostTest do
     end
   end
 
-  defp dispatch(needs \\ []) do
-    %{kind: :dispatch, name: "dispatch", decision: Echo, expander: HandOff, needs: needs}
+  defp handoff(needs \\ []) do
+    %{kind: :handoff, name: "handoff", selector: HandOff, needs: needs}
   end
 
   defp wait_handoff do
@@ -97,9 +97,9 @@ defmodule Jido.Exec.WaitHostTest do
       name: "wait_handoff",
       components: [
         %{kind: :await, name: "event", event: "go"},
-        dispatch(["event"])
+        handoff(["event"])
       ],
-      output: Ref.result("dispatch")
+      output: Ref.result("handoff")
     })
   end
 
@@ -119,13 +119,13 @@ defmodule Jido.Exec.WaitHostTest do
     assert {:complete, {:handoff, _, _}} = Waits.status(done)
   end
 
-  test "Dispatch terminal constraints reject downstream, wrapped, ignored, and multiple outcomes" do
+  test "Handoff terminal constraints reject downstream, wrapped, ignored, and multiple outcomes" do
     for {components, output} <- [
-          {[dispatch(), %{kind: :step, name: "after", action: Echo, needs: ["dispatch"]}],
+          {[handoff(), %{kind: :step, name: "after", action: Echo, needs: ["handoff"]}],
            Ref.result("after")},
-          {[dispatch()], %{request: Ref.result("dispatch")}},
-          {[dispatch()], %{}},
-          {[dispatch(), %{dispatch() | name: "second"}], Ref.result("dispatch")}
+          {[handoff()], %{request: Ref.result("handoff")}},
+          {[handoff()], %{}},
+          {[handoff(), %{handoff() | name: "second"}], Ref.result("handoff")}
         ] do
       assert {:error, _} =
                Flow.new(%{name: "invalid_terminal", components: components, output: output})
@@ -296,9 +296,9 @@ defmodule Jido.Exec.WaitHostTest do
       Flow.new!(%{
         name: "selected_wait",
         components: [
-          %{kind: :dispatch, name: "dispatch", decision: Echo, expander: SelectWait}
+          %{kind: :invoke, name: "invoke", decision: Echo, expander: SelectWait}
         ],
-        output: Ref.result("dispatch")
+        output: Ref.result("invoke")
       })
 
     assert {:error, _} = Exec.run(flow, %{}, %{counter: counter})
@@ -323,9 +323,9 @@ defmodule Jido.Exec.WaitHostTest do
         name: "predecessor_schema",
         output_schema: Zoi.object(%{required: Zoi.string()}),
         components: [
-          %{kind: :dispatch, name: "dispatch", decision: Echo, expander: ContinueEcho}
+          %{kind: :invoke, name: "invoke", decision: Echo, expander: ContinueEcho}
         ],
-        output: Ref.result("dispatch")
+        output: Ref.result("invoke")
       })
 
     assert {:error, %{details: %{context: "Flow output"}}} = Exec.run(flow)
@@ -357,9 +357,9 @@ defmodule Jido.Exec.WaitHostTest do
       Flow.new!(%{
         name: "runtime_handoff",
         components: [
-          %{kind: :dispatch, name: "dispatch", decision: Echo, expander: RuntimeFlowHandoff}
+          %{kind: :handoff, name: "handoff", selector: RuntimeFlowHandoff}
         ],
-        output: Ref.result("dispatch")
+        output: Ref.result("handoff")
       })
 
     assert {:handoff, %Jido.Instruction{target: %Flow{}}, []} =

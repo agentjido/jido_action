@@ -67,7 +67,7 @@ defmodule JidoActionTest.Flow.ExprBoundaryTest do
     end
   end
 
-  test "plain data keeps its DSL, direct and version-one storage contracts" do
+  test "plain data keeps its DSL, direct and version-two storage contracts" do
     cases = [
       %{items: List.duplicate(1, 10_000)},
       %{text: String.duplicate("x", 1_048_577)},
@@ -90,7 +90,7 @@ defmodule JidoActionTest.Flow.ExprBoundaryTest do
       assert built == direct
       assert module_flow(Module.concat(__MODULE__, "Plain#{index}"), source) == direct
       assert {:ok, document, registry} = Codec.encode(direct)
-      assert document["vsn"] == 1
+      assert document["vsn"] == 2
       assert {:ok, ^direct} = Codec.decode(JSON.decode!(JSON.encode!(document)), registry)
       assert Jido.Exec.run(direct) == {:ok, value}
     end

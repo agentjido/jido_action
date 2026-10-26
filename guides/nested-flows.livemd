@@ -12,7 +12,7 @@ Run the cells from top to bottom.
 ## Install The Package
 
 ```elixir
-Mix.install([{:jido_action, "~> 3.0.0-beta.21"}])
+Mix.install([{:jido_action, "~> 3.0.0-beta.22"}])
 ```
 
 ## Define A Child Flow
@@ -125,7 +125,7 @@ Inside the child:
 An Action failure inside the child keeps its error type. Its
 `details.node_path` lists the authored path, such as `["child", "add"]`. A
 child input or output validation failure identifies the Subflow itself, such
-as `["child"]`. Map, Parallel, Reduce, Iterate, Choice, and Dispatch failures
+as `["child"]`. Map, Parallel, Reduce, Iterate, Choice, Invoke, and Handoff failures
 in a child also include the parent path. Errors before Action validation can
 lack this path. See [Debug Flows](debugging-flows.md) to read single and
 concurrent failures.
@@ -133,10 +133,10 @@ concurrent failures.
 ## Limits
 
 Use `step` or `kind: :subflow` for a static child Flow. Choice options, the
-Choice fallback, Map, Reduce, Iterate, and the Dispatch decision and expander
-must be Action modules. Parallel entries must be Actions. In the DSL, they can
-use modules or inline bodies. A Dispatch expander can select an Action or Flow
-at runtime. See [Dynamic Flows](dynamic-flows.md).
+Choice fallback, Map, Reduce, Iterate, the Invoke decision and expander, and
+the Handoff selector must be Action modules. Parallel entries must be Actions.
+In the DSL, they can use modules or inline bodies. An Invoke expander can select
+an Action or Flow at runtime. See [Dynamic Flows](dynamic-flows.md).
 
 A Subflow stores a Flow module, not a runtime `%Jido.Flow{}` value.
 

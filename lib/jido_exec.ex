@@ -7,9 +7,8 @@ defmodule Jido.Exec do
   graph updates, and checkpoints.
 
   Use `run/4` for immediate execution. It returns `{:ok, output}`,
-  `{:ok, output, effects}`, or `{:error, error}`. A terminal
-  Dispatch can return `{:handoff, successor_instruction, effects}`.
-  Effects are returned to the
+  `{:ok, output, effects}`, or `{:error, error}`. A terminal Handoff can return
+  `{:handoff, successor_instruction, effects}`. Effects are returned to the
   caller without dispatch. See [Execution](execution.md).
 
   Use `start/6` with a supervised `Runic.Runner` for managed execution,
@@ -47,6 +46,17 @@ defmodule Jido.Exec do
           {:ok, Workflow.t()}
           | {:complete, Workflow.t()}
           | {:error, term()}
+
+  @typedoc "A capability supplied by the current execution host."
+  @type capability :: :waits
+
+  @doc "Returns true when an Action context supports the specified host capability."
+  @spec supports?(map(), capability()) :: boolean()
+  def supports?(%{jido_exec_capabilities: capabilities}, capability)
+      when is_list(capabilities),
+      do: not List.improper?(capabilities) and capability in capabilities
+
+  def supports?(context, _capability) when is_map(context), do: false
 
   @doc "Compiles an Action, Instruction, Flow module, or Flow value to Runic."
   @spec compile(term(), keyword()) :: {:ok, Workflow.t()} | {:error, Exception.t()}

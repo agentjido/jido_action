@@ -13,7 +13,7 @@ defmodule JidoActionTest.Authoring.ComponentsTest do
     Child,
     ChoiceFlow,
     Decide,
-    DispatchFlow,
+    InvokeFlow,
     DoubleParent,
     Echo,
     Expand,
@@ -389,14 +389,14 @@ defmodule JidoActionTest.Authoring.ComponentsTest do
     end
   end
 
-  test "terminal Dispatch matches all forms and continues to Action or Flow" do
+  test "Invoke matches all forms and continues to Action or Flow" do
     params = %{mode: Ref.input(:mode), value: Ref.input(:value), target: Ref.input(:target)}
 
     direct =
       JidoActionTest.FlowBuilder.new!(
-        name: DispatchFlow.name(),
+        name: InvokeFlow.name(),
         components: [
-          JidoActionTest.FlowComponent.dispatch!(
+          JidoActionTest.FlowComponent.invoke!(
             name: "route",
             decision: Decide,
             expander: Expand,
@@ -409,12 +409,12 @@ defmodule JidoActionTest.Authoring.ComponentsTest do
     data = %{
       output: Jido.Flow.Ref.result("route"),
       components: [
-        %{kind: :dispatch, name: "route", decision: Decide, expander: Expand, params: params}
+        %{kind: :invoke, name: "route", decision: Decide, expander: Expand, params: params}
       ],
-      name: DispatchFlow.name()
+      name: InvokeFlow.name()
     }
 
-    for form <- parity(DispatchFlow, direct, data) do
+    for form <- parity(InvokeFlow, direct, data) do
       for {mode, target, expected} <- [
             {:finish, nil, %{value: 5, label: "ctx"}},
             {:continue, Final, %{value: 6, label: "ctx"}},

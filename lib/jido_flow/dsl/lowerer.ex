@@ -12,7 +12,8 @@ defmodule Jido.Flow.DSL.Lowerer do
   alias Jido.Flow.DSL.{
     Choice,
     ChoiceOption,
-    Dispatch,
+    Handoff,
+    Invoke,
     ValueParser,
     Iterate,
     MapNode,
@@ -151,11 +152,20 @@ defmodule Jido.Flow.DSL.Lowerer do
     end
   end
 
-  defp lower_entity(%Dispatch{} = dispatch) do
-    with {:ok, %{params: params}} <- ValueParser.parse_fields(dispatch, params: :value) do
-      component(dispatch, :dispatch,
-        decision: dispatch.decision,
-        expander: dispatch.expander,
+  defp lower_entity(%Invoke{} = invoke) do
+    with {:ok, %{params: params}} <- ValueParser.parse_fields(invoke, params: :value) do
+      component(invoke, :invoke,
+        decision: invoke.decision,
+        expander: invoke.expander,
+        params: params
+      )
+    end
+  end
+
+  defp lower_entity(%Handoff{} = handoff) do
+    with {:ok, %{params: params}} <- ValueParser.parse_fields(handoff, params: :value) do
+      component(handoff, :handoff,
+        selector: handoff.selector,
         params: params
       )
     end

@@ -408,15 +408,14 @@ defmodule Jido.Flow.DSL.FlowTest do
             }} = Jido.Exec.run(module)
   end
 
-  test "an invalid Dispatch output points to the output declaration" do
+  test "an invalid Handoff output points to the output declaration" do
     code = """
-    defmodule InvalidDispatchOutputSourceFlow do
-      use Jido.Flow, name: "invalid_dispatch_output_source"
+    defmodule InvalidHandoffOutputSourceFlow do
+      use Jido.Flow, name: "invalid_handoff_output_source"
 
       flow do
-        dispatch("next",
-          decision: JidoActionTest.Fixtures.Actions.Add,
-          expander: JidoActionTest.Fixtures.Actions.Add,
+        handoff("next",
+          selector: JidoActionTest.Fixtures.Actions.Add,
           params: %{value: 1}
         )
 
@@ -432,28 +431,26 @@ defmodule Jido.Flow.DSL.FlowTest do
       |> Kernel.+(1)
 
     error =
-      assert_raise CompileError, ~r/Flow output must be the complete Dispatch result/, fn ->
+      assert_raise CompileError, ~r/Flow output must be the complete Handoff result/, fn ->
         Code.compile_string(code)
       end
 
     assert error.line == output_line
   end
 
-  test "a second Dispatch points to its declaration" do
+  test "a second Handoff points to its declaration" do
     code = """
-    defmodule DuplicateDispatchSourceFlow do
-      use Jido.Flow, name: "duplicate_dispatch_source"
+    defmodule DuplicateHandoffSourceFlow do
+      use Jido.Flow, name: "duplicate_handoff_source"
 
       flow do
-        dispatch("first",
-          decision: JidoActionTest.Fixtures.Actions.Add,
-          expander: JidoActionTest.Fixtures.Actions.Add,
+        handoff("first",
+          selector: JidoActionTest.Fixtures.Actions.Add,
           params: %{}
         )
 
-        dispatch("second",
-          decision: JidoActionTest.Fixtures.Actions.Add,
-          expander: JidoActionTest.Fixtures.Actions.Add,
+        handoff("second",
+          selector: JidoActionTest.Fixtures.Actions.Add,
           params: %{}
         )
 
@@ -462,21 +459,21 @@ defmodule Jido.Flow.DSL.FlowTest do
     end
     """
 
-    source_file = "duplicate_dispatch_source.ex"
+    source_file = "duplicate_handoff_source.ex"
 
-    second_dispatch_line =
+    second_handoff_line =
       code
       |> String.split("\n")
-      |> Enum.find_index(&String.contains?(&1, "dispatch(\"second\""))
+      |> Enum.find_index(&String.contains?(&1, "handoff(\"second\""))
       |> Kernel.+(1)
 
     error =
-      assert_raise CompileError, ~r/only one Dispatch component/, fn ->
+      assert_raise CompileError, ~r/only one Handoff component/, fn ->
         Code.compile_string(code, source_file)
       end
 
     assert error.file == source_file
-    assert error.line == second_dispatch_line
+    assert error.line == second_handoff_line
   end
 
   test "Flow declaration macros reject duplicate and non-keyword options" do

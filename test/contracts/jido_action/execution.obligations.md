@@ -8,8 +8,9 @@ modules:
   - Jido.Exec.Node.Choice
   - Jido.Exec.Node.Choice.Branch
   - Jido.Exec.Node.Choice.Selector
-  - Jido.Exec.Node.Dispatch
-  - Jido.Exec.Node.Dispatch.Finish
+  - Jido.Exec.Node.Handoff
+  - Jido.Exec.Node.Invoke
+  - Jido.Exec.Node.Invoke.Finish
   - Jido.Exec.Node.Input
   - Jido.Exec.Node.Loop
   - Jido.Exec.Node.Loop.Start
@@ -17,6 +18,7 @@ modules:
   - Jido.Exec.Node.Map.Collection
   - Jido.Exec.Node.Output
   - Jido.Exec.Portable
+  - Jido.Exec.Runtime
   - Jido.Exec.Source
   - Jido.Exec.Telemetry
   - Jido.Exec.ValueResolver
@@ -59,7 +61,7 @@ Check focused facets of the [reviewed public promises](../../../guides/public-ap
 
 ### jido_action.execution.I22 — Recovery preserves acknowledged stored progress
 - **scope:** `Jido.Exec.resume/4, Runic.Runner.Store`
-- **must:** Restore acknowledged stored completed work and continue remaining Action, Map, Iterate, nested Flow, and Dispatch progress with the same public value and effects. Resume requires runtime context and policy again. Guard snapshot projection after loss of live observations. Work completed after the last acknowledged checkpoint can repeat; no exactly-once execution or effect delivery is promised.
+- **must:** Restore acknowledged stored completed work and continue remaining Action, Map, Iterate, nested Flow, Invoke, and Handoff progress with the same public value and effects. Preserve dynamic invocation occurrence identity and reject incompatible changed targets. Resume requires runtime context and policy again. Guard snapshot projection after loss of live observations. Work completed after the last acknowledged checkpoint can repeat; no exactly-once execution or effect delivery is promised.
 - **kind:** persisted-format
 - **status:** active
 
@@ -73,4 +75,10 @@ Check focused facets of the [reviewed public promises](../../../guides/public-ap
 - **scope:** `Jido.Exec.effect_id/4`
 - **must:** For fixed execution, activation, output, and effect index, derive the same logical effect identity across attempts. A changed output identity or index can change it. The host owns deduplication and effect delivery; the identity does not provide exactly-once effects.
 - **kind:** functional
+- **status:** active
+
+### jido_action.execution.I25 — Execution hosts own Action capabilities
+- **scope:** `Jido.Exec.supports?/2, Jido.Exec.Runtime`
+- **must:** Report only capabilities that the execution host gives to an Action callback. Ordinary execution reports no wait capability. Wait hosts report the wait capability, including through nested Flow and Invoke calls. Strip caller and bound values for the reserved `:jido_exec_capabilities` key and internal wait-host key. Return false for missing, unknown, or malformed capability lists. Require a map Action context.
+- **kind:** security
 - **status:** active

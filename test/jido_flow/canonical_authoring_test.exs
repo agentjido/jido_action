@@ -29,12 +29,12 @@ defmodule Jido.Flow.CanonicalAuthoringTest.SparkSubflow do
   end
 end
 
-defmodule Jido.Flow.CanonicalAuthoringTest.SparkDispatchFlow do
+defmodule Jido.Flow.CanonicalAuthoringTest.SparkInvokeFlow do
   @moduledoc false
-  use Jido.Flow, name: "canonical_dispatch_flow"
+  use Jido.Flow, name: "canonical_invoke_flow"
 
   flow do
-    dispatch("next",
+    invoke("next",
       decision: JidoActionTest.Fixtures.Actions.Add,
       expander: JidoActionTest.Fixtures.Actions.Add,
       params: %{value: input(:value), amount: 1},
@@ -298,12 +298,12 @@ defmodule Jido.Flow.CanonicalAuthoringTest do
              built.components["child"]
   end
 
-  test "direct, Spark, and JSON Dispatch forms produce the same canonical data" do
+  test "direct, Spark, and JSON Invoke forms produce the same canonical data" do
     direct =
       JidoActionTest.FlowBuilder.new!(
-        name: "canonical_dispatch_flow",
+        name: "canonical_invoke_flow",
         components: [
-          JidoActionTest.FlowComponent.dispatch!(
+          JidoActionTest.FlowComponent.invoke!(
             name: "next",
             decision: Add,
             expander: Add,
@@ -319,7 +319,7 @@ defmodule Jido.Flow.CanonicalAuthoringTest do
         output: Jido.Flow.Ref.result("next"),
         components: [
           %{
-            kind: :dispatch,
+            kind: :invoke,
             name: "next",
             decision: Add,
             expander: Add,
@@ -327,15 +327,97 @@ defmodule Jido.Flow.CanonicalAuthoringTest do
             meta: %{owner: "spark"}
           }
         ],
-        name: "canonical_dispatch_flow"
+        name: "canonical_invoke_flow"
       })
 
     assert built == direct
-    assert Jido.Flow.CanonicalAuthoringTest.SparkDispatchFlow.flow() == direct
+    assert Jido.Flow.CanonicalAuthoringTest.SparkInvokeFlow.flow() == direct
     assert {:ok, document, registry} = Codec.encode(direct)
-    assert [%{"kind" => "dispatch"} = encoded] = document["components"]
+    assert [%{"kind" => "invoke"} = encoded] = document["components"]
     refute Map.has_key?(encoded, "max_continuations")
     assert Codec.decode(document, registry) == {:ok, direct}
+  end
+
+  test "Invoke and Handoff expose every target call and bound value" do
+    add = Add
+    invoke_params = %{value: Ref.input(:value), amount: 1}
+
+    assert {:ok, {"next", invoke}} =
+             Jido.Flow.Definition.component(%{
+               kind: :invoke,
+               name: "next",
+               decision: Add,
+               expander: Add,
+               params: invoke_params
+             })
+
+    assert [
+             {:decision, %{kind: :action, target: ^add, params: ^invoke_params}, ^invoke_params},
+             {:expander, %{kind: :action, target: ^add}, nil}
+           ] = Jido.Flow.Definition.calls(invoke)
+
+    assert Jido.Flow.Definition.values(invoke) == [invoke_params]
+
+    handoff_params = %{value: Ref.input(:value)}
+
+    assert {:ok, {"handoff", handoff}} =
+             Jido.Flow.Definition.component(%{
+               kind: :handoff,
+               name: "handoff",
+               selector: Add,
+               params: handoff_params
+             })
+
+    assert [
+             {:selector, %{kind: :action, target: ^add, params: ^handoff_params}, ^handoff_params}
+           ] = Jido.Flow.Definition.calls(handoff)
+
+    assert Jido.Flow.Definition.values(handoff) == [handoff_params]
+  end
+
+  test "runtime DSL lowering preserves Invoke and Handoff declarations" do
+    invoke_module =
+      Module.concat(__MODULE__, "RuntimeInvoke#{System.unique_integer([:positive])}")
+
+    Code.compile_string("""
+    defmodule #{inspect(invoke_module)} do
+      use Jido.Flow, name: "runtime_invoke"
+
+      flow do
+        invoke "next",
+          decision: #{inspect(Add)},
+          expander: #{inspect(Add)},
+          params: %{value: input(:value), amount: 1}
+
+        output result("next")
+      end
+    end
+    """)
+
+    assert %{
+             kind: :invoke,
+             decision: %{target: Add, params: %{value: %Ref{source: :input}, amount: 1}},
+             expander: %{target: Add}
+           } = apply(invoke_module, :flow, []).components["next"]
+
+    handoff_module =
+      Module.concat(__MODULE__, "RuntimeHandoff#{System.unique_integer([:positive])}")
+
+    Code.compile_string("""
+    defmodule #{inspect(handoff_module)} do
+      use Jido.Flow, name: "runtime_handoff"
+
+      flow do
+        handoff "next", selector: #{inspect(Add)}, params: %{value: input(:value)}
+        output result("next")
+      end
+    end
+    """)
+
+    assert %{
+             kind: :handoff,
+             selector: %{target: Add, params: %{value: %Ref{source: :input}}}
+           } = apply(handoff_module, :flow, []).components["next"]
   end
 
   test "direct, Spark, and JSON authoring produce one mixed canonical Flow" do
@@ -397,7 +479,7 @@ defmodule Jido.Flow.CanonicalAuthoringTest do
 
     assert {:ok, flow} =
              JidoActionTest.FlowBuilder.new(%{
-               output: Jido.Flow.Ref.result("dispatch"),
+               output: Jido.Flow.Ref.result("invoke"),
                components: [
                  %{kind: :step, name: "root", action: Add, params: %{}},
                  %{kind: :step, name: "action", action: Add, params: %{}, needs: ["root"]},
@@ -443,8 +525,8 @@ defmodule Jido.Flow.CanonicalAuthoringTest do
                    max_iterations: 1
                  },
                  %{
-                   kind: :dispatch,
-                   name: "dispatch",
+                   kind: :invoke,
+                   name: "invoke",
                    decision: Add,
                    expander: Add,
                    params: %{},
@@ -455,7 +537,7 @@ defmodule Jido.Flow.CanonicalAuthoringTest do
              })
 
     assert Enum.map(
-             ["root", "action", "subflow", "choice", "map", "reduce", "iterate", "dispatch"],
+             ["root", "action", "subflow", "choice", "map", "reduce", "iterate", "invoke"],
              fn name -> {flow.components[name].kind, flow.components[name].needs} end
            ) == [
              {:call, []},
@@ -465,7 +547,7 @@ defmodule Jido.Flow.CanonicalAuthoringTest do
              {:map, ["root"]},
              {:reduce, ["root"]},
              {:iterate, ["root"]},
-             {:dispatch, ["action", "subflow", "choice", "map", "reduce", "iterate"]}
+             {:invoke, ["action", "subflow", "choice", "map", "reduce", "iterate"]}
            ]
   end
 
@@ -518,15 +600,15 @@ defmodule Jido.Flow.CanonicalAuthoringTest do
       %{
         components: [
           %{
-            kind: :dispatch,
-            name: "dispatch",
+            kind: :invoke,
+            name: "invoke",
             decision: Add,
             expander: Add,
             params: %{},
             after: []
           }
         ],
-        name: "dispatch_after"
+        name: "invoke_after"
       }
     ]
 

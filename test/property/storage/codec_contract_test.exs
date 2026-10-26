@@ -28,14 +28,14 @@ defmodule JidoActionTest.Property.Storage.CodecContractTest do
          "STORE-001/map",
          "STORE-001/reduce",
          "STORE-001/iterate",
-         "STORE-001/dispatch",
-         "STORE-001/version-one",
-         "STORE-001/version-one-expressions",
+         "STORE-001/invoke",
+         "STORE-001/version-two",
+         "STORE-001/version-two-expressions",
          "STORE-001/key-kinds",
          "STORE-001/step-wire-format"
        ]
   @tag obligation: "jido_action.codec.I5"
-  property "every component kind preserves portable generated data in version one" do
+  property "every component kind preserves portable generated data in version two" do
     check all(value <- portable(), scalar <- integer(), max_runs: 40) do
       assert_portability(value, scalar)
     end
@@ -118,7 +118,7 @@ defmodule JidoActionTest.Property.Storage.CodecContractTest do
       for invalid <- [
             nil,
             [],
-            Map.put(document, "vsn", 2 + extra),
+            Map.put(document, "vsn", 3 + extra),
             Map.put(document, "output", <<255>>),
             Map.put(document, "output", deep),
             Map.put(document, "output", List.duplicate(0, 10_000 + extra))
@@ -154,7 +154,7 @@ defmodule JidoActionTest.Property.Storage.CodecContractTest do
 
     document = %{
       "type" => "jido.flow",
-      "vsn" => 1,
+      "vsn" => 2,
       "name" => "wire_oracle",
       "description" => nil,
       "components" => [
@@ -231,15 +231,15 @@ defmodule JidoActionTest.Property.Storage.CodecContractTest do
           completion: Expr.new!(:==, [1, 1]),
           max_iterations: 1
         ),
-        JidoActionTest.FlowComponent.dispatch!(
-          name: "dispatch",
+        JidoActionTest.FlowComponent.invoke!(
+          name: "invoke",
           decision: Runtime.Emit,
           expander: Runtime.Emit,
           params: params,
           needs: ["step", "child", "choice", "map", "reduce", "iterate"]
         )
       ],
-      output: Ref.result("dispatch")
+      output: Ref.result("invoke")
     )
   end
 
@@ -263,10 +263,10 @@ defmodule JidoActionTest.Property.Storage.CodecContractTest do
     assert_step_wire_format(scalar)
     flow = all_components(value)
     assert {:ok, document, registry} = Codec.encode(flow)
-    assert document["vsn"] == 1
+    assert document["vsn"] == 2
 
     assert Enum.map(document["components"], & &1["kind"]) ==
-             ["choice", "iterate", "map", "reduce", "call", "call", "dispatch"]
+             ["choice", "iterate", "map", "reduce", "call", "call", "invoke"]
 
     assert {:ok, ^flow} = Codec.decode(JSON.decode!(JSON.encode!(document)), registry)
     assert {:ok, ^flow} = Codec.diagnose(document, registry)
@@ -330,7 +330,7 @@ defmodule JidoActionTest.Property.Storage.CodecContractTest do
               [document]
 
             "vsn" ->
-              Map.put(document, "vsn", 2 + extra)
+              Map.put(document, "vsn", 3 + extra)
 
             "utf8" ->
               Map.put(document, "output", <<255, extra>>)
@@ -390,12 +390,12 @@ defmodule JidoActionTest.Property.Storage.CodecContractTest do
   @tag contracts: ["STORE-001", "STORE-002", "FLOW-005"]
   @tag contract_cases: [
          "STORE-001/fuzz-all-kinds",
-         "STORE-001/fuzz-version-one",
+         "STORE-001/fuzz-version-two",
          "STORE-001/fuzz-wire-oracle",
          "STORE-002/fuzz-version-required",
          "FLOW-005/fuzz-literal-reference"
        ]
-  test "fuzz: portable trees retain version-one data and reference meaning", context do
+  test "fuzz: portable trees retain version-two data and reference meaning", context do
     scalar = one_of([integer(), string(:alphanumeric, max_length: 80), boolean(), constant(nil)])
 
     values =
@@ -435,7 +435,7 @@ defmodule JidoActionTest.Property.Storage.CodecContractTest do
         assert Flow.semantic_identity(decoded) == Flow.semantic_identity(flow)
       end
 
-      ["all-components", "version-one", "reference-and-literal"]
+      ["all-components", "version-two", "reference-and-literal"]
     end)
   end
 end

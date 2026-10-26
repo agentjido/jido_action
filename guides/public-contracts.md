@@ -63,7 +63,7 @@ Covenant remains optional and does not run in default CI.
 | --- | --- | --- | --- |
 | EXEC-001 | An Action compiles to an executable Runic workflow without running its work. | `jido_action.boundary.I5` | `test/jido_exec/api_test.exs`, `test/property/execution/exec_contract_test.exs` |
 | EXEC-002 | Flow compilation and Runic reconstruction preserve executable meaning. | `jido_action.boundary.I5` | `test/jido_exec/compiler_test.exs`, `test/jido_exec/flow_execution_test.exs` |
-| EXEC-003 | Choice, Map, Reduce, Iterate, nested Flow, and Dispatch keep their authored semantics. | `jido_action.execution.I17` | `test/property/flow/component_contract_test.exs`, `test/property/flow/mixed_contract_test.exs`, `test/property/execution/runner_fuzz_test.exs` |
+| EXEC-003 | Choice, Map, Reduce, Iterate, nested Flow, and Invoke keep their authored semantics. | `jido_action.execution.I17` | `test/property/flow/component_contract_test.exs`, `test/property/flow/mixed_contract_test.exs`, `test/property/execution/runner_fuzz_test.exs` |
 | EXEC-004 | Failure stops new work according to Runic policy, while work that is already admitted can finish. | `jido_action.execution.I18` | `test/property/flow/iterate_fuzz_test.exs`, `test/jido_exec/runner/policy_test.exs`, `test/property/execution/runner_fuzz_test.exs` |
 | EXEC-005 | One concurrency policy applies to nested and collection work, while Reduce and Iterate remain serial. | `jido_action.execution.I18` | `test/property/flow/iterate_fuzz_test.exs`, `test/jido_exec/runner/policy_test.exs`, `test/property/execution/runner_fuzz_test.exs` |
 | EXEC-006 | Manual managed execution dispatches one Runic scheduler unit per step and returns inspectable Runic workflow state. | `jido_action.execution.I21` | `test/jido_exec/runner/stepwise_test.exs`, Runic stepwise Runner tests, `test/property/execution/runner_fuzz_test.exs` |
@@ -77,7 +77,7 @@ Covenant remains optional and does not run in default CI.
 | --- | --- | --- | --- |
 | DURABLE-001 | Recovery resumes after acknowledged stored progress; the ten-Action case is one example. | `jido_action.execution.I22` | `test/jido_exec/runner/durability_test.exs` |
 | DURABLE-002 | Acknowledged stored completed work is preserved during recovery. Work after the last acknowledged checkpoint can repeat. | `jido_action.execution.I22` | `test/jido_exec/runner/durability_test.exs`, Runic Runner recovery tests, `test/property/execution/runner_fuzz_test.exs` |
-| DURABLE-003 | Map, Iterate, nested Flow, and Dispatch progress survive recovery. | `jido_action.execution.I22` | `test/jido_exec/runner/durability_test.exs`, `test/property/execution/runner_fuzz_test.exs` |
+| DURABLE-003 | Map, Iterate, nested Flow, and Invoke progress survive recovery. | `jido_action.execution.I22` | `test/jido_exec/runner/durability_test.exs`, `test/property/execution/runner_fuzz_test.exs` |
 | DURABLE-004 | Runtime state uses the Runic Store and event stream. Jido has no checkpoint format. | `jido_action.execution.I22` | `test/jido_exec/runner/durability_test.exs`, `test/property/execution/runner_fuzz_test.exs` |
 | DURABLE-005 | Logical effect identity is stable across retry attempts with fixed execution, activation, output, and effect index. | `jido_action.execution.I24` | `test/jido_exec/runner/policy_test.exs`, `test/property/execution/runner_fuzz_test.exs` |
 
@@ -101,8 +101,8 @@ claim of complete API or branch coverage.
 | `action_boundaries` | 250 | 30 output items; validation, callback failures, envelopes, effects |
 | `authoring_equivalence` | 100 | 8 source nodes; DSL, inline, and extension equivalence |
 | `codec_mutations` | 300 | Invalid fields; depth, width, and total-node limits |
-| `codec_portability` | 300 | Portable trees; every component kind; version 1 |
-| `dispatch_chains` | 60 | 6 links; Action/Flow terminals; errors and timeout; three current modes |
+| `codec_portability` | 300 | Portable trees; every component kind; version 2 |
+| `invoke_chains` | 60 | 6 links; Action/Flow targets; errors and timeout; three current modes |
 | `expression_trees` | 1,000 | Numeric depth 5, Boolean depth 2; independent operations and limits |
 | `graph_rejections` | 300 | 12 nodes; invalid graph forms and inert inspection |
 | `graph_semantics` | 600 | 12 nodes; independent arithmetic and canonical effects |

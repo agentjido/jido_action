@@ -1,40 +1,22 @@
-# Dynamic Flows With Dispatch
+# Dynamic Flows With Invoke And Handoff
 
-Most Flows have a fixed shape. A dynamic Flow lets runtime data choose the
-next Action or Flow while the Flow runs. Use a `dispatch` component at the end
-of a Flow for that choice.
+Use `invoke` when runtime data must select an Action or Flow in the current
+execution graph. Use `handoff` only when the current root Flow must finish and
+request a new Turn.
 
-Pick the right tool:
-
-- Use [`choice`](flow-choices.livemd) when the possible targets are known
-  when you write the Flow.
-- Use `dispatch` when an Action must decide the target at runtime.
-- Use [`Jido.Flow.new/1`](flow-data.md) when your code must build the whole
-  graph from data before it runs.
-
-## How Dispatch Works
-
-A Dispatch has two Actions:
-
-1. The decision Action receives the Dispatch parameters and returns a map.
-2. The expander Action receives that complete map.
-3. The expander returns a final result or selects the next executable.
-
-The expander can return either form:
+An Invoke has two Actions. The decision Action returns data. The expander
+receives that data and returns a normal result or a continuation:
 
 ```elixir
 {:ok, final_result}
 {:continue, next_input, next_executable}
 ```
 
-A normal result completes the Flow. A continuation runs the selected Action or
-Flow next, with `next_input` as its params. The selected target's result
-becomes the Dispatch result.
+The selected Action or Flow runs in the same Runic graph. Its result passes
+through the Invoke completion gate. Static downstream components can then run.
+A Flow can contain more than one Invoke when its dependency graph permits it.
 
-## Define A Dispatch
-
-This example asks one Action to select a route. A second Action converts that
-decision into a final result or a continuation.
+## Define An Invoke
 
 ```elixir
 defmodule MyApp.Actions.ChooseRoute do
@@ -54,9 +36,7 @@ defmodule MyApp.Actions.ExpandRoute do
   use Jido.Action, name: "expand_route"
 
   @impl true
-  def run(%{route: :finish, value: value}, _context) do
-    {:ok, %{value: value}}
-  end
+  def run(%{route: :finish, value: value}, _context), do: {:ok, %{value: value}}
 
   def run(%{route: :continue, value: value, target: target}, _context) do
     {:continue, %{value: value}, target}
@@ -71,7 +51,7 @@ defmodule MyApp.Flows.DynamicRoute do
       {:ok, %{value: value}}
     end
 
-    dispatch "route",
+    invoke "route",
       decision: MyApp.Actions.ChooseRoute,
       expander: MyApp.Actions.ExpandRoute,
       params: %{
@@ -86,13 +66,11 @@ end
 ```
 
 The selected target can be an Action module, a Flow module, or a runtime
-`%Jido.Flow{}` value. Here is a complete Action target:
+`%Jido.Flow{}` value.
 
 ```elixir
 defmodule MyApp.Actions.Next do
   use Jido.Action, name: "next"
-
-  @impl true
   def run(%{value: value}, _context), do: {:ok, %{value: value + 1}}
 end
 
@@ -104,138 +82,67 @@ end
   })
 ```
 
-Target selection is application code. Only select trusted targets. Map a
-stored or user-supplied name to a module through an application-owned
-registry; never convert input to a module name.
+Only an Invoke expander can return `{:continue, input, target}`. An Invoke
+cannot return a handoff. A selected Flow can contain waits, timers, effects,
+and nested Invokes. It remains part of the same managed execution and durable
+checkpoint history.
 
-In this example, `params` reads `input(:target)` on every call. A call
-without a `:target` key fails with a missing reference error, even in
-`:finish` mode. Supply every key that the Dispatch params read.
+Use trusted target modules. Map external names through an application registry.
+Do not create module atoms from runtime input.
 
-## Use Action Modules For Dispatch
-
-Dispatch uses Action modules for its decision and expander. The decision gets
-the resolved Dispatch `params`. The expander gets the complete decision
-result. Both targets can be handwritten or generated Action modules.
-Flow does not accept inline bodies for either role.
-
-## Dispatch Rules
-
-Every Flow with Dispatch must follow these rules:
-
-- The Flow has only one Dispatch.
-- Dispatch is the sole graph terminal. Source declaration order does not
-  determine the terminal.
-- Flow output is the complete Dispatch result, such as `result("route")`.
-- Only the expander can return `{:continue, input, target}`.
-- The decision and all other Flow components cannot continue.
-- The continuation form is valid only for a Dispatch expander.
-
-These rules keep dynamic composition in an explicit Flow component.
-
-## Output Validation And Effects
-
-When the expander returns `{:ok, result}`, the current Flow owns the result and
-applies its output schema. Decision and expander Actions can return an optional
-third element with a proper list of effect requests. Flow collects decision
-effects before expander effects.
-
-When the expander returns a continuation, the selected executable validates
-its output. The current Flow then applies its own output schema to that result. Earlier effects remain in the same
-list, before the next executable's effects. Failure anywhere in the chain
-returns no executable effects. See [Outputs And Effects](action-effects.livemd).
-
-A continuation selects the next executable:
+## Define Invoke With Data
 
 ```elixir
-def run(params, _context) do
-  {:continue, params, MyApp.Actions.Finalize}
+Jido.Flow.new!(%{
+  name: "dynamic_route",
+  components: [
+    %{
+      kind: :invoke,
+      name: "route",
+      decision: MyApp.Actions.ChooseRoute,
+      expander: MyApp.Actions.ExpandRoute,
+      params: %{mode: Jido.Flow.Ref.input(:mode)}
+    }
+  ],
+  output: Jido.Flow.Ref.result("route")
+})
+```
+
+## Handoff To A New Turn
+
+A Handoff selector returns `{:handoff, input, target}`. Exec validates the
+successor and returns `{:handoff, %Jido.Instruction{}, effects}` without
+running it.
+
+```elixir
+defmodule MyApp.Actions.SelectSuccessor do
+  use Jido.Action, name: "select_successor"
+  def run(params, _context), do: {:handoff, params, MyApp.Actions.Next}
+end
+
+defmodule MyApp.Flows.Transfer do
+  use Jido.Flow, name: "transfer"
+
+  flow do
+    handoff "next", selector: MyApp.Actions.SelectSuccessor, params: input()
+    output result("next")
+  end
 end
 ```
 
-Do not start a nested `Jido.Exec` call from the expander. Return the
-continuation instead, so the selected target runs inside the same execution
-with the same options, telemetry, and effect list.
+Handoff is a separate root-terminal component. It must be the only graph
+terminal, and the Flow output must be its complete result. It cannot have
+downstream components. A nested Flow cannot hand off its parent Turn.
 
-A selected Action cannot return another continuation. A selected Flow can
-contain its own Dispatch, which can select another Action or Flow. Each
-continuation must come from a Dispatch expander.
+The successor input is validated and normalized against the selected target
+schema before Exec returns it. The normalized input must contain only portable
+data. A bound successor Instruction must have empty context and metadata;
+Handoff rejects process-local values and bound runtime data. The returned
+Instruction has fresh, empty context and metadata. Ordinary Flow output data,
+including a `%Jido.Exec.Handoff{}` value returned by a validator, cannot grant
+control.
 
-## Define Dispatch With Data
-
-All Flow authoring forms produce the same canonical Dispatch node.
-
-```elixir
-{:ok, flow} =
-  Jido.Flow.new(%{
-    output: Jido.Flow.Ref.result("route"),
-    components: [
-      %{
-        kind: :dispatch,
-        name: "route",
-        decision: MyApp.Actions.ChooseRoute,
-        expander: MyApp.Actions.ExpandRoute,
-        params: %{
-          mode: Jido.Flow.Ref.input(:mode),
-          target: Jido.Flow.Ref.input(:target),
-          value: Jido.Flow.Ref.input(:value)
-        }
-      }
-    ],
-    name: "dynamic_route"
-  })
-
-{:ok, %{value: 4}} =
-  Jido.Exec.run(flow, %{mode: :continue, target: MyApp.Actions.Next, value: 3})
-```
-
-Use `Jido.Flow.new/1` for map definitions. Use `Jido.Authoring` and a trusted
-Registry when stored JSON defines the Flow.
-
-## Loops
-
-Dispatch selects one more target; it does not loop. Use an
-[`iterate`](flow-iterate-state.livemd) component for bounded repetition.
-
-
-## Terminal Handoff To A New Turn
-
-A terminal Dispatch expander can return `{:handoff, input, target}`. Exec
-validates the successor target and input and returns
-`{:handoff, %Jido.Instruction{}, effects}`. Handoff is a standard Exec result.
-Every execution host must handle it. No option is required for immediate or
-managed execution, including resume.
-It does not run the successor or add its graph to the predecessor. An ordinary
-`{:continue, input, target}` still expands the current graph.
-
-The successor input must be portable and pass its target schema. A root
-Action, an ordinary Step, or a nested Flow cannot end a Turn with a handoff.
-The returned Instruction has empty context and metadata. A bound target with
-context or metadata is rejected; the new Turn receives fresh host context.
-Ordinary Instruction values in input or output cannot grant handoff authority.
-The Flow stop telemetry event reports `outcome: :handoff` and the effect count.
-A handoff is a control outcome, so it does not pass through the predecessor's
-normal output schema. It retains the successful predecessor effects. An error
-returns no executable effect batch. DSL, map definitions, and Codec use the
-same Dispatch definition; no new definition field is needed.
-
-The execution host must implement and test these rules:
-
-- Commit Agent state, predecessor completion, successor ID, acceptance order,
-  and chain link atomically. Resolve a lost save reply before another acceptance.
-- Put the successor at the queue tail when accepted. Read current state at
-  successor start. Preserve accepted successor order during recovery.
-- Keep one stable chain ID and use a new Turn ID and fresh Runic graph per
-  successor. A predecessor receipt records continuation. Keep the original
-  logical request pending until final success, failure, or chain cancellation.
-- Serialize chain cancellation with handoff acceptance. Cancel the pending or
-  active member and prevent later successors. Caller timeout or disconnect
-  does not cancel the chain. Support stable chain lookup for reconnect.
-- Give the successor a new Turn timeout. Preserve an optional absolute chain
-  deadline through queue time. Reject input addressed to an earlier Turn or wait.
-- Apply normal post-commit effect rules per Turn. Do not transfer wait input
-  automatically or claim effect replay or exactly-once delivery.
-
-These are host responsibilities. This package implements the portable terminal
-contract and successor validation. It does not implement an Agent queue,
-chain database, caller connection, scheduler, or effect delivery service.
+The host owns durable successor acceptance. It must save predecessor completion
+and successor acceptance as one atomic transition if it promises no loss or
+duplicate acceptance. The successor uses a new Turn ID, a fresh graph, and
+fresh runtime context.

@@ -111,7 +111,7 @@ defmodule JidoActionTest.Authoring.BoundariesTest do
     assert {:ok, built} = JidoActionTest.FlowBuilder.new(data)
     assert built == direct
     assert {:ok, document, registry} = Codec.encode(direct)
-    assert document["vsn"] == 1
+    assert document["vsn"] == 2
     assert {:ok, restored} = Codec.decode(JSON.decode!(JSON.encode!(document)), registry)
     assert restored == direct
     input = %{name: "Ada", a: 2, b: 3, enabled: true, maybe: nil}

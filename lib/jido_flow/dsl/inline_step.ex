@@ -118,7 +118,8 @@ defmodule Jido.Flow.DSL.InlineStep do
               ["Choice", "Otherwise"],
               ["Iterate"],
               ["Iterate", "State"],
-              ["Dispatch"],
+              ["Invoke"],
+              ["Handoff"],
               ["Output"]
             ],
             suffix <- [[], ["Options"]] do

@@ -54,11 +54,11 @@ defmodule Jido.Exec.ComposedWaitsTest do
     end
   end
 
-  defmodule DispatchFlow do
-    use Jido.Flow, name: "dispatch_wait"
+  defmodule InvokeFlow do
+    use Jido.Flow, name: "invoke_wait"
 
     flow do
-      dispatch "next", decision: Decide, expander: Expand, params: %{id: input(:id)}
+      invoke "next", decision: Decide, expander: Expand, params: %{id: input(:id)}
       output result("next")
     end
   end
@@ -84,11 +84,12 @@ defmodule Jido.Exec.ComposedWaitsTest do
       step "prepared", action: Record, params: %{id: input(:id)}
       await "approval", event: "approved", match: %{id: input(:id)}, needs: ["prepared"]
 
-      dispatch "next",
-        decision: Decide,
-        expander: HandoffExpand,
+      step "decision",
+        action: Decide,
         params: %{id: input(:id)},
         needs: ["approval"]
+
+      handoff "next", selector: HandoffExpand, params: result("decision")
 
       output result("next")
     end
@@ -337,8 +338,8 @@ defmodule Jido.Exec.ComposedWaitsTest do
     assert Agent.get(__MODULE__.Counter, & &1) == [5]
   end
 
-  test "a Dispatch-selected timer resumes without repeating its completed child", %{context: ctx} do
-    {:ok, workflow} = Waits.start("dispatch-timer", DispatchFlow, %{id: -1}, ctx, now: 100)
+  test "an Invoke-selected timer resumes without repeating its completed child", %{context: ctx} do
+    {:ok, workflow} = Waits.start("invoke-timer", InvokeFlow, %{id: -1}, ctx, now: 100)
     assert {:waiting, [%{path: ["next", "delay"], deadline: 110}]} = Waits.status(workflow)
     assert {:ok, completed} = Waits.advance(restore(workflow), ctx, now: 110)
     assert {:complete, {:ok, %{fired_at: 110}, [%{recorded: -1}]}} = Waits.status(completed)
@@ -346,8 +347,8 @@ defmodule Jido.Exec.ComposedWaitsTest do
     assert Agent.get(__MODULE__.Controls, & &1) == [:expand, :decision]
   end
 
-  test "Dispatch-selected wait identity includes its parent path", %{context: ctx} do
-    {:ok, workflow} = Waits.start("dispatch", DispatchFlow, %{id: 7}, ctx, now: 0)
+  test "Invoke-selected wait identity includes its parent path", %{context: ctx} do
+    {:ok, workflow} = Waits.start("invoke", InvokeFlow, %{id: 7}, ctx, now: 0)
     assert {:waiting, [request]} = Waits.status(workflow)
     assert request.path == ["next", "approval"]
 
@@ -359,17 +360,17 @@ defmodule Jido.Exec.ComposedWaitsTest do
     assert Agent.get(__MODULE__.Controls, & &1) == [:expand, :decision]
   end
 
-  test "a nested Dispatch keeps the complete path during event-log recovery", %{context: ctx} do
+  test "a nested Invoke keeps the complete path during event-log recovery", %{context: ctx} do
     parent =
       Flow.new!(%{
-        name: "outer_dispatch",
+        name: "outer_invoke",
         components: [
-          %{kind: :subflow, name: "outer", flow: DispatchFlow, params: %{id: 3}}
+          %{kind: :subflow, name: "outer", flow: InvokeFlow, params: %{id: 3}}
         ],
         output: Ref.result("outer")
       })
 
-    {:ok, workflow} = Waits.start("nested-dispatch", parent, %{}, ctx, now: 0)
+    {:ok, workflow} = Waits.start("nested-invoke", parent, %{}, ctx, now: 0)
     assert {:waiting, [request]} = Waits.status(workflow)
     assert request.path == ["outer", "next", "approval"]
     replayed = workflow |> Runic.Workflow.event_log() |> Runic.Workflow.from_events()
@@ -445,13 +446,13 @@ defmodule Jido.Exec.ComposedWaitsTest do
     assert_unsupported(component, ctx)
   end
 
-  test "Dispatch wait recovery is equivalent for DSL, maps, and Codec", %{context: ctx} do
+  test "Invoke wait recovery is equivalent for DSL, maps, and Codec", %{context: ctx} do
     definition =
       Flow.new!(%{
-        name: "dispatch_wait",
+        name: "invoke_wait",
         components: [
           %{
-            kind: :dispatch,
+            kind: :invoke,
             name: "next",
             decision: Decide,
             expander: Expand,
@@ -461,7 +462,7 @@ defmodule Jido.Exec.ComposedWaitsTest do
         output: Ref.result("next")
       })
 
-    assert definition == DispatchFlow.flow()
+    assert definition == InvokeFlow.flow()
 
     registry =
       Jido.Authoring.Registry.new!(%{
@@ -475,7 +476,7 @@ defmodule Jido.Exec.ComposedWaitsTest do
     assert {:ok, decoded} = JidoActionTest.FlowCodec.decode(document, registry)
 
     results =
-      for target <- [DispatchFlow, definition, decoded] do
+      for target <- [InvokeFlow, definition, decoded] do
         {:ok, workflow} = Waits.start("parity", target, %{id: 4}, ctx, now: 0)
         {:waiting, [request]} = Waits.status(workflow)
         assert request.path == ["next", "approval"]

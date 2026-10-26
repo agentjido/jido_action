@@ -7,20 +7,32 @@ defmodule Jido.Exec.Runtime do
   @reserved [
     :__jido_exec_durable__,
     :__jido_wait_host__,
-    :__jido_wait_result__
+    :__jido_wait_result__,
+    :jido_exec_capabilities
   ]
 
   @doc false
   @spec user_context(map()) :: map()
-  def user_context(context), do: Map.drop(context, @reserved)
+  def user_context(context) do
+    waits? = Map.has_key?(context, :__jido_wait_host__)
+    context = Map.drop(context, @reserved)
+
+    if waits?,
+      do: Map.put(context, :jido_exec_capabilities, [:waits]),
+      else: context
+  end
 
   @doc false
   @spec context(map(), boolean()) :: map()
   def context(context, durable? \\ false) do
     context
-    |> user_context()
+    |> caller_context()
     |> Map.put(:__jido_exec_durable__, durable?)
   end
+
+  @doc false
+  @spec caller_context(map()) :: map()
+  def caller_context(context), do: Map.drop(context, @reserved)
 
   @doc false
   @spec run(Jido.Exec.task_supervisor(), pid(), (-> term())) :: term()

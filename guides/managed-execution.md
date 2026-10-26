@@ -113,9 +113,9 @@ end
 Active or ready work returns an error with `details.reason: :execution_active`.
 Later input occurrences do not replace this result.
 
-A terminal Dispatch returns `{:handoff, successor_instruction, effects}` through
+A terminal Handoff returns `{:handoff, successor_instruction, effects}` through
 the same result API, including after resume. Every host must handle this result.
-See [Dynamic Flows](dynamic-flows.md#terminal-handoff-to-a-new-turn) for the host rules.
+See [Dynamic Flows](dynamic-flows.md#handoff-to-a-new-turn) for the host rules.
 
 Computation and Store acknowledgement are separate. Read
 `Runic.Runner.persistence_status/2` before treating a result as stored.
@@ -266,6 +266,16 @@ snapshot obtained directly from Runic.
 > Runic does not store runtime context or policy. Resume with
 > `Jido.Exec.resume/4` and pass the same context and managed options that were
 > given to `start/6`.
+
+> #### Drain earlier beta checkpoints before upgrade {: .warning}
+>
+> This beta does not migrate managed workflows that contain the removed
+> `Jido.Exec.Node.Dispatch` nodes. Finish or drain that work with the earlier
+> beta before deployment. A rebuilt Action node also stores the loaded module
+> code digest. If the loaded Action code changes before resume, result
+> projection fails with `details.reason: :incompatible_target`. Keep the same
+> application build for recovery, or finish and checkpoint work before a code
+> upgrade.
 
 ## Effects And Repeated Work
 

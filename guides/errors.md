@@ -99,7 +99,7 @@ the map through JSON or to an external log. See [Security](security.md).
 | `run/2` throws or exits | `Jido.Action.Error.ExecutionFailureError` | `kind`, `reason`, `stacktrace` |
 | `run/2` returns another shape | `Jido.Action.Error.ExecutionFailureError` | `reason: :invalid_return`, `return` |
 | Effects are not a proper list | `Jido.Action.Error.ExecutionFailureError` | `reason: :invalid_effects` |
-| `{:continue, ...}` outside a Dispatch expander | `Jido.Action.Error.ExecutionFailureError` | `reason: :unsupported_continuation` |
+| `{:continue, ...}` outside an Invoke expander | `Jido.Action.Error.ExecutionFailureError` | `reason: :unsupported_continuation` |
 | Output fails the output schema | `Jido.Action.Error.InvalidInputError` | `context: "Action output"`, `errors` |
 | An attempt exceeds `timeout` | `Jido.Action.Error.TimeoutError` | `timeout` |
 

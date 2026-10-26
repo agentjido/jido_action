@@ -77,11 +77,11 @@ defmodule JidoActionTest.Flow.DSL.ExprFlowTest do
     end
   end
 
-  defmodule Dispatched do
-    use Jido.Flow, name: "expression_dispatch"
+  defmodule Invoked do
+    use Jido.Flow, name: "expression_invoke"
 
     flow do
-      dispatch("finish",
+      invoke("finish",
         decision: EchoParamsAction,
         expander: EchoParamsAction,
         params: %{value: min(input(:value) + 1, 10)}
@@ -139,7 +139,7 @@ defmodule JidoActionTest.Flow.DSL.ExprFlowTest do
                {:ok, %{value: 10.0, loop: %{count: 3, done: true}, eligible: true}}
     end
 
-    assert Jido.Exec.run(Dispatched, %{value: 20}) == {:ok, %{value: 10}}
+    assert Jido.Exec.run(Invoked, %{value: 20}) == {:ok, %{value: 10}}
   end
 
   test "Boolean expressions can supply calculated parameter values" do

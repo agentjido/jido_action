@@ -31,7 +31,7 @@ other optional suites excluded. Normal tests with obligation tags still run
 in their usual suites. Covenant reports and mutation checks run only when
 requested; default CI and release preflight do not run them.
 
-The active inventory has **54 focused obligations in 15 public promise groups**.
+The active inventory has **55 focused obligations in 15 public promise groups**.
 The [contract review](../../guides/public-api-contract-review.md#active-covenant-mapping)
 maps the groups to facets. The register points to shared evidence; it does not
 create a second obligation for each entry. Tests for private helpers and
@@ -60,6 +60,36 @@ mix covenant.mutate jido_action.flow --module Jido.Flow.GraphValidation --seed 0
 mix covenant.mutate jido_action.authoring --seed 0 --jobs 1 --max-mutants-per-worker 50 --max-runtime 4500000
 mix covenant.mutate jido_action.codec --module Jido.Flow.Codec.Reader --seed 0 --jobs 1 --max-mutants-per-worker 50 --max-runtime 4500000
 mix covenant.mutate jido_action.execution --module Jido.Exec.Node.Choice --seed 0 --jobs 1 --max-mutants-per-worker 50 --max-runtime 4500000
+mix covenant.mutate jido_action.boundary --module Jido.Exec.Node.Action --seed 0 --jobs 1 --max-mutants-per-worker 50 --max-runtime 4500000 \
+  --out tmp/covenant/mutate/action/kill_matrix.json
+mix covenant.mutate jido_action.boundary --module Jido.Exec.Node.Invoke --seed 0 --jobs 1 --max-mutants-per-worker 50 --max-runtime 4500000 \
+  --out tmp/covenant/mutate/invoke/kill_matrix.json
+mix covenant.mutate jido_action.boundary --module Jido.Exec.Node.Invoke.Finish --seed 0 --jobs 1 --max-mutants-per-worker 50 --max-runtime 4500000 \
+  --out tmp/covenant/mutate/invoke_finish/kill_matrix.json
+mix covenant.mutate jido_action.boundary --module Jido.Exec.Node.Handoff --seed 0 --jobs 1 --max-mutants-per-worker 50 --max-runtime 4500000 \
+  --out tmp/covenant/mutate/handoff_boundary/kill_matrix.json
+mix covenant.mutate jido_action.boundary --module Jido.Exec.Compiler --seed 0 --jobs 1 --max-mutants-per-worker 50 --max-runtime 4500000 \
+  --out tmp/covenant/mutate/compiler_boundary/kill_matrix.json
+mix covenant.mutate jido_action.boundary --module Jido.Exec.Node.Output --seed 0 --jobs 1 --max-mutants-per-worker 50 --max-runtime 4500000 \
+  --out tmp/covenant/mutate/output_boundary/kill_matrix.json
+mix covenant.mutate jido_action.execution --module Jido.Exec.Runtime --seed 0 --jobs 1 --max-mutants-per-worker 50 --max-runtime 4500000 \
+  --out tmp/covenant/mutate/runtime/kill_matrix.json
+mix covenant.mutate jido_action.execution --module Jido.Exec --seed 0 --jobs 1 --max-mutants-per-worker 50 --max-runtime 4500000 \
+  --out tmp/covenant/mutate/exec/kill_matrix.json
+mix covenant.mutate jido_action.boundary --module Jido.Exec.Telemetry --seed 0 --jobs 1 --max-mutants-per-worker 50 --max-runtime 4500000 \
+  --out tmp/covenant/mutate/telemetry/kill_matrix.json
+mix covenant.mutate jido_action.flow --module Jido.Flow.GraphValidation --seed 0 --jobs 1 --max-mutants-per-worker 50 --max-runtime 4500000 \
+  --out tmp/covenant/mutate/graph_validation/kill_matrix.json
+mix covenant.mutate jido_action.flow --module Jido.Flow.Component --seed 0 --jobs 1 --max-mutants-per-worker 50 --max-runtime 4500000 \
+  --out tmp/covenant/mutate/flow_component/kill_matrix.json
+mix covenant.mutate jido_action.flow --module Jido.Flow.Definition --seed 0 --jobs 1 --max-mutants-per-worker 50 --max-runtime 4500000 \
+  --out tmp/covenant/mutate/flow_definition/kill_matrix.json
+mix covenant.mutate jido_action.authoring --module Jido.Flow.DSL.Lowerer --seed 0 --jobs 1 --max-mutants-per-worker 50 --max-runtime 4500000 \
+  --out tmp/covenant/mutate/dsl_lowerer/kill_matrix.json
+mix covenant.mutate jido_action.codec --module Jido.Flow.Codec --seed 0 --jobs 1 --max-mutants-per-worker 50 --max-runtime 4500000 \
+  --out tmp/covenant/mutate/codec/kill_matrix.json
+mix covenant.mutate jido_action.codec --module Jido.Flow.Codec.Writer --seed 0 --jobs 1 --max-mutants-per-worker 50 --max-runtime 4500000 \
+  --out tmp/covenant/mutate/codec_writer/kill_matrix.json
 mix covenant.mutate jido_action.inline --seed 0 --jobs 1 --max-mutants-per-worker 50 --max-runtime 4500000 \
   --out tmp/covenant/mutate/jido_action.inline/runtime_kill_matrix.json
 mix covenant.mutate jido_action.inline_flow --seed 0 --jobs 1 --max-mutants-per-worker 50 --max-runtime 4500000 \

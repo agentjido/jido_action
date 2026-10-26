@@ -286,20 +286,20 @@ defmodule Jido.Flow.DSL.InlineActionTest do
       end
       """,
       """
-      dispatch "increment" do
+      invoke "increment" do
         decision value <- input(:value), do: {:ok, %{value: value}}
         expander JidoActionTest.Fixtures.Actions.Add
       end
       """,
       """
-      dispatch "increment" do
+      invoke "increment" do
         decision JidoActionTest.Fixtures.Actions.Add
         params %{value: input(:value)}
         expander value, do: {:ok, value}
       end
       """,
       """
-      dispatch "increment" do
+      invoke "increment" do
         decision JidoActionTest.Fixtures.Actions.Add
         params %{value: input(:value)}
         expander do
@@ -308,7 +308,7 @@ defmodule Jido.Flow.DSL.InlineActionTest do
       end
       """,
       """
-      dispatch "increment" do
+      invoke "increment" do
         decision JidoActionTest.Fixtures.Actions.Add
         params %{value: input(:value)}
         expander do
@@ -377,7 +377,7 @@ defmodule Jido.Flow.DSL.InlineActionTest do
           repeat 1
         end
 
-        dispatch "finish" do
+        invoke "finish" do
           decision Target
           expander Target
           params %{value: result("loop", [:state, :value])}
@@ -392,7 +392,7 @@ defmodule Jido.Flow.DSL.InlineActionTest do
 
       assert Enum.map(["mapped", "total", "increment", "loop", "finish"], fn name ->
                components[name].kind
-             end) == [:map, :reduce, :choice, :iterate, :dispatch]
+             end) == [:map, :reduce, :choice, :iterate, :invoke]
 
       assert {:ok, %{value: 9}} = Jido.Exec.run(owner, %{values: [1, 2], selected: true})
       assert {:ok, %{value: 4}} = Jido.Exec.run(owner, %{values: [1, 2], selected: false})

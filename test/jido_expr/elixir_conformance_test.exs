@@ -199,7 +199,7 @@ defmodule Jido.Expr.ElixirConformanceTest do
       )
 
     assert {:ok, document, registry} = Codec.encode(flow)
-    assert document["vsn"] == 1
+    assert document["vsn"] == 2
 
     assert {:ok, restored} =
              document |> JSON.encode!() |> JSON.decode!() |> Codec.decode(registry)

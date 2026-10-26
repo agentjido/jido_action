@@ -1,7 +1,7 @@
 # Version 2 To Version 3 Migration Guide
 
 This guide moves an application from `jido_action` `2.3.2` to
-`3.0.0-beta.21`. Read [Core Concepts](concepts.md) first if you are new to the
+`3.0.0-beta.22`. Read [Core Concepts](concepts.md) first if you are new to the
 version 3 model.
 
 Each section shows version 2 code that no longer works the same way, then the
@@ -38,7 +38,7 @@ Change the package version in `mix.exs`:
 ```elixir
 def deps do
   [
-    {:jido_action, "~> 3.0.0-beta.21"}
+    {:jido_action, "~> 3.0.0-beta.22"}
   ]
 end
 ```
@@ -574,8 +574,8 @@ Replace each removed API:
 | `remaining_time/1` and `context.__jido_exec__` | None. `timeout:` applies to each attempt. Pass your own deadline in context when an Action needs one. |
 | `start/4`, `ready/1`, `status/1`, `step/1`, `step/2` with a Work token, `wave/1`, `continue/1`, `native/1`, `Jido.Exec.Work`, and `%Jido.Exec.Execution{}` | `start/6` with `dispatch_mode: :manual`, then `Jido.Exec.step(runner, execution_id)`. Read state and results through `Runic.Runner`. See [Managed Execution](managed-execution.md). |
 | Earlier execution-value `result/1` | Use `Jido.Exec.result(runner, execution_id)` for managed work. The current `result(workflow)` function accepts a completed Runic snapshot. |
-| `max_continuations:` | None. Only a Dispatch expander can continue. |
-| `{:continue, input, target}` from a root Action | A Dispatch component. Other Actions fail with `:unsupported_continuation`. |
+| `max_continuations:` | None. Only an Invoke expander can continue. |
+| `{:continue, input, target}` from a root Action | An Invoke component. Other Actions fail with `:unsupported_continuation`. |
 | `invocation:` and `Jido.Exec.Invocation` (development builds) | None. Keep receipts and replay in your application. |
 | `Jido.Flow.compile/1`, `compile!/1`, and `validate_executable/1` | `Jido.Exec.compile/2`. It checks targets and returns a `%Runic.Workflow{}`. |
 | `Jido.Executable` | `Jido.Instruction.resolve/3` and `Jido.Instruction.validate/1` |
@@ -600,18 +600,46 @@ Check these behavior changes:
   context and managed options to `Jido.Exec.resume/4` that you passed to
   `start/6`. Keep data that must be stored in params.
 
+### Replace Dispatch With Invoke Or Handoff
+
+The beta Dispatch component had two different meanings. Replace it with
+Invoke when the selected Action or Flow must run inside the current graph.
+Replace it with Handoff when the current root Flow must return a validated
+successor Instruction for a new Turn.
+
+Update Action telemetry consumers from the `dispatch_phase` metadata key to
+`invoke_phase`. Update stored component kinds from `"dispatch"` only after the
+application has selected the correct new meaning.
+
+Stored Flow documents now use root `"vsn": 2`. The reader rejects version 1
+documents with a migration error because it cannot infer Invoke or Handoff.
+Use the earlier beta to decode each version 1 document, replace each Dispatch,
+then encode the result with this release. Registry reference `vsn` values are
+separate and do not change as part of this document migration.
+
+Do not carry managed checkpoints or build logs across this beta boundary.
+Finish or drain executions that contain `Jido.Exec.Node.Dispatch` before the
+upgrade. The new Action node also stores the target module code digest. Resume
+rejects a changed target with `details.reason: :incompatible_target`. Keep the
+same application build while work can resume, or finish the work before a code
+deployment.
+
+The Action context key `:jido_exec_capabilities` is now reserved. Exec removes
+caller and bound values at this key. Use `Jido.Exec.supports?/2` to test a
+capability that the current execution host supplies.
+
 ### Replace Continuation Loops
 
 Version 3 keeps control flow in Flow components, so Runic owns it. Use Choice
-for routing, Iterate for bounded loops, and Dispatch for runtime target
-selection. Only a Dispatch expander can return `{:continue, input, target}`.
+for routing, Iterate for bounded loops, and Invoke for runtime target
+selection. Only an Invoke expander can return `{:continue, input, target}`.
 Any other Action that returns it fails with an `ExecutionFailureError` whose
 `details.reason` is `:unsupported_continuation`. See
 [Dynamic Flows](dynamic-flows.md).
 
 ## Version 2 To Version 3 Migration Checklist
 
-1. Change the dependency to `jido_action` `3.0.0-beta.21`.
+1. Change the dependency to `jido_action` `3.0.0-beta.22`.
 2. Add direct dependencies that application code used through version 2.
 3. Remove unsupported Action options and convert NimbleOptions schemas to
    static, map-shaped Zoi schemas.
@@ -648,7 +676,7 @@ Any other Action that returns it fails with an `ExecutionFailureError` whose
 ## Optional Coding-Agent Prompt
 
 ```text
-Upgrade this application from jido_action 2.3.2 to 3.0.0-beta.21.
+Upgrade this application from jido_action 2.3.2 to 3.0.0-beta.22.
 
 Use guides/v2-to-v3-migration.md in the jido_action package as the source of
 migration rules. Record the current application behavior, then work through

@@ -93,7 +93,7 @@ Use `Jido.Exec.compile/1` for that check.
 The document root has these fields:
 
 ```elixir
-%{"type" => "jido.flow", "vsn" => 1, "name" => "greeting"} =
+%{"type" => "jido.flow", "vsn" => 2, "name" => "greeting"} =
   Map.take(document, ["type", "vsn", "name"])
 
 ["components", "description", "name", "output", "schema", "type", "vsn"] =
@@ -117,15 +117,19 @@ Strings, numbers, Booleans, `null`, and lists are written as plain JSON.
 Because maps use their own tag, a literal map with a `$expr` key is never read
 as an operation.
 
-The writer and reader use document `vsn` 1 for all current features,
-including `$expr` operations. Other `vsn` values are rejected. The document
-`vsn` is separate from the semantic identity version.
+The writer and reader use document `vsn` 2 for the current component model.
+Other `vsn` values are rejected. Version 1 included the removed Dispatch
+component. It cannot be changed automatically because an application must
+decide whether each Dispatch becomes Invoke or Handoff. Decode old documents
+with the earlier beta, make this decision, and encode the resulting Flow as
+version 2. The document `vsn` is separate from Registry reference versions
+and the semantic identity version.
 
 Stored components use canonical call records instead of the `step` and
 `subflow` records in the [data authoring form](flow-data.md#component-kinds).
 Documents use string keys and fixed string kinds. A call record contains `"kind"`,
 `"target"`, and `"params"`. Its target is a Registry reference with `"id"`
-and `"vsn"`. A Dispatch
+and `"vsn"`. An Invoke
 expander contains only `"kind"` and `"target"`.
 
 ```elixir
@@ -239,7 +243,7 @@ release and Registry references that can run stored work. See
 The shared Authoring boundary checks JSON, limits, document routing, and
 Registry references. The Flow decoder then rejects unknown fields, invalid
 tagged values, invalid components, missing output, unknown graph references,
-cycles, and invalid Dispatch placement.
+cycles, and invalid Handoff placement.
 
 Decode does not run Actions or check that resolved modules implement their
 contracts. Call `Jido.Exec.compile/1` after a valid decode.
@@ -273,7 +277,7 @@ Diagnosis uses the same field rules and error order as data authoring:
    Each component checks its common fields, then its kind-specific fields.
    Registry and tagged-value errors keep their position in that field order.
 3. Required output and graph checks, after valid field data. Graph checks
-   report duplicate names, unknown references, cycles, and Dispatch rules.
+   report duplicate names, unknown references, cycles, and Handoff rules.
    Unknown-reference errors hide the derived cycle error.
 
 JSON paths are recorded during reading. Semantic validation uses those paths

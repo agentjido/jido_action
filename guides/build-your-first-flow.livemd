@@ -15,7 +15,7 @@ an Action yet. Run the cells from top to bottom.
 ## Install The Package
 
 ```elixir
-Mix.install([{:jido_action, "~> 3.0.0-beta.21"}])
+Mix.install([{:jido_action, "~> 3.0.0-beta.22"}])
 ```
 
 ## Define The Flow
@@ -344,7 +344,7 @@ partial result. See
 ## Next
 
 - [Flow DSL Tour](flow-language.livemd) covers every component, including
-  `parallel` for joined work, `iterate` for bounded loops, and `dispatch` for
+  `parallel` for joined work, `iterate` for bounded loops, and `invoke` for
   runtime routing.
 - [Executing Flows](flow-execution.livemd) covers concurrency, compilation,
   failures, and managed execution.

@@ -61,9 +61,9 @@ reads counts toward them, so comparing a large input list can exceed a limit.
 A plain reference such as `input(:list)` is not an expression and has no
 limit.
 
-## Trust Dispatch Targets
+## Trust Invoke Targets
 
-A Dispatch expander returns `{:continue, input, target}`, and Exec runs that
+An Invoke expander returns `{:continue, input, target}`, and Exec runs that
 target. Select the target only from values your code trusts. When a name comes
 from input, an AI model, or storage, look it up in an application-owned
 registry of allowed Actions and Flows. Do not convert external text to a

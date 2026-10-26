@@ -13,9 +13,9 @@ modules:
 
 Check focused facets of the [reviewed public promises](../../../guides/public-api-contract-review.md). The module reference defines the supported API. Passing tags are evidence for these facets, not complete branch or acceptance-matrix coverage.
 
-### jido_action.codec.I5 — Version one preserves portable Flow meaning
+### jido_action.codec.I5 — Version two preserves portable Flow meaning
 - **scope:** `Jido.Authoring.encode/2, Jido.Authoring.decode/2, Jido.Flow.Codec`
-- **must:** Encode current supported components and values as deterministic JSON-compatible `vsn` 1 maps. Decode them to equivalent canonical Flow meaning. Reject other document `vsn` values and unregistered write values. JSON byte order is not a stable storage promise.
+- **must:** Encode current supported components and values as deterministic JSON-compatible `vsn` 2 maps. Decode them to equivalent canonical Flow meaning. Reject other document `vsn` values and unregistered write values. Reject version 1 with an explicit Dispatch migration requirement. JSON byte order is not a stable storage promise.
 - **kind:** persisted-format
 - **status:** active
 

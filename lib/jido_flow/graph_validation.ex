@@ -17,7 +17,7 @@ defmodule Jido.Flow.GraphValidation do
         issues =
           case analysis do
             %{remaining: [], terminals: terminals} ->
-              dispatch_issues(named_components, output, terminals)
+              handoff_issues(named_components, output, terminals)
 
             %{remaining: names} ->
               [
@@ -105,56 +105,56 @@ defmodule Jido.Flow.GraphValidation do
     end)
   end
 
-  defp dispatch_issues(named_components, output, terminals) do
-    dispatches =
+  defp handoff_issues(named_components, output, terminals) do
+    handoffs =
       named_components
       |> Enum.with_index()
-      |> Enum.filter(fn {{_name, node}, _index} -> node.kind == :dispatch end)
+      |> Enum.filter(fn {{_name, node}, _index} -> node.kind == :handoff end)
 
     errors =
-      case dispatches do
+      case handoffs do
         [] ->
           []
 
         [{{name, _node}, index}] ->
-          dispatch_sink_errors(terminals, name, index) ++
-            dispatch_output_errors(output, name)
+          handoff_sink_errors(terminals, name, index) ++
+            handoff_output_errors(output, name)
 
         [_first, {{name, _node}, index} | _rest] ->
           [
-            Error.validation_error("Flow can contain only one Dispatch component", %{
+            Error.validation_error("Flow can contain only one Handoff component", %{
               component: name,
               components:
-                Enum.map(dispatches, fn {{dispatch_name, _node}, _index} -> dispatch_name end),
+                Enum.map(handoffs, fn {{handoff_name, _node}, _index} -> handoff_name end),
               path: [:components, index]
             })
           ]
       end
 
-    Enum.map(errors, &issue(:dispatch, &1, &1.details.path))
+    Enum.map(errors, &issue(:handoff, &1, &1.details.path))
   end
 
-  defp dispatch_sink_errors(sinks, dispatch_name, dispatch_index) do
-    if sinks == [dispatch_name] do
+  defp handoff_sink_errors(sinks, handoff_name, handoff_index) do
+    if sinks == [handoff_name] do
       []
     else
       [
-        Error.validation_error("Dispatch must be the final component in the Flow", %{
-          component: dispatch_name,
-          dispatch: dispatch_name,
+        Error.validation_error("Handoff must be the final component in the Flow", %{
+          component: handoff_name,
+          handoff: handoff_name,
           terminal_components: sinks,
-          path: [:components, dispatch_index]
+          path: [:components, handoff_index]
         })
       ]
     end
   end
 
-  defp dispatch_output_errors(%Ref{source: :result, component: name, path: []}, name), do: []
+  defp handoff_output_errors(%Ref{source: :result, component: name, path: []}, name), do: []
 
-  defp dispatch_output_errors(_output, name) do
+  defp handoff_output_errors(_output, name) do
     [
-      Error.validation_error("Flow output must be the complete Dispatch result", %{
-        dispatch: name,
+      Error.validation_error("Flow output must be the complete Handoff result", %{
+        handoff: name,
         path: [:output]
       })
     ]

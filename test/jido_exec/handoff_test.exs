@@ -1,12 +1,13 @@
 defmodule Jido.Exec.HandoffTest do
-  use ExUnit.Case, async: true
+  use Covenant.Case, component: "jido_action.boundary", async: true
+  @moduletag obligation: "jido_action.boundary.I8"
   @moduletag capture_log: true
 
   alias Jido.Exec
   alias Jido.Exec.Handoff
   alias Jido.Flow
   alias Jido.Authoring.Registry
-  alias Jido.Flow.{Codec, Ref}
+  alias Jido.Flow.Ref
   alias JidoActionTest.FlowCodec, as: Codec
   alias Jido.Instruction
 
@@ -67,11 +68,29 @@ defmodule Jido.Exec.HandoffTest do
     def run(params, _context), do: {:handoff, params, Target}
   end
 
+  defmodule InvalidSelector do
+    use Jido.Action, name: "handoff_invalid_selector"
+    def run(_params, _context), do: {:ok, %{not: :handoff}}
+  end
+
+  defmodule FailingSelector do
+    use Jido.Action, name: "handoff_failing_selector"
+    def run(_params, _context), do: {:error, :handoff_refused, [:discarded_effect]}
+  end
+
+  defmodule SelectTwo do
+    use Jido.Action, name: "handoff_select_two"
+
+    def run(%{left: left, right: right}, _context),
+      do: {:handoff, %{value: left + right}, Jido.Exec.HandoffTest.Target}
+  end
+
   defmodule Example do
     use Jido.Flow, name: "handoff_example"
 
     flow do
-      dispatch "next", decision: Decide, expander: Expand, params: %{value: input(:value)}
+      step "decide", action: Decide, params: %{value: input(:value)}
+      handoff "next", selector: Expand, params: result("decide")
       output result("next")
     end
   end
@@ -131,7 +150,7 @@ defmodule Jido.Exec.HandoffTest do
       Flow.new!(%{
         name: "runtime_handoff",
         components: [
-          %{kind: :dispatch, name: "next", decision: Echo, expander: SelectRuntime}
+          %{kind: :handoff, name: "next", selector: SelectRuntime}
         ],
         output: Ref.result("next")
       })
@@ -183,7 +202,11 @@ defmodule Jido.Exec.HandoffTest do
         output: Ref.result("next")
       })
 
-    assert {:error, %{details: %{reason: :unsupported_handoff}}} = Exec.run(flow)
+    assert {:error, error} = Exec.run(flow)
+    assert error.message == "only a Handoff selector can hand off"
+    assert error.details.action == Expand
+    assert error.details.phase == :run
+    assert error.details.reason == :unsupported_handoff
   end
 
   test "invalid successor input fails without an executable effect batch" do
@@ -191,9 +214,30 @@ defmodule Jido.Exec.HandoffTest do
              Exec.run(Example, %{value: "bad"}, %{})
   end
 
+  test "invalid selector output keeps the Handoff failure contract" do
+    flow = handoff_flow(InvalidSelector)
+
+    assert {:error, error} = Exec.run(flow)
+    assert error.message == "Handoff selector must return a handoff control result"
+    assert error.details.action == InvalidSelector
+    assert error.details.phase == :run
+    assert error.details.return == {:ok, %{not: :handoff}, []}
+    assert error.details.reason == :invalid_handoff_return
+  end
+
+  test "selector errors retain their reason and discard requested effects" do
+    assert {:error, error} = Exec.run(handoff_flow(FailingSelector))
+    assert error.details.action == FailingSelector
+    assert error.details.reason == :handoff_refused
+    refute Map.has_key?(error.details, :effects)
+  end
+
   test "a root Action cannot hand off" do
-    assert {:error, %{details: %{reason: :unsupported_handoff}}} =
-             Exec.run(Expand, %{value: 7}, %{})
+    assert {:error, error} = Exec.run(Expand, %{value: 7}, %{})
+    assert error.message == "only a Handoff selector can hand off"
+    assert error.details.action == Expand
+    assert error.details.phase == :run
+    assert error.details.reason == :unsupported_handoff
   end
 
   test "DSL, maps, and stored definitions return the same handoff" do
@@ -202,11 +246,16 @@ defmodule Jido.Exec.HandoffTest do
         name: "handoff_example",
         components: [
           %{
-            kind: :dispatch,
-            name: "next",
-            decision: Decide,
-            expander: Expand,
+            kind: :step,
+            name: "decide",
+            action: Decide,
             params: %{value: Ref.input(:value)}
+          },
+          %{
+            kind: :handoff,
+            name: "next",
+            selector: Expand,
+            params: Ref.result("decide")
           }
         ],
         output: Ref.result("next")
@@ -229,6 +278,75 @@ defmodule Jido.Exec.HandoffTest do
 
     assert length(Enum.uniq(results)) == 1
     assert {:handoff, %Instruction{}, _effects} = hd(results)
+  end
+
+  test "a Handoff joins more than one dependency before its selector" do
+    flow =
+      Flow.new!(%{
+        name: "handoff_multiple_parents",
+        components: [
+          %{kind: :step, name: "left", action: Echo, params: %{value: 2}},
+          %{kind: :step, name: "right", action: Echo, params: %{value: 3}},
+          %{
+            kind: :handoff,
+            name: "next",
+            selector: SelectTwo,
+            params: %{
+              left: Ref.result("left", :value),
+              right: Ref.result("right", :value)
+            }
+          }
+        ],
+        output: Ref.result("next")
+      })
+
+    rebuilt = flow |> Exec.compile!() |> Runic.Workflow.build_log() |> Runic.Workflow.from_log()
+
+    {completed, observation} =
+      Runic.Workflow.execute(rebuilt, Jido.Exec.Fact.local_value(Jido.Exec.Frame.new(%{})))
+
+    assert Exec.result(completed, observation) ==
+             {:handoff, %Instruction{target: Target, kind: :action, params: %{value: 5}}, []}
+  end
+
+  test "Handoff connection keeps selector data for zero and multiple parents" do
+    instruction = Instruction.new!(target: Echo)
+
+    left = Jido.Exec.Node.Action.new(instruction, id: :left, name: "left")
+    right = Jido.Exec.Node.Action.new(instruction, id: :right, name: "right")
+
+    root = handoff_node(:root, Instruction.new!(target: SelectTwo))
+
+    assert %Runic.Workflow{} =
+             Jido.Exec.Node.Handoff.connect(root, [], Runic.Workflow.new())
+
+    selector = Instruction.new!(target: SelectTwo, params: %{right: 3})
+    join = handoff_node(:join, selector)
+    assert root.hash != join.hash
+
+    workflow = Runic.Workflow.new() |> Runic.Workflow.add(left) |> Runic.Workflow.add(right)
+
+    assert %Runic.Workflow{} =
+             connected =
+             Jido.Exec.Node.Handoff.connect(join, [left, right], workflow)
+
+    selector_node =
+      Enum.find(Multigraph.vertices(connected.graph), fn
+        %Jido.Exec.Node.Action{flow: %{mode: :handoff}} -> true
+        _node -> false
+      end)
+
+    assert %Jido.Exec.Node.Action{
+             name: "__jido_handoff__/next_join/selector",
+             instruction: %Instruction{params: %{right: 3}},
+             flow: %{
+               component: "next",
+               mode: :handoff,
+               params: %{right: 3},
+               location: {:file, 12, 4},
+               node_path: ["outer", "next"]
+             }
+           } = selector_node
   end
 
   test "handoff envelopes reject invalid targets and declared non-portable input" do
@@ -257,8 +375,9 @@ defmodule Jido.Exec.HandoffTest do
         output: Ref.result("child")
       })
 
-    assert {:error, %{details: %{reason: :nested_handoff}}} =
-             Exec.run(parent, %{}, %{})
+    assert {:error, error} = Exec.run(parent, %{}, %{})
+    assert error.message == "handoff must finish the root Flow"
+    assert error.details.reason == :nested_handoff
   end
 
   test "managed results retain the same terminal contract across restore" do
@@ -278,5 +397,24 @@ defmodule Jido.Exec.HandoffTest do
 
     assert {:handoff, %Instruction{params: %{value: 3}}, [:predecessor_effect]} =
              Exec.result(runner, id)
+  end
+
+  defp handoff_flow(selector) do
+    Flow.new!(%{
+      name: "invalid_handoff_selector",
+      components: [%{kind: :handoff, name: "next", selector: selector}],
+      output: Ref.result("next")
+    })
+  end
+
+  defp handoff_node(id, selector) do
+    Jido.Exec.Node.Handoff.new(
+      id: id,
+      name: "next_#{id}",
+      component: "next",
+      selector: selector,
+      location: {:file, 12, 4},
+      node_path: ["outer", "next"]
+    )
   end
 end

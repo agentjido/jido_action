@@ -157,7 +157,7 @@ concrete call data:
 ```
 
 A canonical Flow call uses `%{kind: kind, target: target, params: expression}`.
-The Dispatch expander uses only `kind` and `target`. These records contain no
+The Invoke expander uses only `kind` and `target`. These records contain no
 Instructions or runtime context. Exec creates Instructions at the execution
 boundary and evaluates parameters for each call.
 

@@ -87,7 +87,7 @@ defmodule JidoActionTest.Property.Execution.RunnerFuzzTest do
   end
 
   defmodule Decision do
-    use Jido.Action, name: "fuzz_dispatch_decision"
+    use Jido.Action, name: "fuzz_invoke_decision"
     @impl true
     def run(params, context) do
       send(context.observer, {context.token, :call, params.label, self()})
@@ -96,7 +96,7 @@ defmodule JidoActionTest.Property.Execution.RunnerFuzzTest do
   end
 
   defmodule Expander do
-    use Jido.Action, name: "fuzz_dispatch_expander"
+    use Jido.Action, name: "fuzz_invoke_expander"
     @impl true
     def run(%{remaining: remaining} = params, _context) do
       if remaining > 0 do
@@ -107,7 +107,7 @@ defmodule JidoActionTest.Property.Execution.RunnerFuzzTest do
             value: params.value + params.amount
         }
 
-        {:continue, next, JidoActionTest.Property.Execution.RunnerFuzzTest.DispatchChild}
+        {:continue, next, JidoActionTest.Property.Execution.RunnerFuzzTest.InvokeChild}
       else
         target =
           if params.terminal == "flow",
@@ -120,7 +120,7 @@ defmodule JidoActionTest.Property.Execution.RunnerFuzzTest do
   end
 
   defmodule TerminalChild do
-    use Jido.Flow, name: "fuzz_dispatch_terminal"
+    use Jido.Flow, name: "fuzz_invoke_terminal"
 
     flow do
       step "record", action: Record, params: input()
@@ -128,11 +128,11 @@ defmodule JidoActionTest.Property.Execution.RunnerFuzzTest do
     end
   end
 
-  defmodule DispatchChild do
-    use Jido.Flow, name: "fuzz_dispatch_child"
+  defmodule InvokeChild do
+    use Jido.Flow, name: "fuzz_invoke_child"
 
     flow do
-      dispatch "route", decision: Decision, expander: Expander, params: input()
+      invoke "route", decision: Decision, expander: Expander, params: input()
       output result("route")
     end
   end
@@ -351,12 +351,12 @@ defmodule JidoActionTest.Property.Execution.RunnerFuzzTest do
          "EXEC-006/manual",
          "EXEC-006/continue",
          "DURABLE-002/no-replay",
-         "DURABLE-003/map-iterate-nested-dispatch",
+         "DURABLE-003/map-iterate-nested-invoke",
          "DURABLE-004/checkpoint",
          "SECURITY-002/portable-boundary"
        ]
   test "fuzz: manual Runner histories preserve completed work through resume", context do
-    kinds = ~w(chain map iterate nested dispatch)
+    kinds = ~w(chain map iterate nested invoke)
 
     generator =
       fixed_map(%{
@@ -446,16 +446,16 @@ defmodule JidoActionTest.Property.Execution.RunnerFuzzTest do
   end
 
   @tag :fuzz
-  @tag fuzz_id: "dispatch_chains"
+  @tag fuzz_id: "invoke_chains"
   @tag max_runs: 60, max_run_time: 60_000, timeout: 900_000
   @tag contracts: ["EXEC-003", "EXEC-004", "EFFECT-001", "EFFECT-002"]
   @tag contract_cases: [
-         "EXEC-003/dispatch-action-flow",
-         "EXEC-004/dispatch-timeout",
-         "EFFECT-001/dispatch-order",
-         "EFFECT-002/dispatch-failure"
+         "EXEC-003/invoke-action-flow",
+         "EXEC-004/invoke-timeout",
+         "EFFECT-001/invoke-order",
+         "EFFECT-002/invoke-failure"
        ]
-  test "fuzz: Dispatch chains keep routing, terminal results and effects", context do
+  test "fuzz: Invoke chains keep routing, terminal results and effects", context do
     generator =
       fixed_map(%{
         "links" => integer(0..6),
@@ -477,7 +477,7 @@ defmodule JidoActionTest.Property.Execution.RunnerFuzzTest do
           }
 
     Fuzz.check(
-      "dispatch_chains",
+      "invoke_chains",
       generator,
       Map.to_list(context) ++ [examples: examples],
       fn sample ->
@@ -504,13 +504,13 @@ defmodule JidoActionTest.Property.Execution.RunnerFuzzTest do
         Runtime.with_context(fn runtime ->
           result =
             Exec.run(
-              DispatchChild,
+              InvokeChild,
               params,
               runtime,
               Runtime.options(runtime) ++ [timeout: timeout]
             )
 
-          assert_dispatch_result(result, expected, sample["fault"])
+          assert_invoke_result(result, expected, sample["fault"])
           Runtime.assert_calls(runtime, labels)
           assert_blocked_stopped(runtime.token, sample["fault"])
         end)
@@ -518,12 +518,12 @@ defmodule JidoActionTest.Property.Execution.RunnerFuzzTest do
         for mode <- [:automatic, :manual] do
           Managed.with_execution(
             context,
-            DispatchChild,
+            InvokeChild,
             params,
             [dispatch_mode: mode, max_concurrency: 1, timeout: timeout],
             fn id, runtime, _options ->
               result = Managed.complete(context.runner, id, runtime.token, mode)
-              assert_dispatch_result(result, expected, sample["fault"])
+              assert_invoke_result(result, expected, sample["fault"])
               calls = Managed.calls(runtime.token)
               assert Enum.map(calls, &elem(&1, 0)) == labels
               Runtime.assert_workers_stopped(Enum.map(calls, &elem(&1, 1)))
@@ -721,12 +721,12 @@ defmodule JidoActionTest.Property.Execution.RunnerFuzzTest do
     end
   end
 
-  defp assert_dispatch_result(result, expected, "none"), do: assert(result == expected)
+  defp assert_invoke_result(result, expected, "none"), do: assert(result == expected)
 
-  defp assert_dispatch_result(result, _expected, "error"),
+  defp assert_invoke_result(result, _expected, "error"),
     do: assert({:error, %Error.ExecutionFailureError{}} = result)
 
-  defp assert_dispatch_result(result, _expected, "timeout"),
+  defp assert_invoke_result(result, _expected, "timeout"),
     do: assert({:error, %Error.TimeoutError{}} = result)
 
   defp assert_blocked_stopped(token, "timeout") do
@@ -886,7 +886,7 @@ defmodule JidoActionTest.Property.Execution.RunnerFuzzTest do
 
         {flow, %{}, {:ok, expected, labels}, labels}
 
-      "dispatch" ->
+      "invoke" ->
         params = %{
           remaining: n - 2,
           value: seed,
@@ -896,7 +896,7 @@ defmodule JidoActionTest.Property.Execution.RunnerFuzzTest do
           fault: "none"
         }
 
-        {DispatchChild, params, {:ok, %{value: seed + (n - 1) * amount, label: n - 1}, labels},
+        {InvokeChild, params, {:ok, %{value: seed + (n - 1) * amount, label: n - 1}, labels},
          labels}
     end
   end

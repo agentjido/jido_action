@@ -320,6 +320,27 @@ defmodule Jido.Exec.Node.ActionTest do
     other_target = Action.new(Instruction.new!(target: EchoParamsAction), id: :first)
     assert first.hash != other_target.hash
 
+    forced_version = <<1, 2, 3>>
+
+    forced_add =
+      Action.new(Instruction.new!(target: Add), id: :forced, target_version: forced_version)
+
+    forced_echo =
+      Action.new(Instruction.new!(target: EchoParamsAction),
+        id: :forced,
+        target_version: forced_version
+      )
+
+    assert forced_add.hash != forced_echo.hash
+
+    changed_version =
+      Action.new(Instruction.new!(target: Add),
+        id: :forced,
+        target_version: <<4, 5, 6>>
+      )
+
+    assert forced_add.hash != changed_version.hash
+
     for {left, right} <- [{:left, :right}, {"left", "right"}] do
       a = Action.new(Instruction.new!(target: Add), id: left)
       b = Action.new(Instruction.new!(target: Add), id: right)

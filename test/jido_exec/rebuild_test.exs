@@ -4,6 +4,7 @@ defmodule Jido.Exec.RebuildTest do
   alias Jido.Exec
   alias Jido.Exec.Frame
   alias Jido.Flow.Ref
+  alias Jido.Action.Error.ConfigurationError
   alias JidoActionTest.Fixtures.Actions.{Add, EchoParamsAction}
   alias Runic.Workflow
 
@@ -111,13 +112,13 @@ defmodule Jido.Exec.RebuildTest do
   end
 
   @tag obligation: "jido_action.boundary.I5"
-  test "a Dispatch rebuilds and runs its dynamic Flow target" do
+  test "an Invoke rebuilds and runs its dynamic Flow target" do
     flow =
       Jido.Flow.new!(%{
         name: "rebuild_dispatch",
         components: [
           %{
-            kind: :dispatch,
+            kind: :invoke,
             name: "next",
             decision: Decide,
             expander: Expand,
@@ -157,6 +158,51 @@ defmodule Jido.Exec.RebuildTest do
     assert [result: [type: :any, from: _name]] = rebuilt_flow.output_ports
   end
 
+  @tag obligation: "jido_action.boundary.I5"
+  test "a rebuilt Flow rejects changed Action code and keeps its Flow location" do
+    target = Module.concat(__MODULE__, "Reloaded#{System.unique_integer([:positive])}")
+    compile_reload_action(target, 1)
+
+    on_exit(fn ->
+      :code.purge(target)
+      :code.delete(target)
+    end)
+
+    flow =
+      Jido.Flow.new!(%{
+        name: "rebuild_changed_target",
+        components: [%{kind: :step, name: "work", action: target}],
+        output: Ref.result("work")
+      })
+
+    expected_version = target.module_info(:md5)
+    build_log = flow |> Exec.compile!() |> Workflow.build_log()
+
+    :code.purge(target)
+    :code.delete(target)
+    compile_reload_action(target, 2)
+    actual_version = target.module_info(:md5)
+
+    rebuilt = Workflow.from_log(build_log)
+
+    {completed, observation} =
+      rebuilt
+      |> Workflow.put_run_context(%{_global: %{}})
+      |> Workflow.execute(Jido.Exec.Fact.local_value(Frame.new(%{})))
+
+    assert {:error, %ConfigurationError{details: details} = error} =
+             Exec.result(completed, observation)
+
+    assert error.message == "Action target code changed after the graph was built"
+    assert details.reason == :incompatible_target
+    assert details.node == "work"
+    assert details.node_path == ["work"]
+    assert details.target == target
+    assert details.expected == expected_version
+    assert details.actual == actual_version
+    refute details.expected == details.actual
+  end
+
   defp rebuilt_output(flow, input) do
     rebuilt = flow |> Exec.compile!() |> Workflow.build_log() |> Workflow.from_log()
 
@@ -169,5 +215,16 @@ defmodule Jido.Exec.RebuildTest do
 
     assert [result: [type: :any, from: _name]] = workflow.output_ports
     workflow |> Workflow.results() |> Map.fetch!(:result)
+  end
+
+  defp compile_reload_action(target, version) do
+    Code.compile_string("""
+    defmodule #{inspect(target)} do
+      use Jido.Action, name: "reloaded_action"
+
+      @impl true
+      def run(_params, _context), do: {:ok, %{version: #{version}}}
+    end
+    """)
   end
 end

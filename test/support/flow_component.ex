@@ -3,7 +3,7 @@ defmodule JidoActionTest.FlowComponent do
 
   alias Jido.Flow.Definition
 
-  for kind <- [:step, :subflow, :choice, :map, :reduce, :iterate, :dispatch] do
+  for kind <- [:step, :subflow, :choice, :map, :reduce, :iterate, :invoke, :handoff] do
     bang = String.to_atom("#{kind}!")
 
     def unquote(kind)(attrs), do: build(unquote(kind), attrs)
@@ -127,9 +127,14 @@ defmodule JidoActionTest.FlowComponent do
     |> Map.update!(:fallback, &%{action: &1.target, params: &1.params})
   end
 
-  defp authoring(%{kind: :dispatch, decision: decision, expander: expander} = attrs) do
+  defp authoring(%{kind: :invoke, decision: decision, expander: expander} = attrs) do
     %{attrs | decision: decision.target, expander: expander.target}
     |> Map.put(:params, decision.params)
+  end
+
+  defp authoring(%{kind: :handoff, selector: selector} = attrs) do
+    %{attrs | selector: selector.target}
+    |> Map.put(:params, selector.params)
   end
 
   defp authoring(attrs), do: flat_call(attrs)

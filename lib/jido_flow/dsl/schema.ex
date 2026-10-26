@@ -1,7 +1,17 @@
 defmodule Jido.Flow.DSL.Schema do
   @moduledoc false
 
-  alias Jido.Flow.DSL.{Choice, Dispatch, Iterate, MapNode, Output, Parallel, Reduce, Step}
+  alias Jido.Flow.DSL.{
+    Choice,
+    Handoff,
+    Invoke,
+    Iterate,
+    MapNode,
+    Output,
+    Parallel,
+    Reduce,
+    Step
+  }
 
   @flow %Spark.Dsl.Section{
     name: :flow,
@@ -16,7 +26,8 @@ defmodule Jido.Flow.DSL.Schema do
       Parallel.entity(),
       Reduce.entity(),
       Iterate.entity(),
-      Dispatch.entity(),
+      Invoke.entity(),
+      Handoff.entity(),
       Output.entity()
     ],
     singleton_entity_keys: [:output]

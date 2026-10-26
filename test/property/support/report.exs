@@ -4,7 +4,7 @@ defmodule JidoActionTest.Property.Report do
 
   @root Path.expand("../../..", __DIR__)
   @fuzz_ids ~w(action_boundaries runner_schedules authoring_equivalence codec_mutations
-    codec_portability dispatch_chains expression_trees graph_rejections graph_semantics
+    codec_portability invoke_chains expression_trees graph_rejections graph_semantics
     instruction_targets iterate_state mixed_components nested_runner_failures
     runner_histories runner_telemetry)
 

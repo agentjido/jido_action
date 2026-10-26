@@ -43,9 +43,17 @@ defmodule Jido.Flow.CodecTest do
     :ok
   end
 
-  test "inline Steps use the exact version 1 stored call fields" do
+  test "the Flow authoring codec manifest uses document version two" do
+    assert Jido.Flow.Codec.__jido_authoring_codec__() == %{
+             type: "jido.flow",
+             vsn: 2,
+             encoder: Jido.Flow
+           }
+  end
+
+  test "inline Steps use the exact version 2 stored call fields" do
     assert {:ok, document} = Codec.encode(InlineParityFlow.flow(), InlineAuthoring.registry())
-    assert document["vsn"] == 1
+    assert document["vsn"] == 2
 
     for step <- document["components"] do
       assert step["kind"] == "call"
@@ -217,7 +225,7 @@ defmodule Jido.Flow.CodecTest do
     registry = CodecRegistry.mixed()
 
     assert {:ok, document} = Codec.encode(flow, registry)
-    assert document["vsn"] == 1
+    assert document["vsn"] == 2
 
     assert Enum.map(document["components"], & &1["kind"]) ==
              ["call", "iterate", "map", "call", "reduce", "choice"]
@@ -231,13 +239,42 @@ defmodule Jido.Flow.CodecTest do
     assert {:ok, ^flow} = Codec.diagnose(decoded_document, registry)
   end
 
-  test "version detection preserves diagnostics for nested structs" do
+  test "version one documents reject with an explicit Dispatch migration error" do
+    registry = CodecRegistry.mixed()
+    assert {:ok, document} = Codec.encode(FlowAuthoring.mixed_flow!(), registry)
+    version_one = Map.put(document, "vsn", 1)
+
+    assert {:error,
+            %InvalidDefinitionError{
+              message:
+                "stored Flow document vsn 1 requires migration to vsn 2; Dispatch cannot be migrated automatically",
+              details: %{path: ["vsn"]}
+            }} = Codec.decode(version_one, registry)
+
+    authoring_registry = %{
+      registry
+      | codecs: %{{"jido.flow", 2} => Jido.Flow.Codec},
+        encoders: %{Jido.Flow => Jido.Flow.Codec}
+    }
+
+    assert {:error,
+            [
+              %Jido.Authoring.Issue{
+                code: :unsupported_document,
+                path: ["vsn"],
+                details: %{type: "jido.flow", vsn: 1, supported_vsns: [2]}
+              }
+            ]} =
+             Jido.Authoring.decode(version_one, registry: authoring_registry)
+  end
+
+  test "current version preserves diagnostics for nested structs" do
     registry = CodecRegistry.mixed()
     assert {:ok, document} = Codec.encode(FlowAuthoring.mixed_flow!(), registry)
 
     document = %{
       document
-      | "vsn" => 1,
+      | "vsn" => 2,
         "components" => [hd(document["components"])],
         "output" => %URI{path: "/flow"}
     }
@@ -251,10 +288,10 @@ defmodule Jido.Flow.CodecTest do
     registry = CodecRegistry.mixed()
     flow = all_component_flow!()
     assert {:ok, document} = Codec.encode(flow, registry)
-    assert document["vsn"] == 1
+    assert document["vsn"] == 2
 
     assert Enum.map(document["components"], & &1["kind"]) ==
-             ["call", "choice", "iterate", "map", "parallel", "reduce", "call", "dispatch"]
+             ["call", "choice", "iterate", "map", "parallel", "reduce", "call", "invoke"]
 
     for component <- document["components"] do
       assert Map.has_key?(component, "needs")
@@ -420,40 +457,40 @@ defmodule Jido.Flow.CodecTest do
            ]
   end
 
-  test "diagnose reports Dispatch path and output errors at exact paths" do
+  test "diagnose reports Handoff path and output errors at exact paths" do
     registry = CodecRegistry.mixed()
 
-    dispatch_flow =
+    handoff_flow =
       JidoActionTest.FlowBuilder.new!(%{
-        name: "stored_dispatch",
+        name: "stored_handoff",
         components: [
-          %{kind: :dispatch, name: "next", decision: Add, expander: Add, params: %{value: 1}}
+          %{kind: :handoff, name: "next", selector: Add, params: %{value: 1}}
         ],
         output: Ref.result("next")
       })
 
-    assert {:ok, dispatch_document} = Codec.encode(dispatch_flow, registry)
+    assert {:ok, handoff_document} = Codec.encode(handoff_flow, registry)
     assert {:ok, math_document} = Codec.encode(FlowAuthoring.math_flow!(), registry)
 
-    [dispatch] = dispatch_document["components"]
+    [handoff] = handoff_document["components"]
     [step | _rest] = math_document["components"]
 
     wrapped_output = %{
       "$type" => "map",
-      "entries" => [%{"key" => "value", "value" => dispatch_document["output"]}]
+      "entries" => [%{"key" => "value", "value" => handoff_document["output"]}]
     }
 
     invalid = %{
-      dispatch_document
-      | "components" => [dispatch, step],
+      handoff_document
+      | "components" => [handoff, step],
         "output" => wrapped_output
     }
 
     assert {:error, %Error.Invalid{errors: errors}} = Codec.diagnose(invalid, registry)
 
     assert Enum.map(errors, &{Exception.message(&1), &1.details.path}) == [
-             {"Dispatch must be the final component in the Flow", ["components", 0]},
-             {"Flow output must be the complete Dispatch result", ["output"]}
+             {"Handoff must be the final component in the Flow", ["components", 0]},
+             {"Flow output must be the complete Handoff result", ["output"]}
            ]
   end
 
@@ -872,8 +909,25 @@ defmodule Jido.Flow.CodecTest do
   test "the decoder rejects an unsupported version and missing component kinds" do
     {:ok, document} = Codec.encode(FlowAuthoring.mixed_flow!(), CodecRegistry.mixed())
 
-    assert {:error, %InvalidDefinitionError{}} =
+    assert {:error,
+            %InvalidDefinitionError{
+              message: "stored Flow document vsn must be 2",
+              details: %{path: ["vsn"]}
+            }} =
              Codec.decode(%{document | "vsn" => 99}, CodecRegistry.mixed())
+
+    for malformed <- [
+          %{document | "type" => "wrong", "vsn" => 2},
+          %{document | "type" => "wrong", "vsn" => 1},
+          %{document | "type" => "", "vsn" => 99},
+          document |> Map.delete("type") |> Map.put("", "jido.flow") |> Map.put("vsn", 99)
+        ] do
+      assert {:error,
+              %InvalidDefinitionError{
+                message: "stored Flow document type must be jido.flow",
+                details: %{path: ["type"]}
+              }} = Codec.decode(malformed, CodecRegistry.mixed())
+    end
 
     [first | rest] = document["components"]
     invalid = %{document | "components" => [Map.delete(first, "kind") | rest]}
@@ -913,7 +967,7 @@ defmodule Jido.Flow.CodecTest do
 
     document = %{
       "type" => "jido.flow",
-      "vsn" => 1,
+      "vsn" => 2,
       "name" => "one_subflow",
       "description" => nil,
       "schema" => %{"id" => "schemas/map", "vsn" => 1},
@@ -1339,14 +1393,14 @@ defmodule Jido.Flow.CodecTest do
           needs: ["step"]
         },
         %{
-          kind: :dispatch,
-          name: "dispatch",
+          kind: :invoke,
+          name: "invoke",
           decision: Add,
           expander: Add,
           needs: ["step", "subflow", "choice", "map", "parallel", "reduce", "iterate"]
         }
       ],
-      output: Ref.result("dispatch")
+      output: Ref.result("invoke")
     })
   end
 

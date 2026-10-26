@@ -267,15 +267,24 @@ defmodule JidoActionTest.Authoring.Components.FinalFlow do
   end
 end
 
-defmodule JidoActionTest.Authoring.Components.DispatchFlow do
-  use Jido.Flow, name: "authoring_dispatch"
+defmodule JidoActionTest.Authoring.Components.InvokeFlow do
+  use Jido.Flow, name: "authoring_invoke"
 
   flow do
-    dispatch "route",
+    invoke "route",
       decision: JidoActionTest.Authoring.Components.Decide,
       expander: JidoActionTest.Authoring.Components.Expand,
       params: %{mode: input(:mode), value: input(:value), target: input(:target)}
 
+    output result("route")
+  end
+end
+
+defmodule JidoActionTest.Authoring.Components.HandoffFlow do
+  use Jido.Flow, name: "authoring_handoff"
+
+  flow do
+    handoff "route", selector: JidoActionTest.Authoring.Components.Expand, params: input()
     output result("route")
   end
 end

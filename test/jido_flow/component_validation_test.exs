@@ -38,7 +38,7 @@ defmodule Jido.Flow.ComponentValidationTest do
     for attrs <- component_attrs() do
       assert {:ok, {name, %{kind: kind} = node}} = Definition.component(attrs)
       assert name == attrs.name
-      assert kind in [:call, :choice, :map, :reduce, :iterate, :dispatch]
+      assert kind in [:call, :choice, :map, :reduce, :iterate, :invoke]
       assert is_map(node)
 
       for {_role, call, _params} <- Definition.calls(node) do
@@ -332,7 +332,7 @@ defmodule Jido.Flow.ComponentValidationTest do
       %{kind: :map, name: "map", collection: [], action: Add},
       %{kind: :reduce, name: "reduce", collection: [], initial: %{}, action: Add},
       iterate(%{initial: %{}, update: %{}}, true),
-      %{kind: :dispatch, name: "dispatch", decision: Add, expander: Add}
+      %{kind: :invoke, name: "invoke", decision: Add, expander: Add}
     ]
   end
 

@@ -64,13 +64,13 @@ declaration-time attributes, and `__MODULE__`. It does not capture runtime
 variables outside the declaration. A normal success result is a map. Use
 `Jido.Action.Output` for an intentional non-map value. A Flow preserves explicit
 effect lists and requires a proper list for the third success element. A
-continuation is valid only from a terminal Dispatch expander.
+continuation is valid only from an Invoke expander.
 
 ## Flow Boundary
 
 Jido Flow uses this API for direct inline Step bodies and named inline Actions
 inside Parallel. These declarations set Action options through `inline:`.
-Map, Reduce, Choice targets, Iterate, and Dispatch use Action modules. See
+Map, Reduce, Choice targets, Iterate, and Invoke use Action modules. See
 [Inline Actions In Flows](inline-actions.md).
 
 This Flow boundary does not restrict downstream packages. A downstream DSL
@@ -434,7 +434,7 @@ An extracted target works with map definitions and a trusted Registry. Supply
 a new parameter mapping for each host position. Register
 the target under an application-owned identifier, not its generated module
 name. JSON stores ordinary targets and data, never bodies. Inline Actions do
-not change the stored document format. The Codec writes document `vsn` 1
+not change the stored document format. The Codec writes document `vsn` 2
 for all current features, including `Jido.Expr` operations.
 
 Normal source compilation produces the owner and generated Action BEAM files.

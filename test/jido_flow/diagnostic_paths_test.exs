@@ -158,7 +158,7 @@ defmodule Jido.Flow.DiagnosticPathsTest do
   defp document(components, output) do
     %{
       "type" => "jido.flow",
-      "vsn" => 1,
+      "vsn" => 2,
       "name" => "paths",
       "description" => nil,
       "schema" => %{"id" => "schemas/map", "vsn" => 1},

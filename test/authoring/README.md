@@ -5,7 +5,7 @@ fixtures only when selected. They check an author's complete path from Action
 and Flow source to execution, equivalent Flow authoring forms, stored JSON,
 dependency order, Choice routing, nested Flow boundaries, and compile-time
 errors. The later source fixtures cover Map, Reduce, Iterate, Subflow, Choice,
-Dispatch, inline Steps, expressions, schemas, saved JSON with fixed Registry
+Invoke, inline Steps, expressions, schemas, saved JSON with fixed Registry
 IDs, controlled Map completion order, and hostile authoring boundaries. Focused
 contract tests remain under `test/jido_action`,
 `test/jido_flow`, and `test/jido_exec`.

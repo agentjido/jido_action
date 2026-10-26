@@ -6,6 +6,8 @@ defmodule Jido.Exec.TelemetryTest do
   alias Jido.Exec
   alias Jido.Flow
   alias Jido.Flow.Ref
+  alias Jido.Instruction
+  alias Runic.Workflow.SingleOutput.Context
 
   alias JidoActionTest.Fixtures.Actions.{Add, ErrorAction, ExtrasAction}
 
@@ -40,6 +42,41 @@ defmodule Jido.Exec.TelemetryTest do
              @flow_stop,
              @flow_exception
            ]
+  end
+
+  test "Invoke and Handoff Action metadata use the new control names" do
+    instruction = Instruction.new!(target: Add)
+
+    invoke =
+      Jido.Exec.Node.Action.new(instruction,
+        id: :invoke,
+        name: "invoke_selector",
+        flow: %{component: "next", mode: {:invoke, :expander}}
+      )
+
+    handoff =
+      Jido.Exec.Node.Action.new(instruction,
+        id: :handoff,
+        name: "handoff_selector",
+        flow: %{component: "next", mode: :handoff}
+      )
+
+    assert %{
+             node_name: "invoke_selector",
+             component_kind: :invoke,
+             invoke_phase: :expander
+           } = Jido.Exec.Telemetry.action_metadata(invoke, %Context{})
+
+    assert %{
+             node_name: "handoff_selector",
+             component_kind: :handoff
+           } = handoff_metadata = Jido.Exec.Telemetry.action_metadata(handoff, %Context{})
+
+    refute Map.has_key?(handoff_metadata, :invoke_phase)
+    refute Map.has_key?(handoff_metadata, :dispatch_phase)
+
+    assert Jido.Exec.Telemetry.result_metadata(:flow, {:handoff, instruction, [:one, :two]}) ==
+             %{outcome: :handoff, effect_count: 2}
   end
 
   test "an Action span contains bounded semantic metadata" do

@@ -159,47 +159,71 @@ defmodule Jido.Exec.Runner.DurabilityTest do
     end
   end
 
-  defmodule DispatchDecision do
-    use Jido.Action, name: "durable_dispatch_decision"
+  defmodule InvokeDecision do
+    use Jido.Action, name: "durable_invoke_decision"
 
     @impl true
     def run(params, _context) do
-      :ok = Recorder.completed(:dispatch_decision)
+      :ok = Recorder.completed(:invoke_decision)
       {:ok, params}
     end
   end
 
-  defmodule DispatchExpand do
-    use Jido.Action, name: "durable_dispatch_expand"
+  defmodule InvokeExpand do
+    use Jido.Action, name: "durable_invoke_expand"
 
     @impl true
     def run(%{value: value, target: target}, _context) do
-      :ok = Recorder.completed(:dispatch_expander)
+      :ok = Recorder.completed(:invoke_expander)
       {:continue, %{value: value}, target}
     end
   end
 
-  defmodule DispatchTargetStep do
-    use Jido.Action, name: "durable_dispatch_target_step"
+  defmodule InvokeTargetStep do
+    use Jido.Action, name: "durable_invoke_target_step"
 
     @impl true
     def run(%{value: value}, _context) do
-      :ok = CheckpointGate.wait(:dispatch_target)
-      :ok = Recorder.completed(:dispatch_target)
+      :ok = CheckpointGate.wait(:invoke_target)
+      :ok = Recorder.completed(:invoke_target)
       {:ok, %{value: value + 1}}
     end
   end
 
-  defmodule DispatchTargetFlow do
-    use Jido.Flow, name: "durable_dispatch_target_flow"
+  defmodule InvokeTargetFlow do
+    use Jido.Flow, name: "durable_invoke_target_flow"
 
     flow do
       step "target",
-        action: DispatchTargetStep,
+        action: InvokeTargetStep,
         params: %{value: input(:value)}
 
       output result("target")
     end
+  end
+
+  defmodule HandoffDecision do
+    use Jido.Action, name: "durable_handoff_decision"
+
+    @impl true
+    def run(%{value: value}, _context), do: {:ok, %{value: value}, [:handoff_effect]}
+  end
+
+  defmodule HandoffSelector do
+    use Jido.Action, name: "durable_handoff_selector"
+
+    @impl true
+    def run(params, _context),
+      do: {:handoff, params, Jido.Exec.Runner.DurabilityTest.HandoffTarget}
+  end
+
+  defmodule HandoffTarget do
+    use Jido.Action,
+      name: "durable_handoff_target",
+      schema: Zoi.object(%{value: Zoi.integer()})
+
+    @impl true
+    def run(_params, _context), do: raise("successor must run in a new execution")
   end
 
   test "Runic restores a ten-step Flow at the sixth Action" do
@@ -390,22 +414,58 @@ defmodule Jido.Exec.Runner.DurabilityTest do
     assert %{value: 2} in results(runner, execution_id)
   end
 
-  for {kind, target} <- [action: DispatchTargetStep, flow: DispatchTargetFlow] do
-    test "Runic restores a Dispatch #{kind} target without replaying its routing Actions" do
+  test "Runic restores a completed Handoff value and effects" do
+    runner = __MODULE__.HandoffRunner
+    start_supervised!({Runic.Runner, name: runner})
+    owner = self()
+    id = {:durable_handoff, System.unique_integer([:positive])}
+
+    flow =
+      Flow.new!(%{
+        name: "durable_handoff",
+        components: [
+          %{kind: :step, name: "decide", action: HandoffDecision, params: %{value: 8}},
+          %{
+            kind: :handoff,
+            name: "next",
+            selector: HandoffSelector,
+            params: Ref.result("decide")
+          }
+        ],
+        output: Ref.result("next")
+      })
+
+    options = [on_complete: fn _, _ -> send(owner, {:handoff_done, id}) end]
+    assert {:ok, _worker} = Exec.start(runner, id, flow, %{}, %{}, options)
+    assert_receive {:handoff_done, ^id}, 2_000
+
+    expected =
+      {:handoff, %Jido.Instruction{target: HandoffTarget, kind: :action, params: %{value: 8}},
+       [:handoff_effect]}
+
+    assert Exec.result(runner, id) == expected
+    assert :ok = Runic.Runner.checkpoint(runner, id)
+    assert :ok = Runic.Runner.stop(runner, id, persist: true)
+    assert {:ok, _worker} = Exec.resume(runner, id, %{}, options)
+    assert Exec.result(runner, id) == expected
+  end
+
+  for {kind, target} <- [action: InvokeTargetStep, flow: InvokeTargetFlow] do
+    test "Runic restores an Invoke #{kind} target without replaying its routing Actions" do
       start_supervised!(Recorder)
       start_supervised!({CheckpointGate, self()})
-      runner = __MODULE__.DispatchRunner
+      runner = __MODULE__.InvokeRunner
       start_supervised!({Runic.Runner, name: runner})
 
       flow =
         Flow.new!(%{
-          name: "durable_dispatch",
+          name: "durable_invoke",
           components: [
             %{
-              kind: :dispatch,
+              kind: :invoke,
               name: "route",
-              decision: DispatchDecision,
-              expander: DispatchExpand,
+              decision: InvokeDecision,
+              expander: InvokeExpand,
               params: %{
                 value: Ref.input(:value),
                 target: unquote(target)
@@ -415,11 +475,11 @@ defmodule Jido.Exec.Runner.DurabilityTest do
           output: Ref.result("route")
         })
 
-      execution_id = {:durable_dispatch, System.unique_integer([:positive])}
+      execution_id = {:durable_invoke, System.unique_integer([:positive])}
       start_execution(runner, execution_id, flow, %{value: 4})
 
-      assert_receive {:checkpoint_waiting, :dispatch_target}, 2_000
-      assert Recorder.steps() == [:dispatch_decision, :dispatch_expander]
+      assert_receive {:checkpoint_waiting, :invoke_target}, 2_000
+      assert Recorder.steps() == [:invoke_decision, :invoke_expander]
 
       assert :ok = Runic.Runner.checkpoint(runner, execution_id)
 
@@ -436,19 +496,19 @@ defmodule Jido.Exec.Runner.DurabilityTest do
       :ok = CheckpointGate.open()
       assert_receive {:resumed_flow_idle, ^execution_id}, 2_000
 
-      assert Recorder.steps() == [:dispatch_decision, :dispatch_expander, :dispatch_target]
+      assert Recorder.steps() == [:invoke_decision, :invoke_expander, :invoke_target]
       assert %{value: 5} in results(runner, execution_id)
     end
   end
 
-  test "an accepted Dispatch Action is not repeated after a manual checkpoint" do
+  test "an accepted Invoke Action is not repeated after a manual checkpoint" do
     start_supervised!(Recorder)
     start_supervised!({CheckpointGate, self()})
     :ok = CheckpointGate.open()
-    runner = __MODULE__.AcceptedDispatchRunner
+    runner = __MODULE__.AcceptedInvokeRunner
     start_supervised!({Runic.Runner, name: runner})
-    flow = dispatch_action_flow()
-    id = {:accepted_dispatch, System.unique_integer([:positive])}
+    flow = invoke_action_flow()
+    id = {:accepted_invoke, System.unique_integer([:positive])}
     owner = self()
     tag = make_ref()
     hooks = [on_complete: fn _runnable, _duration, _state -> send(owner, {tag, :accepted}) end]
@@ -462,10 +522,10 @@ defmodule Jido.Exec.Runner.DurabilityTest do
     Enum.reduce_while(1..10, nil, fn _, _ ->
       assert {:ok, _workflow} = Exec.step(runner, id)
       assert_receive {^tag, :accepted}, 1_000
-      if :dispatch_target in Recorder.steps(), do: {:halt, nil}, else: {:cont, nil}
+      if :invoke_target in Recorder.steps(), do: {:halt, nil}, else: {:cont, nil}
     end)
 
-    assert Recorder.steps() == [:dispatch_decision, :dispatch_expander, :dispatch_target]
+    assert Recorder.steps() == [:invoke_decision, :invoke_expander, :invoke_target]
     assert {:error, _incomplete} = Exec.result(runner, id)
     assert :ok = Runic.Runner.checkpoint(runner, id)
 
@@ -489,38 +549,91 @@ defmodule Jido.Exec.Runner.DurabilityTest do
     end)
 
     assert Exec.result(runner, id) == {:ok, %{value: 5}}
-    assert Recorder.steps() == [:dispatch_decision, :dispatch_expander, :dispatch_target]
+    assert Recorder.steps() == [:invoke_decision, :invoke_expander, :invoke_target]
+  end
+
+  test "managed resume rejects changed Action code" do
+    target = Module.concat(__MODULE__, "Reloaded#{System.unique_integer([:positive])}")
+    compile_reload_action(target, 1)
+
+    on_exit(fn ->
+      :code.purge(target)
+      :code.delete(target)
+    end)
+
+    runner = __MODULE__.ReloadedTargetRunner
+    start_supervised!({Runic.Runner, name: runner})
+
+    flow =
+      Flow.new!(%{
+        name: "durable_changed_target",
+        components: [%{kind: :step, name: "work", action: target}],
+        output: Ref.result("work")
+      })
+
+    execution_id = {:changed_target, System.unique_integer([:positive])}
+
+    assert {:ok, _worker} =
+             Exec.start(runner, execution_id, flow, %{}, %{},
+               dispatch_mode: :manual,
+               checkpoint_strategy: :every_cycle
+             )
+
+    assert :ok = Runic.Runner.checkpoint(runner, execution_id)
+    assert :ok = Runic.Runner.stop(runner, execution_id, persist: true)
+
+    :code.purge(target)
+    :code.delete(target)
+    compile_reload_action(target, 2)
+
+    owner = self()
+
+    assert {:ok, _worker} =
+             Exec.resume(runner, execution_id, %{},
+               hooks: [
+                 on_idle: fn _state -> send(owner, {:changed_target_idle, execution_id}) end
+               ]
+             )
+
+    assert_receive {:changed_target_idle, ^execution_id}, 2_000
+
+    assert {:error, %Jido.Action.Error.ConfigurationError{details: details}} =
+             Exec.result(runner, execution_id)
+
+    assert details.reason == :incompatible_target
+    assert details.node == "work"
+    assert details.node_path == ["work"]
   end
 
   @tag obligation: "jido_action.execution.I20"
-  test "cancellation stops a selected Dispatch Action" do
+  test "cancellation stops a selected Invoke Action" do
     start_supervised!(Recorder)
     start_supervised!({CheckpointGate, self()})
-    runner = __MODULE__.CancelledDispatchRunner
+    runner = __MODULE__.CancelledInvokeRunner
     start_supervised!({Runic.Runner, name: runner})
-    id = {:cancelled_dispatch, System.unique_integer([:positive])}
-    assert {:ok, worker} = Exec.start(runner, id, dispatch_action_flow(), %{value: 4})
-    assert_receive {:checkpoint_waiting, :dispatch_target}, 2_000
+    id = {:cancelled_invoke, System.unique_integer([:positive])}
+    assert {:ok, worker} = Exec.start(runner, id, invoke_action_flow(), %{value: 4})
+    assert_receive {:checkpoint_waiting, :invoke_target}, 2_000
     [{task, _reply_tag}] = :sys.get_state(CheckpointGate).waiting
     task_monitor = Process.monitor(task)
     worker_monitor = Process.monitor(worker)
     assert :ok = Runic.Runner.cancel(runner, id)
     assert_receive {:DOWN, ^task_monitor, :process, ^task, _reason}, 2_000
     assert_receive {:DOWN, ^worker_monitor, :process, ^worker, _reason}, 2_000
-    assert Recorder.steps() == [:dispatch_decision, :dispatch_expander]
+    assert Recorder.steps() == [:invoke_decision, :invoke_expander]
     assert {:error, :not_found} = Exec.result(runner, id)
   end
 
-  defp dispatch_action_flow do
+  defp invoke_action_flow do
     Flow.new!(%{
-      name: "durable_action_dispatch",
+      name: "durable_action_invoke",
       components: [
         %{
-          kind: :dispatch,
+          kind: :invoke,
           name: "route",
-          decision: DispatchDecision,
-          expander: DispatchExpand,
-          params: %{value: Ref.input(:value), target: DispatchTargetStep}
+          decision: InvokeDecision,
+          expander: InvokeExpand,
+          params: %{value: Ref.input(:value), target: InvokeTargetStep}
         }
       ],
       output: Ref.result("route")
@@ -585,10 +698,21 @@ defmodule Jido.Exec.Runner.DurabilityTest do
     assert Enum.any?(events, fn
              %Runic.Workflow.ComponentAdded{name: name, workflow_definition: definition}
              when is_binary(name) and not is_nil(definition) ->
-               String.starts_with?(name, "__jido_dispatch__/")
+               String.starts_with?(name, "__jido_invoke__/")
 
              _event ->
                false
            end)
+  end
+
+  defp compile_reload_action(target, version) do
+    Code.compile_string("""
+    defmodule #{inspect(target)} do
+      use Jido.Action, name: "durable_reloaded_action"
+
+      @impl true
+      def run(_params, _context), do: {:ok, %{version: #{version}}}
+    end
+    """)
   end
 end

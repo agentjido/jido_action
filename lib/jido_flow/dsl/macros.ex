@@ -80,7 +80,8 @@ defmodule Jido.Flow.DSL.Macros do
     parallel: 2,
     reduce: 2,
     iterate: 2,
-    dispatch: 2,
+    invoke: 2,
+    handoff: 2,
     output: 1
   ]
 
@@ -227,8 +228,12 @@ defmodule Jido.Flow.DSL.Macros do
   defmacro selection(name, options),
     do: named_block_entity(name, options, "Selection", :__selection__, __CALLER__)
 
-  defmacro dispatch(name, options) do
-    named_entity(name, options, "Dispatch", :__dispatch__, __CALLER__)
+  defmacro invoke(name, options) do
+    named_entity(name, options, "Invoke", :__invoke__, __CALLER__)
+  end
+
+  defmacro handoff(name, options) do
+    named_entity(name, options, "Handoff", :__handoff__, __CALLER__)
   end
 
   defmacro output(value) do

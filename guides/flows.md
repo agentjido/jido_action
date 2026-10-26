@@ -70,12 +70,13 @@ effects keep a deterministic order either way. See
 | `parallel` | Calls different named Actions as one joined component. | A list of named results in declaration order. |
 | `reduce` | Folds a collection through one Action, in order. | The final accumulator. |
 | `iterate` | Repeats one Action with local state until a condition ends it. | `%{kind: :jido_flow_iterate_result, iterations:, state:, output:}` |
-| `dispatch` | Lets an Action choose the next Action or Flow at runtime. | The final result of the chosen path. |
+| `invoke` | Lets an Action choose the next Action or Flow at runtime. | The final result of the chosen path. |
+| `handoff` | Requests a validated successor without running it. | A Handoff control result. |
 
 Each component has a unique string name, optional `needs:`, and optional
-`meta:` data. A Flow can have at most one `dispatch`. It must be the sole graph terminal,
-and `output` must select its complete result. Declaration order does not
-determine the terminal. Each component has its own guide: [Steps](flow-steps.livemd),
+`meta:` data. A Flow can have more than one `invoke`. A `handoff` must be the
+sole graph terminal, and `output` must select its complete result. Declaration
+order does not determine the terminal. Each component has its own guide: [Steps](flow-steps.livemd),
 [Choices](flow-choices.livemd), [Map And Reduce](flow-collections.livemd),
 [Iterate](flow-iterate-state.livemd), [Nested Flows](nested-flows.livemd), and
 [Dynamic Flows](dynamic-flows.md).

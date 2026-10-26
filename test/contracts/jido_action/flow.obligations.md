@@ -6,7 +6,8 @@ modules:
   - Jido.Flow.DSL.Choice
   - Jido.Flow.DSL.ChoiceMacros
   - Jido.Flow.DSL.ChoiceOption
-  - Jido.Flow.DSL.Dispatch
+  - Jido.Flow.DSL.Handoff
+  - Jido.Flow.DSL.Invoke
   - Jido.Flow.DSL.Entity
   - Jido.Flow.DSL.Extension
   - Jido.Flow.DSL.InlineStep
@@ -49,7 +50,7 @@ Check focused facets of the [reviewed public promises](../../../guides/public-ap
 
 ### jido_action.flow.I8 — Dependencies and explicit output define valid graphs
 - **scope:** `Jido.Flow.new/1, Jido.Flow.validate/1, Jido.Flow.dependencies/1`
-- **must:** References and needs create dependencies; source order does not. Require explicit non-nil output, unique component names, valid reference scopes, and acyclic dependencies. Dispatch is the sole graph terminal and its complete result is the Flow output. Invalid graphs retain structured errors and defined diagnostic order.
+- **must:** References and needs create dependencies; source order does not. Require explicit non-nil output, unique component names, valid reference scopes, and acyclic dependencies. Invoke is composable, can have downstream nodes, and can occur more than once. Handoff is the sole graph terminal and its complete result is the Flow output. Invalid graphs retain structured errors and defined diagnostic order.
 - **kind:** ordering
 - **status:** active
 

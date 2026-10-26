@@ -22,7 +22,7 @@ No email or audit service is needed.
 Run the cells from top to bottom. No local checkout is required.
 
 ```elixir
-Mix.install([{:jido_action, "~> 3.0.0-beta.21"}])
+Mix.install([{:jido_action, "~> 3.0.0-beta.22"}])
 ```
 
 ## Return A Map With An Optional Request
@@ -315,7 +315,7 @@ so that you perform each request once.
   A component keeps the order of its own list. A nested Flow's requests take
   its position in the parent. Map, Reduce, and Iterate requests follow item
   or iteration order. Parallel requests follow Action declaration order. A
-  Dispatch lists decision requests, then expander requests, then the requests
+  Invoke lists decision requests, then expander requests, then the requests
   of the target it continues to.
 - **No delivery.** Exec never performs a request and never consumes a stream
   output. Your application owns delivery and its retry policy.
