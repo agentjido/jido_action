@@ -110,9 +110,9 @@ assert {:ok, %{status: :approved}, [{:send_confirmation, "order-42"}]} =
          Jido.Exec.run(MyApp.Flows.ApproveOrder, %{order_id: "order-42"})
 ```
 
-For Choice, Map, Reduce, Iterate, nested Flows, and Dispatch, assert the
-public result, the effect order, and the error details for failures. To prove
-that an Action ran, or did not run, have it send a message to the test
+For Choice, Map, Parallel, Reduce, Iterate, nested Flows, and Dispatch, assert
+the public result, the effect order, and the error details for failures. To
+prove that an Action ran, or did not run, have it send a message to the test
 process and use `assert_received` or `refute_received`.
 
 ## Keep Tests Deterministic

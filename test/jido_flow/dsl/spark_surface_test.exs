@@ -14,7 +14,7 @@ defmodule Jido.Flow.DSL.SparkSurfaceTest do
         &[&1 | Enum.flat_map(&1.entities, fn {_, children} -> children end)]
       )
 
-    assert length(entities) == 15
+    assert length(entities) == 17
 
     for entity <- entities do
       schema = Keyword.delete(entity.schema, :__source__)

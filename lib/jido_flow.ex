@@ -89,9 +89,10 @@ defmodule Jido.Flow do
 
   Use `inline:` to set the Action name, description, schemas, or
   `context: ctx`. Keep `needs:` and `meta:` at the Step level. Flow supports
-  inline Actions only for Step. Map, Reduce, Choice targets, Iterate, and
-  Dispatch use Action modules. All targets use normal Exec validation
-  and result rules. See [Inline Actions](inline-actions.md).
+  inline Actions for Step and for named Action calls inside Parallel. Map,
+  Reduce, Choice targets, Iterate, and Dispatch use Action modules. All
+  targets use normal Exec validation and result rules. See
+  [Inline Actions](inline-actions.md).
 
   After the owner compiles, `MyApp.Greeting.step_action("greet")` returns its
   Action target for map-based definitions or trusted Registry reuse.
@@ -137,10 +138,11 @@ defmodule Jido.Flow do
   ## DSL field reference
 
   These fields describe the module DSL, not map definitions or stored JSON.
-  Positional arguments are identified below. Choice and Iterate require field
-  blocks; their nested declarations have their own references. Only Step supports
-  inline Action bodies. The field types, required flags, and defaults come from
-  the Spark schemas; Jido also validates graph and cross-field rules.
+  Positional arguments are identified below. Choice, Parallel, and Iterate
+  require field blocks; their nested declarations have their own references.
+  Step and named Action declarations inside Parallel support inline Action
+  bodies. The field types, required flags, and defaults come from the Spark
+  schemas; Jido also validates graph and cross-field rules.
 
   #{IO.iodata_to_binary(field_docs)}
   """
@@ -198,10 +200,12 @@ defmodule Jido.Flow do
   @doc """
   Builds and validates one canonical Flow value from a data definition.
 
-  Components use a `kind` of `:step`, `:subflow`, `:choice`, `:map`, `:reduce`,
-  `:iterate`, `:dispatch`, `:timer`, `:await`, or `:selection`. Action targets use `action` and `params`; Subflow
-  targets use `flow` and `params`. Dispatch uses module targets in `decision`
-  and `expander`, with `params` for the decision. Validation is inert.
+  Components use a `kind` of `:step`, `:subflow`, `:choice`, `:map`,
+  `:parallel`, `:reduce`, `:iterate`, `:dispatch`, `:timer`, `:await`, or
+  `:selection`. Action targets use `action` and `params`; Subflow targets use
+  `flow` and `params`. Parallel uses an ordered `actions` list of named Action
+  calls. Dispatch uses module targets in `decision` and `expander`, with
+  `params` for the decision. Validation is inert.
   See the [data guide](flow-data.md) for component fields.
   """
   @spec new(map()) :: {:ok, t()} | {:error, Exception.t()}

@@ -1,12 +1,12 @@
-# Inline Steps
+# Inline Actions In Flows
 
 An inline Step keeps a small operation in the Flow that owns it. Its body is
 normal Elixir code, and it compiles to an ordinary `Jido.Action`. Use one when
 the work is local to one Flow and does not need its own module.
 
-Flow supports inline Actions only for Step. Map, Reduce, Choice targets,
-Iterate, and Dispatch use Action modules. This keeps advanced Flow blocks
-declarative.
+Flow supports inline Actions for Step and for named Action calls inside
+Parallel. Map, Reduce, Choice targets, Iterate, and Dispatch use Action
+modules.
 
 The separate `Jido.Action.Inline` API remains available to downstream packages
 that want inline Actions in their own compile-time DSLs. See
@@ -142,7 +142,43 @@ Flow does not accept top-level clause bodies. Nested `case`, `fn`, and other
 normal Elixir expressions remain available. Downstream DSLs can still use
 clause bodies through the separate `Jido.Action.Inline` host API.
 
-## Use Action Modules In Advanced Components
+## Write An Inline Parallel Action
+
+A Parallel component contains only named Action calls. Each call can use an
+Action module or an inline body:
+
+```elixir
+defmodule MyApp.Actions.CheckSyntax do
+  use Jido.Action, name: "check_syntax"
+
+  def run(%{text: text}, _context), do: {:ok, %{valid?: is_binary(text)}}
+end
+
+defmodule MyApp.Flows.Checks do
+  use Jido.Flow, name: "checks"
+
+  flow do
+    parallel "checks" do
+      action "syntax", MyApp.Actions.CheckSyntax,
+        params: %{text: input(:text)}
+
+      action "length", text <- input(:text),
+        inline: [description: "Count text characters"] do
+        {:ok, %{length: String.length(text)}}
+      end
+    end
+
+    output result("checks")
+  end
+end
+```
+
+An inline Parallel Action uses the same binding and `inline:` settings as an
+inline Step. It compiles to an ordinary `Jido.Action`. The Parallel component
+owns ordering and error handling. A nested Action cannot set `needs:` or
+`meta:` and cannot contain another Flow component.
+
+## Use Action Modules In Other Advanced Components
 
 Advanced components use Action modules and canonical parameter
 expressions:

@@ -702,6 +702,7 @@ Declaration source order does not create an execution dependency.
 | `step/2` | `step name, action: Module, params: value, ...` or a field block. `action` and `params` are required in this DSL form. A loaded Flow target lowers to a Subflow; an Action target lowers to a Step. |
 | `step/3`, `step/4` | Inline Step forms: name, one bindings argument, optional header options, and the body block. They produce an ordinary Action-backed Step. |
 | `map/2` | Name plus keyword fields or a field block: `collection`, `action`, and `params` are required; `on_error` defaults to `:fail_fast`. |
+| `parallel/2` | Name and required field block. Contains one or more named `action` declarations. Use `action name, Module, params: value` or an inline Action body. `on_error` defaults to `:fail_fast`. |
 | `reduce/2` | Name plus keyword fields or a field block: `collection`, `initial`, `action`, and `params` are required. |
 | `choice/2` | Name and required field block. Contains at least one `option/2` and exactly one `otherwise/1`. |
 | `option/2` | Name plus keyword fields or field block: required `condition`, `action`, and `params`. Option names are unique within the Choice. |
@@ -740,7 +741,7 @@ rejected. The body retains owner aliases, imports, private helpers, module
 attributes at the declaration, and normal Elixir scope. Inline settings are
 `inline: [name:, description:, schema:, output_schema:, context:]`; `context`
 binds the current callback context. `needs` and `meta` remain Step fields.
-Only Step supports an inline body.
+Step and named Action declarations inside Parallel support inline bodies.
 
 DSL reference syntax also accepts `input/0,1`, `context/0,1`, `result/1,2`,
 `select/2`, `item/0,1`, `item_index/0`, `item_id/0`, `accumulator/0,1`,
@@ -790,6 +791,7 @@ are rejected, including internal `call` fields mixed into public data authoring.
 | `:subflow` | `flow: FlowModule` | `params` |
 | `:choice` | `options`, `fallback` | None |
 | `:map` | `collection`, `action` | `params`, `on_error: :fail_fast` or `:collect_errors` |
+| `:parallel` | non-empty `actions` | `on_error: :fail_fast` or `:collect_errors` |
 | `:reduce` | `collection`, `initial`, `action` | `params` |
 | `:iterate` | `action`, `state`, `completion`, `max_iterations` | `params` |
 | `:dispatch` | `decision`, `expander` | `params` for the decision |
@@ -798,6 +800,8 @@ A Choice needs a non-empty proper options list. Each option is a plain map
 with `name`, `condition`, `action`, and optional `params`. The fallback is a
 plain map with `action` and optional `params`. Conditions must be a Boolean,
 `Jido.Flow.Ref`, or `Jido.Expr`; their resolved values must be Booleans.
+Parallel needs a non-empty proper actions list. Each entry is a plain map with a
+unique `name`, an `action`, and optional `params`.
 An Iterate state is a plain map with required `initial` and `update`, and
 optional `schema` defaulting to `Zoi.map()`. `completion` is a stop condition, not a
 while condition. `max_iterations` is required and must be 1 through 10,000.
@@ -806,16 +810,18 @@ The data form has no `repeat`, `while`, or implicit update shorthand.
 Targets must be module atoms other than `nil`, `true`, or `false`.
 Construction does not load them. Exec compilation checks the declared kind
 and target contract. Only `:subflow` accepts a Flow in data authoring. Choice,
-Map, Reduce, Iterate, and both static Dispatch positions require Actions.
+Map, Parallel, Reduce, Iterate, and both static Dispatch positions require
+Actions.
 
 The canonical component map stores names as keys and omits each inner
 `name`. Step and Subflow become `kind: :call` with
 `call: %{kind: :action | :flow, target: module, params: value}`. Choice retains
 `options`, but each option has `name`, `condition`, and `call`; `fallback` is
-one call record. Map, Reduce, and Iterate also use `call`. Dispatch stores a
-full `decision` call and `expander: %{kind: :action, target: module}` without
-params. Every canonical component includes `needs` and `meta`. Canonical
-validation requires all fields and does not fill defaults or normalize names.
+one call record. Map, Reduce, and Iterate also use `call`. Each Parallel Action
+stores `name` and `call`. Dispatch stores a full `decision` call and
+`expander: %{kind: :action, target: module}` without params. Every canonical
+component includes `needs` and `meta`. Canonical validation requires all
+fields and does not fill defaults or normalize names.
 
 Do not pass a canonical component list to `Jido.Flow.new/1`. Its public input uses
 `:step`, `:subflow`, and the compact fields above. `to_map/1` is an inspection
@@ -964,6 +970,8 @@ expose a child's internal component names as parent result references.
 | Choice | Tests conditions in authored order and stops at the first `true`. A condition error fails the Choice. No match selects the fallback. The fallback does not run after a selected Action fails. Only the selected path contributes effects. |
 | Map with `:fail_fast` | Returns outputs in input order. An empty input returns `[]`. An item failure fails the execution; eligible Action errors can retry under Exec policy. Work already admitted can complete after a failure. |
 | Map with `:collect_errors` | Returns one ordered `%{status: :ok, value: output}` or `%{status: :error, error: error_map}` per item. Failed Action results become data and do not retry as failed Runnables. Successful item effects remain in item order. A parameter-reference error also becomes error data, but lacks the Action's target, item index, and item ID details. |
+| Parallel with `:fail_fast` | Runs each named Action as a separate graph node and joins `%{name: name, value: output}` records in declaration order. An Action failure fails the execution and can use normal retry policy. |
+| Parallel with `:collect_errors` | Joins ordered `%{name: name, status: :ok, value: output}` or `%{name: name, status: :error, error: error_map}` records. Collected failures do not retry as failed Runnables. Successful effects remain in Action declaration order. |
 | Reduce | Processes each item serially. `initial` becomes the first accumulator; each Action output replaces it. Empty input returns `initial`. The initial value must resolve to a plain map or `Jido.Action.Output`. Failure stops the loop. |
 | Iterate | Validates the initial plain-map state, then tests completion. If complete, runs no body. Otherwise it resolves params, runs the body, resolves the replacement state, validates it, increments the completed count, and tests completion again. State is replaced, not merged. Returns `%{kind: :jido_flow_iterate_result, iterations: count, state: state, output: last_body_output}`; zero calls means `output: nil`. |
 | Dispatch | Runs the decision Action, passes its complete result as expander params, then accepts a final expander result or `{:continue, input, target}`. Only the expander can continue. The selected Action or Flow is resolved and validated at runtime. It cannot create a general continuation loop at an ordinary Action position. |
@@ -991,10 +999,11 @@ Choice condition failures use `:choice_condition` and identify the option.
 
 Effects keep multiplicity. Flow output collects successful component effects
 in canonical component order; a nested Flow occupies its parent position.
-Map uses item order, Reduce and Iterate use call order, and Dispatch places
-decision effects before final expander or target effects. A failing execution
-returns no executable effect list. Exec does not dispatch effect requests.
-A `:collect_errors` Map can still be a successful execution with error data.
+Map uses item order, Parallel uses Action declaration order, Reduce and Iterate
+use call order, and Dispatch places decision effects before final expander or
+target effects. A failing execution returns no executable effect list. Exec
+does not dispatch effect requests. A `:collect_errors` Map or Parallel can
+still be a successful execution with error data.
 
 Source: [Choice selection](https://github.com/agentjido/jido_action/blob/v3.0.0-beta.21/lib/jido_exec/node/choice/selector.ex),
 [Map](https://github.com/agentjido/jido_action/blob/v3.0.0-beta.21/lib/jido_exec/node/map.ex),
@@ -1005,6 +1014,7 @@ Source: [Choice selection](https://github.com/agentjido/jido_action/blob/v3.0.0-
 [frame effect order](https://github.com/agentjido/jido_action/blob/v3.0.0-beta.21/lib/jido_exec/frame.ex). Evidence:
 [Choice](https://github.com/agentjido/jido_action/blob/v3.0.0-beta.21/test/jido_exec/node/choice_test.exs),
 [Map order, IDs, retries, and error data](https://github.com/agentjido/jido_action/blob/v3.0.0-beta.21/test/jido_exec/node/map_test.exs),
+[Parallel authoring, order, errors, and rebuild](https://github.com/agentjido/jido_action/blob/v3.0.0-beta.21/test/jido_flow/parallel_test.exs),
 [Reduce and ordered effects](https://github.com/agentjido/jido_action/blob/v3.0.0-beta.21/test/jido_exec/node/loop_test.exs),
 [loop error fields and Output initial values](https://github.com/agentjido/jido_action/blob/v3.0.0-beta.21/test/jido_exec/error_paths_test.exs),
 [authoring parity and serial state](https://github.com/agentjido/jido_action/blob/v3.0.0-beta.21/test/authoring/components_test.exs),
@@ -1859,14 +1869,15 @@ alone establishes a full Store failure and recovery matrix.
 Effects are ordered proper lists of requests. Exec does not dispatch them.
 Duplicates are retained. Only successful output returns an effect batch;
 callback failure, invalid output, timeout, cancellation, and uncertain work
-must not be treated as a successful effect batch. A successful Map with
-`collect_errors` can include error values and still return effects from its
-successful items.
+must not be treated as a successful effect batch. A successful Map or
+Parallel with `collect_errors` can include error values and still return
+effects from its successful calls.
 
 Flow effects follow canonical dependency order, with component name as the
 stable tie-breaker. Nested effects occupy the parent component's position.
-Map, Reduce, and Iterate effects follow item or iteration order. Selection of
-one output does not remove effects from other successful executed components.
+Map, Reduce, and Iterate effects follow item or iteration order. Parallel
+effects follow Action declaration order. Selection of one output does not
+remove effects from other successful executed components.
 
 `effect_id/4` hashes a version-1 document through
 `Runic.Identity.digest(:event_data, ...)`. Its fields are
@@ -1901,7 +1912,7 @@ Telemetry handlers run synchronously in the emitting process.
 | Start measurements | `monotonic_time`, `system_time` in native time units. |
 | Stop measurements | `monotonic_time`, `duration` in native time units. |
 | Action metadata | `action`, `action_name`, `node_name`, `runnable_id`, `activation_id`, `attempt_id`, zero-based `attempt`. |
-| Flow component metadata | When available: `component`, `node_path`, `component_kind` (`:step`, `:choice`, `:map`, `:reduce`, `:iterate`, `:dispatch`), `dispatch_phase` (`:decision`, `:expander`, `:target`). |
+| Flow component metadata | When available: `component`, `node_path`, `component_kind` (`:step`, `:choice`, `:map`, `:parallel`, `:reduce`, `:iterate`, `:dispatch`), `dispatch_phase` (`:decision`, `:expander`, `:target`). |
 | Flow metadata | `kind: :flow`, `flow` name, and `target` only for a module target. |
 | Successful stop additions | `outcome: :ok`, `effect_count`. Counts the span's returned list; a Flow component can carry effects in its frame, so its Action count need not equal the final Flow effect count. |
 | Failed stop additions | `outcome: :error`, `error_type`, `retryable?`. |

@@ -153,6 +153,9 @@ defmodule Jido.Flow.Definition do
   def calls(%{kind: kind, call: call}) when kind in [:map, :reduce, :iterate],
     do: [{kind, call, call.params}]
 
+  def calls(%{kind: :parallel, actions: actions}),
+    do: Enum.map(actions, &{&1.name, &1.call, &1.call.params})
+
   def calls(%{kind: :dispatch, decision: decision, expander: expander}),
     do: [{:decision, decision, decision.params}, {:expander, expander, nil}]
 
@@ -166,6 +169,8 @@ defmodule Jido.Flow.Definition do
     do: Enum.flat_map(options, &[&1.condition, &1.call.params]) ++ [fallback.params]
 
   def values(%{kind: :map, collection: collection, call: call}), do: [collection, call.params]
+
+  def values(%{kind: :parallel, actions: actions}), do: Enum.map(actions, & &1.call.params)
 
   def values(%{kind: :reduce, collection: collection, initial: initial, call: call}),
     do: [collection, initial, call.params]

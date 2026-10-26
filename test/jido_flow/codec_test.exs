@@ -254,7 +254,7 @@ defmodule Jido.Flow.CodecTest do
     assert document["vsn"] == 1
 
     assert Enum.map(document["components"], & &1["kind"]) ==
-             ["call", "choice", "iterate", "map", "reduce", "call", "dispatch"]
+             ["call", "choice", "iterate", "map", "parallel", "reduce", "call", "dispatch"]
 
     for component <- document["components"] do
       assert Map.has_key?(component, "needs")
@@ -1313,6 +1313,15 @@ defmodule Jido.Flow.CodecTest do
         },
         %{kind: :map, name: "map", collection: [], action: Add, needs: ["step"]},
         %{
+          kind: :parallel,
+          name: "parallel",
+          actions: [
+            %{name: "add", action: Add},
+            %{name: "multiply", action: Multiply}
+          ],
+          needs: ["step"]
+        },
+        %{
           kind: :reduce,
           name: "reduce",
           collection: [],
@@ -1334,7 +1343,7 @@ defmodule Jido.Flow.CodecTest do
           name: "dispatch",
           decision: Add,
           expander: Add,
-          needs: ["step", "subflow", "choice", "map", "reduce", "iterate"]
+          needs: ["step", "subflow", "choice", "map", "parallel", "reduce", "iterate"]
         }
       ],
       output: Ref.result("dispatch")

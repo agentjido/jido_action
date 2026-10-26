@@ -55,6 +55,7 @@ A `flow` block contains component declarations and one `output`:
 | `step` | Calls one Action, an inline body, or a child Flow. | [Steps And Output](flow-steps.livemd) |
 | `choice` | Runs the first option whose condition is true. | [Choices And Conditions](flow-choices.livemd) |
 | `map` | Runs one Action for each list item. | [Map And Reduce](flow-collections.livemd) |
+| `parallel` | Runs different named Actions and joins their ordered results. | [Flows](flows.md#components) |
 | `reduce` | Folds a list through one Action. | [Map And Reduce](flow-collections.livemd) |
 | `iterate` | Runs one Action in a bounded loop with State. | [Iterate And State](flow-iterate-state.livemd) |
 | `dispatch` | Selects work at runtime. | [Dynamic Flows](dynamic-flows.md) |
@@ -92,6 +93,11 @@ defmodule FlowLanguage.Example do
       action: FlowLanguage.Echo,
       params: %{value: item(), index: item_index()}
 
+    parallel "checks" do
+      action "input", FlowLanguage.Echo, params: %{value: input(:value)}
+      action "mode", FlowLanguage.Echo, params: %{value: input(:mode)}
+    end
+
     reduce "collected" do
       collection result("mapped")
       initial %{values: []}
@@ -109,6 +115,7 @@ defmodule FlowLanguage.Example do
 
     output %{
       route: result("route"),
+      checks: result("checks"),
       values: result("collected", :values),
       counter: result("counter", :state)
     }
@@ -180,10 +187,11 @@ body:
   with a DSL name, call it with its module, such as
   `MyApp.Helpers.output(value)`.
 
-Only `step` accepts an inline body. Use `inline:` on that Step for Action
-settings. Map, Reduce, Choice targets, Iterate, and Dispatch use Action
-modules. See [Steps And Output](flow-steps.livemd#write-an-inline-body) and
-[Inline Steps](inline-actions.md).
+`step` and named Action calls inside `parallel` accept inline bodies. Use
+`inline:` on that declaration for Action settings. Map, Reduce, Choice
+targets, Iterate, and Dispatch use Action modules. See
+[Steps And Output](flow-steps.livemd#write-an-inline-body) and
+[Inline Actions In Flows](inline-actions.md).
 
 ## Write Conditions
 

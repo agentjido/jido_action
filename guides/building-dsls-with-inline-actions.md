@@ -68,9 +68,10 @@ continuation is valid only from a terminal Dispatch expander.
 
 ## Flow Boundary
 
-Jido Flow uses this API for direct inline Step bodies only. A Flow Step can
-set Action options through `inline:`. Map, Reduce, Choice targets, Iterate,
-and Dispatch use Action modules. See [Inline Steps](inline-actions.md).
+Jido Flow uses this API for direct inline Step bodies and named inline Actions
+inside Parallel. These declarations set Action options through `inline:`.
+Map, Reduce, Choice targets, Iterate, and Dispatch use Action modules. See
+[Inline Actions In Flows](inline-actions.md).
 
 This Flow boundary does not restrict downstream packages. A downstream DSL
 can define bound or callback slots, its own macro names, and its own typed

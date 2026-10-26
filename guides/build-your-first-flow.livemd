@@ -336,15 +336,16 @@ partial result. See
   `result/2`, and `item/1` connect them and create the dependencies.
 - `output` selects the value that the Flow returns.
 - A `step` can call an Action, a whole Flow, or an inline body.
-- `map`, `reduce`, and `choice` call Action modules for collections and
-  decisions.
+- `map`, `parallel`, `reduce`, and `choice` call Actions for collections,
+  joined work, and decisions.
 - Independent work runs in parallel up to `max_concurrency`, with the same
   result.
 
 ## Next
 
 - [Flow DSL Tour](flow-language.livemd) covers every component, including
-  `iterate` for bounded loops and `dispatch` for runtime routing.
+  `parallel` for joined work, `iterate` for bounded loops, and `dispatch` for
+  runtime routing.
 - [Executing Flows](flow-execution.livemd) covers concurrency, compilation,
   failures, and managed execution.
 - [Flow Data Definitions](flow-data.md) builds the same kind of Flow from

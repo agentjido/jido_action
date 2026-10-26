@@ -17,7 +17,7 @@ defmodule JidoActionTest.Authoring.GuidesTest do
     {"guides/flow-modules.md", :all},
     {"guides/flow-storage.md", :all},
     {"guides/flows.md", :all},
-    {"guides/inline-actions.md", [0, 6, 8]},
+    {"guides/inline-actions.md", [0, 5, 7, 9]},
     {"guides/instructions.md", [0, 1, 2, 3, 4, 5, 7, 8, 9]},
     {"guides/managed-execution.md", :all},
     {"guides/schemas-validation.md", [0, 1, 2, 3, 4, 5]}

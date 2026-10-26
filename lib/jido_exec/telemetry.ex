@@ -108,6 +108,10 @@ defmodule Jido.Exec.Telemetry do
   defp flow_component_metadata(_metadata), do: %{}
 
   defp component_kind(%{mode: {:map, _on_error}}), do: :map
+
+  defp component_kind(%{mode: {:parallel, _on_error, _index, _name}}),
+    do: :parallel
+
   defp component_kind(%{mode: {:loop, %{kind: kind}}}) when kind in [:reduce, :iterate], do: kind
   defp component_kind(%{mode: {:dispatch, _phase}}), do: :dispatch
   defp component_kind(%{mode: :choice}), do: :choice

@@ -67,9 +67,9 @@ API to use. See the guides on HexDocs for explanations and examples.
   `details.retry: true` only when another attempt is safe.
 - Set both `base_delay_ms` and `max_delay_ms` when you use `backoff`. Both
   default to `0`, which means no delay.
-- Independent Flow components and collection items can run in parallel up to
-  `max_concurrency`. An explicit `run/4` option overrides the package
-  configuration. Do not add a `parallel` block; there is none.
+- Independent Flow components, Parallel Actions, and collection items can run
+  at the same time up to `max_concurrency`. An explicit `run/4` option
+  overrides the package configuration.
 - `Jido.Exec.run/4` runs the Action or Flow in a supervised task. It blocks
   the caller and stops work if the caller exits. The default supervisor is
   `Jido.Exec.TaskSupervisor`.
@@ -147,11 +147,12 @@ API to use. See the guides on HexDocs for explanations and examples.
   A `result/2` reference creates a dependency. Source order does not.
 - Use `needs: ["name"]` only for ordering without a data dependency.
 - Use `step` for one Action or child Flow, `choice` for ordered conditions
-  with a required fallback, `map` for per-item work, `reduce` for an ordered
-  fold, `iterate` for a bounded loop with state, and `dispatch` for runtime
-  target selection.
+  with a required fallback, `map` for per-item work, `parallel` for a named
+  group of different Action calls, `reduce` for an ordered fold, `iterate`
+  for a bounded loop with state, and `dispatch` for runtime target selection.
 - Use Action modules for `map`, `reduce`, `choice`, `iterate`, and `dispatch`
-  targets. Inline bodies are supported only in `step`.
+  targets. Inline bodies are supported in `step` and in named `action`
+  declarations inside `parallel`.
 - Use at most one `dispatch`. It must be the sole graph terminal, and `output`
   must be its complete result. Source order does not determine the terminal.
 - Every execution host must handle the standard terminal Dispatch result
@@ -206,6 +207,9 @@ API to use. See the guides on HexDocs for explanations and examples.
   `Jido.Expr.new/2` for references and operations in data definitions.
 - Use `kind: :step` with `action:` and `params:` for an Action, and
   `kind: :subflow` with `flow:` and `params:` for a child Flow.
+- Use `kind: :parallel` with an ordered, non-empty `actions:` list. Each entry
+  has a unique `name`, an `action`, and optional `params`. Use `on_error:`
+  with `:fail_fast` or `:collect_errors`.
 - Dispatch uses modules in `decision:` and `expander:`, with `params:` for
   the decision.
 - Data definitions use only these authoring fields. `Jido.Flow.new/1` rejects

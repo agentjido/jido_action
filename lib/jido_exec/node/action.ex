@@ -130,6 +130,22 @@ defmodule Jido.Exec.Node.Action do
         %{component: component, mode: {:map, on_error}, params: params} ->
           execute_map_component(instruction, component, params, on_error, input, run_context)
 
+        %{
+          component: component,
+          mode: {:parallel, on_error, index, name},
+          params: params
+        } ->
+          execute_parallel_component(
+            instruction,
+            component,
+            params,
+            on_error,
+            index,
+            name,
+            input,
+            run_context
+          )
+
         %{component: component, params: params} ->
           execute_flow_component(instruction, component, params, input, run_context)
 
@@ -203,6 +219,51 @@ defmodule Jido.Exec.Node.Action do
 
   defp drop_stacktrace(error_map),
     do: Map.update!(error_map, :details, &Map.delete(&1, :stacktrace))
+
+  defp execute_parallel_component(
+         instruction,
+         component,
+         params,
+         on_error,
+         index,
+         name,
+         input,
+         run_context
+       ) do
+    with {:ok, frame} <- Frame.merge(input) do
+      result =
+        with {:ok, resolved_params} <-
+               ValueResolver.resolve(params, Frame.resolver_state(frame, run_context)) do
+          execute_action(instruction, resolved_params, run_context)
+        end
+
+      case result do
+        {:ok, output, effects} ->
+          {:ok, {:jido_parallel_action, index, name, frame, {:ok, output, effects}}, []}
+
+        {:error, error} when on_error == :collect_errors ->
+          error = collected_parallel_error(error, instruction.target, component, index, name)
+          {:ok, {:jido_parallel_action, index, name, frame, {:error, error}}, []}
+
+        {:error, error} ->
+          {:error, error}
+      end
+    end
+  end
+
+  defp collected_parallel_error(error, action, component, index, name) do
+    error
+    |> Jido.Flow.Error.to_map()
+    |> Map.update!(:details, fn details ->
+      Map.merge(details, %{
+        node: component,
+        target: action,
+        action_index: index,
+        action_name: name
+      })
+    end)
+    |> drop_stacktrace()
+  end
 
   defp execute_flow_component(instruction, component, params, input, run_context) do
     input = unwrap_flow_input(input)
@@ -429,6 +490,9 @@ defmodule Jido.Exec.Node.Action do
 
   defp flow_position({:jido_map_item, index, item_id, _params}, _metadata),
     do: %{item_index: index, item_id: item_id}
+
+  defp flow_position(_input, %{mode: {:parallel, _on_error, index, name}}),
+    do: %{action_index: index, action_name: name}
 
   defp flow_position({:jido_reduce, _status, _component, index, _accumulator}, %{
          mode: {:loop, loop}

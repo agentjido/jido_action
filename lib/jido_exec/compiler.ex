@@ -3,7 +3,7 @@ defmodule Jido.Exec.Compiler do
 
   alias Jido.Action.Error
 
-  alias Jido.Exec.Node.{Action, Choice, Dispatch, Input, Loop, Output}
+  alias Jido.Exec.Node.{Action, Choice, Dispatch, Input, Loop, Output, Parallel}
   alias Jido.Exec.Node.Map, as: MapComponent
 
   alias Jido.Flow
@@ -507,6 +507,14 @@ defmodule Jido.Exec.Compiler do
            on_error: on_error
          ]
      )}
+  end
+
+  defp runtime_component(
+         %{kind: :parallel, actions: actions, on_error: on_error},
+         opts,
+         _context
+       ) do
+    {:ok, Parallel.new(opts ++ [actions: actions, on_error: on_error])}
   end
 
   defp runtime_component(

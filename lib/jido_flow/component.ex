@@ -14,6 +14,7 @@ defmodule Jido.Flow.Component do
       call: {:call, [:action], :map_params},
       on_error: :on_error
     ],
+    parallel: [actions: :parallel_actions, on_error: :on_error],
     reduce: [
       collection: {:value, :reduce_collection},
       initial: {:value, :reduce_initial},
@@ -29,6 +30,7 @@ defmodule Jido.Flow.Component do
   }
   @wait_option [name: :name, event: :event, match: {:value, :flow}, after_ms: :delay]
   @option [name: :name, condition: {:condition, :flow}, call: {:call, [:action], :flow}]
+  @parallel_action [name: :name, call: {:call, [:action], :flow}]
   @state [schema: :schema, initial: {:value, :iterate_initial}, update: {:value, :iterate_update}]
   @maximum_iterations 10_000
 
@@ -51,6 +53,10 @@ defmodule Jido.Flow.Component do
   @doc false
   @spec option_fields() :: keyword()
   def option_fields, do: @option
+
+  @doc false
+  @spec parallel_action_fields() :: keyword()
+  def parallel_action_fields, do: @parallel_action
 
   @doc false
   @spec wait_option_fields() :: keyword()
@@ -145,6 +151,14 @@ defmodule Jido.Flow.Component do
 
   def authoring(%{kind: kind} = attrs) when kind in [:map, :reduce, :iterate] do
     authoring_call(attrs)
+  end
+
+  def authoring(%{kind: :parallel} = attrs) do
+    Map.update(attrs, :actions, nil, fn actions ->
+      if is_list(actions) and not List.improper?(actions),
+        do: Enum.map(actions, &authoring_call/1),
+        else: actions
+    end)
   end
 
   def authoring(%{kind: :choice} = attrs) do
@@ -370,7 +384,32 @@ defmodule Jido.Flow.Component do
     do: {:ok, value}
 
   defp validate(:on_error, value, _mode),
-    do: failure("map on_error must be :fail_fast or :collect_errors", %{on_error: value})
+    do: failure("on_error must be :fail_fast or :collect_errors", %{on_error: value})
+
+  defp validate(:parallel_actions, values, mode) when is_list(values) do
+    cond do
+      values == [] ->
+        failure("parallel must contain at least one Action")
+
+      List.improper?(values) ->
+        failure("parallel actions must be a proper list")
+
+      true ->
+        case sequence(values, &record(&1, @parallel_action, mode)) do
+          {:ok, actions} ->
+            case Enum.map(actions, & &1.name) -- Enum.uniq(Enum.map(actions, & &1.name)) do
+              [] -> {:ok, actions}
+              [name | _] -> failure("parallel Action names must be unique", %{name: name})
+            end
+
+          error ->
+            error
+        end
+    end
+  end
+
+  defp validate(:parallel_actions, _value, _mode),
+    do: failure("parallel actions must be a list")
 
   defp validate(:maximum_iterations, value, _mode)
        when is_integer(value) and value in 1..@maximum_iterations, do: {:ok, value}

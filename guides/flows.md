@@ -67,6 +67,7 @@ effects keep a deterministic order either way. See
 | `step` | Calls one Action, or one child Flow, or an inline body. | The Action's result, or the child Flow's output. |
 | `choice` | Runs the first option whose condition is true, or the fallback. | The selected Action's result. |
 | `map` | Calls one Action for each item of a collection. | A list in item order. |
+| `parallel` | Calls different named Actions as one joined component. | A list of named results in declaration order. |
 | `reduce` | Folds a collection through one Action, in order. | The final accumulator. |
 | `iterate` | Repeats one Action with local state until a condition ends it. | `%{kind: :jido_flow_iterate_result, iterations:, state:, output:}` |
 | `dispatch` | Lets an Action choose the next Action or Flow at runtime. | The final result of the chosen path. |
@@ -78,6 +79,10 @@ determine the terminal. Each component has its own guide: [Steps](flow-steps.liv
 [Choices](flow-choices.livemd), [Map And Reduce](flow-collections.livemd),
 [Iterate](flow-iterate-state.livemd), [Nested Flows](nested-flows.livemd), and
 [Dynamic Flows](dynamic-flows.md).
+
+A Parallel component differs from independent top-level components. Both can
+run at the same time. Parallel also gives the calls one shared name, one join
+result, one error mode, and one position in the outer graph.
 
 ## Values, References, And Expressions
 

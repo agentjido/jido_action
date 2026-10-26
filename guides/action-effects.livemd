@@ -314,8 +314,9 @@ so that you perform each request once.
 - **Order.** A Flow lists requests in dependency order, then component name.
   A component keeps the order of its own list. A nested Flow's requests take
   its position in the parent. Map, Reduce, and Iterate requests follow item
-  or iteration order. A Dispatch lists decision requests, then expander
-  requests, then the requests of the target it continues to.
+  or iteration order. Parallel requests follow Action declaration order. A
+  Dispatch lists decision requests, then expander requests, then the requests
+  of the target it continues to.
 - **No delivery.** Exec never performs a request and never consumes a stream
   output. Your application owns delivery and its retry policy.
 - **Managed execution.** The requests are in `fact.meta.jido.effects` of the

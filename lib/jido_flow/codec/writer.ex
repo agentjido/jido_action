@@ -96,6 +96,9 @@ defmodule Jido.Flow.Codec.Writer do
   defp field(:options, options, registry),
     do: sequence(options, &record(&1, Component.option_fields(), registry))
 
+  defp field(:parallel_actions, actions, registry),
+    do: sequence(actions, &record(&1, Component.parallel_action_fields(), registry))
+
   defp field(:state, state, registry), do: record(state, Component.state_fields(), registry)
   defp field(:on_error, value, _registry), do: {:ok, Atom.to_string(value)}
   defp field(_type, value, _registry), do: {:ok, value}

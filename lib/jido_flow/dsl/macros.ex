@@ -68,6 +68,22 @@ defmodule Jido.Flow.DSL.Macros do
   alias Jido.Action.Inline
   alias Jido.Flow.DSL.{InlineStep, MacroSupport, ModuleCompiler}
 
+  @parallel_forbidden_imports [
+    step: 2,
+    step: 3,
+    step: 4,
+    choice: 2,
+    timer: 2,
+    await: 2,
+    selection: 2,
+    map: 2,
+    parallel: 2,
+    reduce: 2,
+    iterate: 2,
+    dispatch: 2,
+    output: 1
+  ]
+
   defmacro step(name, options) do
     caller = __CALLER__
     step_name = Macro.unique_var(:step_name, __MODULE__)
@@ -121,6 +137,39 @@ defmodule Jido.Flow.DSL.Macros do
 
   defmacro map(name, options) do
     named_entity(name, options, "Map", :__map__, __CALLER__)
+  end
+
+  defmacro parallel(name, options) do
+    caller = __CALLER__
+    evaluated_name = Macro.unique_var(:declaration_name, __MODULE__)
+
+    declaration =
+      block_entity(
+        evaluated_name,
+        options,
+        extension_module(["Flow", "Parallel"]),
+        :__parallel__,
+        caller
+      )
+
+    quote line: caller.line do
+      import Jido.Flow.DSL.Macros, except: unquote(@parallel_forbidden_imports)
+      import Jido.Flow.DSL.Extension, except: [flow: 1]
+
+      unquote(evaluated_name) =
+        unquote(ModuleCompiler).declaration_name!(unquote(name), __ENV__)
+
+      Module.put_attribute(
+        __MODULE__,
+        :__jido_flow_parallel_name__,
+        unquote(evaluated_name)
+      )
+
+      unquote(declaration)
+      import Jido.Flow.DSL.Macros
+      import Jido.Flow.DSL.Extension
+      Module.delete_attribute(__MODULE__, :__jido_flow_parallel_name__)
+    end
   end
 
   defmacro reduce(name, options) do
@@ -232,6 +281,108 @@ defmodule Jido.Flow.DSL.Macros do
   defp extension_module(segments) do
     Module.concat(["Jido", "Flow", "DSL", "Extension" | segments])
   end
+end
+
+defmodule Jido.Flow.DSL.ParallelMacros do
+  @moduledoc false
+
+  alias Jido.Action.Inline
+  alias Jido.Flow.DSL.{InlineStep, MacroSupport, ModuleCompiler}
+
+  defmacro action(name, target_or_bindings, options) do
+    if inline_bindings?(target_or_bindings) do
+      inline_action(
+        name,
+        InlineStep.parse_parallel_action!(target_or_bindings, options, __CALLER__),
+        __CALLER__
+      )
+    else
+      explicit_action(name, target_or_bindings, options, __CALLER__)
+    end
+  end
+
+  defmacro action(name, bindings, options, body_options) do
+    inline_action(
+      name,
+      InlineStep.parse_parallel_action!(bindings, options, body_options, __CALLER__),
+      __CALLER__
+    )
+  end
+
+  defp explicit_action(name, target, options, caller) do
+    MacroSupport.validate_options!(
+      options,
+      caller,
+      "Parallel action options must be a keyword list",
+      "Parallel action field"
+    )
+
+    declaration(name, [action: target] ++ options, caller)
+  end
+
+  defp inline_action(name_ast, %{action: action}, caller) do
+    name = Macro.unique_var(:parallel_action_name, __MODULE__)
+
+    path =
+      quote do
+        [
+          host: Jido.Flow,
+          parallel:
+            Module.get_attribute(
+              unquote(caller.module),
+              :__jido_flow_parallel_name__
+            ),
+          action: unquote(name),
+          role: :action
+        ]
+      end
+
+    compiled =
+      Inline.Compiler.compile!(path, action, caller,
+        default_name: name,
+        reserved_label: "Flow",
+        module_label: "inline Parallel Action",
+        emit: {InlineStep, :defer!},
+        remove_imports: InlineStep.declaration_imports(caller)
+      )
+
+    entity =
+      entity(name, [action: compiled.target_ast, params: action.params_ast], caller)
+
+    quote line: caller.line do
+      unquote(name) = unquote(ModuleCompiler).declaration_name!(unquote(name_ast), __ENV__)
+      unquote(compiled.declaration_ast)
+      unquote(entity)
+      unquote(InlineStep).emit!(__ENV__)
+    end
+  end
+
+  defp declaration(name_ast, options, caller) do
+    evaluated_name = Macro.unique_var(:parallel_action_name, __MODULE__)
+    declaration = entity(evaluated_name, options, caller)
+
+    quote line: caller.line do
+      unquote(evaluated_name) =
+        unquote(ModuleCompiler).declaration_name!(unquote(name_ast), __ENV__)
+
+      unquote(declaration)
+    end
+  end
+
+  defp entity(name, options, caller) do
+    MacroSupport.entity(
+      [name],
+      options,
+      Jido.Flow.DSL.Extension.Flow.Parallel.ParallelAction,
+      :__parallel_action__,
+      caller,
+      {"Parallel action", "one Parallel action"}
+    )
+  end
+
+  defp inline_bindings?({:<-, _metadata, [_pattern, _source]}), do: true
+  defp inline_bindings?(bindings) when is_list(bindings), do: true
+  defp inline_bindings?(_target), do: false
 end
 
 defmodule Jido.Flow.DSL.ChoiceMacros do

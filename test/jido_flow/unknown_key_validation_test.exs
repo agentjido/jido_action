@@ -47,6 +47,7 @@ defmodule Jido.Flow.UnknownKeyValidationTest do
          flow: JidoActionTest.Fixtures.NestedFlow
        }, "subflow"},
       {%{kind: :map, name: "map", collection: [], action: Add}, "map"},
+      {%{kind: :parallel, name: "parallel", actions: [%{name: "add", action: Add}]}, "parallel"},
       {%{kind: :reduce, name: "reduce", collection: [], initial: %{}, action: Add}, "reduce"},
       {%{kind: :dispatch, name: "dispatch", decision: Add, expander: Add}, "dispatch"},
       {%{
@@ -85,9 +86,10 @@ defmodule Jido.Flow.UnknownKeyValidationTest do
     end
   end
 
-  test "map authoring rejects unknown nested option, fallback, and state keys" do
+  test "data authoring rejects unknown nested option, fallback, Action, and state keys" do
     option = %{name: "yes", condition: true, action: Add}
     fallback = %{action: Add}
+    action = %{name: "add", action: Add}
     state = %{initial: %{}, update: %{}}
 
     for unknown <- [%{nil: :unexpected}, %{nil: :unexpected, unexpected: true}] do
@@ -104,6 +106,11 @@ defmodule Jido.Flow.UnknownKeyValidationTest do
                options: [option],
                fallback: Map.merge(fallback, unknown)
              }, "unknown Flow field: nil", [:fallback]},
+            {%{
+               kind: :parallel,
+               name: "parallel",
+               actions: [Map.merge(action, unknown)]
+             }, "unknown Flow field: nil", [:actions, 0]},
             {%{
                kind: :iterate,
                name: "iterate",

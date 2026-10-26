@@ -18,6 +18,8 @@ defmodule Jido.Flow.DSL.Lowerer do
     MapNode,
     Otherwise,
     Output,
+    Parallel,
+    ParallelAction,
     Reduce,
     SourceMap,
     Step
@@ -108,6 +110,12 @@ defmodule Jido.Flow.DSL.Lowerer do
         params: params,
         on_error: map.on_error
       )
+    end
+  end
+
+  defp lower_entity(%Parallel{} = parallel) do
+    with {:ok, actions} <- lower_parallel_actions(parallel.actions) do
+      component(parallel, :parallel, actions: actions, on_error: parallel.on_error)
     end
   end
 
@@ -212,6 +220,25 @@ defmodule Jido.Flow.DSL.Lowerer do
   end
 
   defp lower_fallback(nil), do: {:error, Error.validation_error("choice must declare otherwise")}
+
+  defp lower_parallel_actions([]) do
+    {:error, Error.validation_error("parallel must declare at least one Action")}
+  end
+
+  defp lower_parallel_actions(actions) do
+    actions
+    |> Enum.reduce_while({:ok, []}, fn %ParallelAction{} = action, {:ok, lowered} ->
+      case ValueParser.parse_fields(action, params: :value) do
+        {:ok, %{params: params}} ->
+          value = %{name: action.name, action: action.action, params: params}
+          {:cont, {:ok, [value | lowered]}}
+
+        {:error, error} ->
+          {:halt, {:error, SourceMap.attach_entity(error, action)}}
+      end
+    end)
+    |> reverse_ok()
+  end
 
   defp lower_iterate_state(nil) do
     {:error, Error.validation_error("iterate must declare one state")}

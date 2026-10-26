@@ -77,6 +77,7 @@ defaults to `%{}`.
 | `:subflow` | `flow` | `params` |
 | `:choice` | `action` inside each option and the fallback | `options`, `fallback` |
 | `:map` | `action` | `collection`, `params`, `on_error` |
+| `:parallel` | `action` inside each entry | `actions`, `on_error` |
 | `:reduce` | `action` | `collection`, `initial`, `params` |
 | `:iterate` | `action` | `params`, `state`, `completion`, `max_iterations` |
 | `:dispatch` | `decision`, `expander` | `params` |
@@ -169,6 +170,44 @@ or `:collect_errors`.
 
 {:ok, %{tagged: [%{id: :a, index: 0}, %{id: :b, index: 1}]}} =
   Jido.Exec.run(tagger, %{ids: [:a, :b]})
+```
+
+### Parallel
+
+`actions` is a non-empty ordered list. Each entry has a unique `name`, an
+`action`, and optional `params`. The Actions can be different. They become
+separate nodes in the execution graph and can run at the same time. The
+component joins them into one result in declaration order.
+
+With the default `on_error: :fail_fast`, each result is
+`%{name: name, value: output}`. With `:collect_errors`, each result is
+`%{name: name, status: :ok, value: output}` or
+`%{name: name, status: :error, error: error_map}`.
+
+```elixir
+{:ok, checks} =
+  Flow.new(%{
+    name: "run_checks",
+    components: [
+      %{
+        kind: :parallel,
+        name: "checks",
+        actions: [
+          %{name: "primary", action: MyApp.Actions.Route, params: %{id: Ref.input(:id)}},
+          %{name: "backup", action: MyApp.Actions.Route, params: %{id: Ref.input(:backup_id)}}
+        ]
+      }
+    ],
+    output: %{checks: Ref.result("checks")}
+  })
+
+{:ok,
+ %{
+   checks: [
+     %{name: "primary", value: %{id: 1}},
+     %{name: "backup", value: %{id: 2}}
+   ]
+ }} = Jido.Exec.run(checks, %{id: 1, backup_id: 2})
 ```
 
 ### Reduce
@@ -337,7 +376,8 @@ expression:
 } = flow.components["send"]
 ```
 
-Choice, Map, Reduce, Iterate, and Dispatch use the same small call records.
+Choice, Map, Parallel, Reduce, Iterate, and Dispatch use the same small call
+records.
 Canonical components contain no Instructions or bound runtime context.
 `Jido.Exec` creates Instructions at the execution boundary, evaluates parameter
 expressions, and supplies the current context.

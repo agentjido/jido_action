@@ -111,11 +111,20 @@ defmodule Jido.Flow.Codec.Reader do
   defp field(type, values, registry, stored, canonical) when type in [:wait_options, :options],
     do: sequence(values, &record(&1, option_fields(type), registry, &2, &3), stored, canonical)
 
+  defp field(:parallel_actions, values, registry, stored, canonical),
+    do:
+      sequence(
+        values,
+        &record(&1, Component.parallel_action_fields(), registry, &2, &3),
+        stored,
+        canonical
+      )
+
   defp field(:components, values, registry, stored, canonical),
     do: sequence(values, &component/4, stored, canonical, registry)
 
   defp field(:on_error, value, _registry, stored, canonical),
-    do: closed(@on_error, value, "Map on_error", stored, canonical)
+    do: closed(@on_error, value, "on_error", stored, canonical)
 
   defp field({:module, kind}, value, registry, stored, canonical),
     do: resolve(value, kind, registry, stored, canonical)
@@ -131,7 +140,7 @@ defmodule Jido.Flow.Codec.Reader do
   defp component(%{"kind" => kind} = value, registry, stored, canonical) do
     kind =
       Enum.find(
-        [:call, :choice, :map, :reduce, :iterate, :dispatch, :wait],
+        [:call, :choice, :map, :parallel, :reduce, :iterate, :dispatch, :wait],
         &(Atom.to_string(&1) == kind)
       )
 

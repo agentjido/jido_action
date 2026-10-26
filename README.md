@@ -151,8 +151,9 @@ step "shout", greeting <- result("greet", :greeting) do
 end
 ```
 
-Flows also support choices, map and reduce over collections, bounded
-iteration with state, nested Flows, and runtime dispatch.
+Flows also support choices, named groups of parallel Actions, map and reduce
+over collections, bounded iteration with state, nested Flows, and runtime
+dispatch.
 
 ### Build Or Load A Flow As Data
 

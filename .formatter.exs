@@ -18,6 +18,8 @@ locals_without_parens = [
   dispatch: 2,
   output: 1,
   action: 1,
+  action: 3,
+  action: 4,
   params: 1,
   needs: 1,
   meta: 1,

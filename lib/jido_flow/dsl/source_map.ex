@@ -1,7 +1,7 @@
 defmodule Jido.Flow.DSL.SourceMap do
   @moduledoc false
 
-  alias Jido.Flow.DSL.{Choice, Iterate, Output}
+  alias Jido.Flow.DSL.{Choice, Iterate, Output, Parallel}
 
   @doc false
   @spec put_entity(Jido.Flow.source_map(), struct(), non_neg_integer() | :output, String.t()) ::
@@ -31,7 +31,11 @@ defmodule Jido.Flow.DSL.SourceMap do
           [[:components, component, :fallback], [:components, component]]
 
         %{component: component, field: field} when is_binary(field) ->
-          [[:components, component, :options, field], [:components, component]]
+          [
+            [:components, component, :options, field],
+            [:components, component, :actions, field],
+            [:components, component]
+          ]
 
         %{component: component} ->
           [[:components, component]]
@@ -98,6 +102,16 @@ defmodule Jido.Flow.DSL.SourceMap do
     source_map
     |> put_source(path ++ [:state], iterate.state, file)
     |> put_source(path ++ [:state, :update], iterate, file)
+  end
+
+  defp put_nested_sources(source_map, path, %Parallel{} = parallel, file) do
+    parallel.actions
+    |> Enum.with_index()
+    |> Enum.reduce(source_map, fn {action, index}, sources ->
+      Enum.reduce([index, action.name], sources, fn key, sources ->
+        put_source(sources, path ++ [:actions, key], action, file)
+      end)
+    end)
   end
 
   defp put_nested_sources(source_map, _path, _entity, _file), do: source_map

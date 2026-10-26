@@ -41,12 +41,12 @@ end
 ```
 
 The same syntax works in Step and Subflow params, Choice conditions and
-params, Map and Reduce fields, Iterate State, `update`, and `while`, Dispatch
-params, and Flow output. Each field keeps its reference scope and result-shape
-rules.
+params, Map, Parallel, and Reduce fields, Iterate State, `update`, and
+`while`, Dispatch params, and Flow output. Each field keeps its reference
+scope and result-shape rules.
 
-Inline Step binding sources are the exception. The right side of `<-` accepts
-references and data only. Bind the data and calculate in the body. See
+Inline Action binding sources are the exception. The right side of `<-`
+accepts references and data only. Bind the data and calculate in the body. See
 [Inline Steps](inline-actions.md).
 
 ## Complete Operation List
