@@ -81,11 +81,10 @@ defmodule JidoActionTest.Flow.DSL.ExprFlowTest do
     use Jido.Flow, name: "expression_invoke"
 
     flow do
-      invoke("finish",
+      invoke "finish",
         decision: EchoParamsAction,
         expander: EchoParamsAction,
         params: %{value: min(input(:value) + 1, 10)}
-      )
 
       output(result("finish"))
     end

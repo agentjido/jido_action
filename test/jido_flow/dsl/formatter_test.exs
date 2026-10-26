@@ -117,6 +117,13 @@ defmodule Jido.Flow.DSL.FormatterTest do
   end
   """
 
+  @handoff_flow """
+  flow do
+    handoff "next", selector: Select, params: input()
+    output result("next")
+  end
+  """
+
   @inline_keyword_flow """
   step "one", name <- input(:name), do: {:ok, %{name: name}}
   step "two", [a <- input(:a), b <- input(:b)], do: {:ok, %{sum: a + b}}
@@ -153,6 +160,7 @@ defmodule Jido.Flow.DSL.FormatterTest do
     for source <- [
           @keyword_flow,
           @block_flow,
+          @handoff_flow,
           @inline_flow,
           @inline_keyword_flow,
           @configured_inline_steps
@@ -176,6 +184,7 @@ defmodule Jido.Flow.DSL.FormatterTest do
     for source <- [
           @keyword_flow,
           @block_flow,
+          @handoff_flow,
           @inline_flow,
           @inline_keyword_flow,
           @configured_inline_steps

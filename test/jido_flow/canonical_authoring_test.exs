@@ -34,12 +34,11 @@ defmodule Jido.Flow.CanonicalAuthoringTest.SparkInvokeFlow do
   use Jido.Flow, name: "canonical_invoke_flow"
 
   flow do
-    invoke("next",
+    invoke "next",
       decision: JidoActionTest.Fixtures.Actions.Add,
       expander: JidoActionTest.Fixtures.Actions.Add,
       params: %{value: input(:value), amount: 1},
       meta: %{owner: "spark"}
-    )
 
     output(result("next"))
   end

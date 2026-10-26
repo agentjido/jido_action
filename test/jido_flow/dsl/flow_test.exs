@@ -414,10 +414,9 @@ defmodule Jido.Flow.DSL.FlowTest do
       use Jido.Flow, name: "invalid_handoff_output_source"
 
       flow do
-        handoff("next",
+        handoff "next",
           selector: JidoActionTest.Fixtures.Actions.Add,
           params: %{value: 1}
-        )
 
         output(%{value: result("next")})
       end
@@ -444,15 +443,13 @@ defmodule Jido.Flow.DSL.FlowTest do
       use Jido.Flow, name: "duplicate_handoff_source"
 
       flow do
-        handoff("first",
+        handoff "first",
           selector: JidoActionTest.Fixtures.Actions.Add,
           params: %{}
-        )
 
-        handoff("second",
+        handoff "second",
           selector: JidoActionTest.Fixtures.Actions.Add,
           params: %{}
-        )
 
         output(result("second"))
       end
@@ -464,7 +461,7 @@ defmodule Jido.Flow.DSL.FlowTest do
     second_handoff_line =
       code
       |> String.split("\n")
-      |> Enum.find_index(&String.contains?(&1, "handoff(\"second\""))
+      |> Enum.find_index(&String.contains?(&1, "handoff \"second\""))
       |> Kernel.+(1)
 
     error =
