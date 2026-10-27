@@ -29,6 +29,30 @@ defmodule Jido.Exec.ApiTest do
              {:ok, %{value: 8}, [%{trace_id: "trace-1"}]}
   end
 
+  defmodule CallerProcessAction do
+    use Jido.Action,
+      name: "caller_process_action",
+      schema: Zoi.object(%{value: Zoi.integer()}),
+      output_schema: Zoi.map()
+
+    @impl true
+    def run(%{value: value}, _context), do: {:ok, %{pid: self(), value: value}, [:effect]}
+  end
+
+  @tag obligation: ["jido_action.boundary.I1", "jido_action.boundary.I2"]
+  test "call_action/3 validates an Action in the calling process" do
+    assert {:ok, %{pid: pid, value: 8}, [:effect]} =
+             Exec.call_action(CallerProcessAction, %{value: 8})
+
+    assert pid == self()
+
+    assert {:error, %Jido.Action.Error.InvalidInputError{}} =
+             Exec.call_action(CallerProcessAction, %{value: "bad"})
+
+    assert {:error, %Jido.Action.Error.ExecutionFailureError{details: %{phase: :run}}} =
+             Exec.call_action(ErrorAction, %{error_type: :runtime})
+  end
+
   @tag obligation: "jido_action.boundary.I5"
   test "caller Instruction metadata does not select Flow execution behavior" do
     instruction =
