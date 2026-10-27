@@ -13,6 +13,8 @@ defmodule Jido.Exec.Frame.Delta.Literal do
 
   @enforce_keys [:value]
   defstruct [:value]
+
+  @type t :: %__MODULE__{value: term()}
 end
 
 defmodule Jido.Exec.Frame.Delta do

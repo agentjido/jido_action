@@ -3,6 +3,7 @@ defmodule Jido.Flow.Defaults do
 
   alias Jido.Flow.Error
 
+  @doc false
   @spec normalize(term(), module()) ::
           {:ok, map()} | {:error, Error.InvalidDefinitionError.t()}
   def normalize(defaults, target) do
@@ -15,15 +16,16 @@ defmodule Jido.Flow.Defaults do
     end
   end
 
+  @doc false
   @spec encode(term(), module()) ::
           {:ok, map()} | {:error, Error.InvalidDefinitionError.t()}
   def encode(defaults, target) do
-    with {:ok, defaults} <- normalize(defaults, target),
-         {:ok, encoded} <- json(defaults, []) do
-      {:ok, encoded}
+    with {:ok, defaults} <- normalize(defaults, target) do
+      json(defaults, [])
     end
   end
 
+  @doc false
   @spec decode(term(), module()) ::
           {:ok, map()} | {:error, Error.InvalidDefinitionError.t()}
   def decode(defaults, target) do
