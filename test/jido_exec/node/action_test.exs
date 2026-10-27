@@ -79,6 +79,53 @@ defmodule Jido.Exec.Node.ActionTest do
     def run(%{output: output}, _context), do: {:ok, output, [:request]}
   end
 
+  defmodule PreservedValue do
+    defstruct [:value]
+  end
+
+  defmodule PreservedOutput do
+    use Jido.Action,
+      name: "preserved_output",
+      schema: Zoi.object(%{value: Zoi.any()}),
+      output_schema: Zoi.struct(PreservedValue, %{value: Zoi.any()}, coerce: true)
+
+    @impl true
+    def run(%{value: value}, _context) do
+      {:ok, Jido.Action.Output.preserve(%PreservedValue{value: value})}
+    end
+  end
+
+  defmodule PreservedOutputFlow do
+    use Jido.Flow,
+      name: "preserved_output_flow",
+      output_schema: Zoi.struct(PreservedValue, %{value: Zoi.integer()}, coerce: true)
+
+    flow do
+      step "preserve", action: PreservedOutput, params: input([])
+      output result("preserve")
+    end
+  end
+
+  @tag obligation: ["jido_action.boundary.I3", "jido_action.boundary.I4"]
+  test "a preserved output keeps its validated root struct through a Flow" do
+    expected = Jido.Action.Output.preserve(%PreservedValue{value: 7})
+
+    data_flow =
+      %{boundary_flow(PreservedOutput) | output_schema: PreservedOutputFlow.output_schema()}
+
+    for target <- [PreservedOutput, PreservedOutputFlow, data_flow] do
+      assert Jido.Exec.run(target, %{value: 7}) == {:ok, expected}
+    end
+
+    assert {:ok, %Jido.Action.Output{value: %PreservedValue{value: "invalid"}}} =
+             Jido.Exec.run(PreservedOutput, %{value: "invalid"})
+
+    for target <- [PreservedOutputFlow, data_flow] do
+      assert {:error, %Jido.Action.Error.InvalidInputError{}} =
+               Jido.Exec.run(target, %{value: "invalid"})
+    end
+  end
+
   @tag obligation: ["jido_action.boundary.I3", "jido_action.boundary.I4"]
   test "an output validator cannot conceal an invalid callback success value" do
     invalid = %Jido.Action.Output{kind: :batch, value: [1 | :tail], meta: %{}}

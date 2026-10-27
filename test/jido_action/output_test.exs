@@ -39,6 +39,9 @@ defmodule JidoActionTest.Action.OutputTest do
 
       assert %Output{kind: :opaque, value: {:external, :resource}, meta: %{}} =
                Output.opaque({:external, :resource})
+
+      assert %Output{kind: :preserve, value: %{value: 1}, meta: %{source: :test}} =
+               Output.preserve(%{value: 1}, meta: %{source: :test})
     end
 
     @tag obligation: "jido_action.output.I1"

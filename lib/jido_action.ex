@@ -84,8 +84,6 @@ defmodule Jido.Action do
   @doc false
   @spec validate_output_for(map() | Output.t(), module()) ::
           {:ok, map() | Output.t()} | {:error, Error.InvalidInputError.t()}
-  def validate_output_for(%Output{} = output, _module), do: Output.validate(output)
-
   def validate_output_for(output, module) do
     Validation.output_schema(module.output_schema(), output, %{
       context: "Action output",
