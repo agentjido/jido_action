@@ -61,7 +61,7 @@ Check focused facets of the [reviewed public promises](../../../guides/public-ap
 
 ### jido_action.execution.I22 — Recovery preserves acknowledged stored progress
 - **scope:** `Jido.Exec.resume/4, Runic.Runner.Store`
-- **must:** Restore acknowledged stored completed work and continue remaining Action, Map, Iterate, nested Flow, Invoke, and Handoff progress with the same public value and effects. Preserve dynamic invocation occurrence identity and reject incompatible changed targets. Resume requires runtime context and policy again. Guard snapshot projection after loss of live observations. Work completed after the last acknowledged checkpoint can repeat; no exactly-once execution or effect delivery is promised.
+- **must:** Restore acknowledged stored completed work and continue remaining Action, Map, Iterate, nested Flow, Invoke, and Handoff progress with the same public value and effects. Use Runic hybrid fact rehydration by default when the Store supports fact storage so historical facts stay as references and the active frontier loads. Use full recovery for a Store without fact storage and for a native Batch unless the caller selects a supported specific recovery mode. Preserve dynamic invocation occurrence identity and reject incompatible changed targets. Resume requires runtime context and policy again. Guard snapshot projection after loss of live observations. Work completed after the last acknowledged checkpoint can repeat; no exactly-once execution or effect delivery is promised.
 - **kind:** persisted-format
 - **status:** active
 

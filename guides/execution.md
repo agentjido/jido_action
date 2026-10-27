@@ -215,6 +215,13 @@ same context and managed options that you gave `start/6`. `result/2` returns
 the same `{:ok, value}`, `{:ok, value, effects}`, or `{:error, exception}`
 values as `run/4`.
 
+`resume/4` uses Runic hybrid fact rehydration by default when the Store
+implements `save_fact/3` and `load_fact/2`. It loads facts that the active
+frontier needs and keeps historical values as `FactRef` values. Pass
+`rehydration: :full` to load all fact values or `rehydration: :lazy` to load
+each value when dispatch needs it. Jido automatically uses full rehydration for
+native Batch workflows and Stores without separate fact storage.
+
 The configured Runic Store is the source of truth for runtime progress. A
 resume restores the Runnable frontier and continues with the next work. Jido
 does not encode runtime progress into Instructions or Flow JSON.

@@ -74,6 +74,46 @@ defmodule Jido.Exec.Runner.ManagedTest do
     def run(_params, _context), do: Process.exit(self(), :kill)
   end
 
+  defmodule LegacyStreamingStore do
+    @behaviour Runic.Runner.Store
+
+    @impl true
+    def init_store(opts), do: {:ok, Keyword.fetch!(opts, :agent)}
+
+    @impl true
+    def save(id, log, agent) do
+      Agent.update(agent, &put_in(&1, [:logs, id], log))
+    end
+
+    @impl true
+    def load(id, agent) do
+      Agent.get(agent, fn state ->
+        case Map.fetch(state.logs, id) do
+          {:ok, log} -> {:ok, log}
+          :error -> {:error, :not_found}
+        end
+      end)
+    end
+
+    @impl true
+    def append(id, events, agent) do
+      Agent.get_and_update(agent, fn state ->
+        stored = Map.get(state.events, id, []) ++ events
+        {{:ok, length(stored)}, put_in(state, [:events, id], stored)}
+      end)
+    end
+
+    @impl true
+    def stream(id, agent) do
+      Agent.get(agent, fn state ->
+        case Map.fetch(state.events, id) do
+          {:ok, events} -> {:ok, events}
+          :error -> {:error, :not_found}
+        end
+      end)
+    end
+  end
+
   test "resume/4 restores context, policy, and the managed result" do
     runner = start_runner!(__MODULE__.ResumeRunner)
     start_supervised!({Gate, self()})
@@ -109,6 +149,72 @@ defmodule Jido.Exec.Runner.ManagedTest do
              {:ok, %{value: 2, request_id: "r-42"}, [:first, :second]}
 
     assert Exec.result(runner, id) == Exec.result(workflow)
+  end
+
+  test "resume/4 keeps historical facts as references by default" do
+    runner = start_runner!(__MODULE__.HybridResumeRunner)
+    id = {:hybrid_resume, System.unique_integer([:positive])}
+
+    assert {:ok, _worker} =
+             Exec.start(runner, id, Echo, %{value: 1}, %{}, hooks: idle_hook(id))
+
+    assert_receive {:idle, ^id}, 2_000
+    assert :ok = Runic.Runner.checkpoint(runner, id)
+    assert :ok = Runic.Runner.stop(runner, id, persist: true)
+
+    assert {:ok, worker} = Exec.resume(runner, id)
+    _ = :sys.get_state(worker)
+    assert {:ok, workflow} = Runic.Runner.get_workflow(runner, id)
+
+    vertices = Map.values(workflow.graph.vertices)
+    assert Enum.any?(vertices, &is_struct(&1, Runic.Workflow.FactRef))
+    assert Enum.any?(vertices, &is_struct(&1, Runic.Workflow.Fact))
+    assert Exec.result(workflow) == {:ok, %{value: 1, seen: false}}
+  end
+
+  test "resume/4 falls back to full recovery for a native Batch" do
+    runner = start_runner!(__MODULE__.BatchResumeRunner)
+    id = {:batch_resume, System.unique_integer([:positive])}
+
+    flow =
+      Flow.new!(%{
+        name: "managed_batch_resume",
+        components: [
+          %{
+            kind: :map,
+            name: "items",
+            collection: Ref.input(:items),
+            action: Echo,
+            params: %{value: Ref.item()}
+          }
+        ],
+        output: %{items: Ref.result("items")}
+      })
+
+    assert {:ok, _worker} =
+             Exec.start(runner, id, flow, %{items: [1, 2]}, %{}, hooks: idle_hook(id))
+
+    assert_receive {:idle, ^id}, 2_000
+    assert :ok = Runic.Runner.checkpoint(runner, id)
+    assert :ok = Runic.Runner.stop(runner, id, persist: true)
+
+    for mode <- [:hybrid, :lazy] do
+      assert {:error,
+              %ExecutionFailureError{
+                details: %{reason: {:unsupported_batch_rehydration, ^mode}}
+              }} = Exec.resume(runner, id, %{}, rehydration: mode)
+    end
+
+    assert {:ok, worker} = Exec.resume(runner, id)
+    _ = :sys.get_state(worker)
+    assert {:ok, workflow} = Runic.Runner.get_workflow(runner, id)
+
+    refute Enum.any?(workflow.graph.vertices, fn {_hash, vertex} ->
+             is_struct(vertex, Runic.Workflow.FactRef)
+           end)
+
+    assert Exec.result(workflow) ==
+             {:ok, %{items: [%{value: 1, seen: false}, %{value: 2, seen: false}]}}
   end
 
   test "managed Action targets keep context out of the Runic store" do
@@ -158,6 +264,51 @@ defmodule Jido.Exec.Runner.ManagedTest do
     end
 
     assert {:error, :not_found} = Runic.Runner.get_workflow(runner, {:options, :max_concurrency})
+  end
+
+  test "resume/4 rejects an invalid rehydration mode" do
+    runner = start_runner!(__MODULE__.InvalidRehydrationRunner)
+
+    assert {:error, %Jido.Action.Error.ConfigurationError{details: details}} =
+             Exec.resume(runner, :missing, %{}, rehydration: :unknown)
+
+    assert details == %{option: :rehydration, value: :unknown}
+  end
+
+  test "resume/4 uses full recovery for a Store without fact storage" do
+    agent = start_supervised!({Agent, fn -> %{events: %{}, logs: %{}} end})
+
+    runner =
+      start_runner!(__MODULE__.LegacyStreamingRunner,
+        store: LegacyStreamingStore,
+        store_opts: [agent: agent]
+      )
+
+    id = {:legacy_streaming, System.unique_integer([:positive])}
+
+    assert {:ok, _worker} =
+             Exec.start(runner, id, Echo, %{value: 1}, %{}, hooks: idle_hook(id))
+
+    assert_receive {:idle, ^id}, 2_000
+    assert :ok = Runic.Runner.checkpoint(runner, id)
+    assert :ok = Runic.Runner.stop(runner, id, persist: true)
+
+    for mode <- [:hybrid, :lazy] do
+      assert {:error, %Jido.Action.Error.ConfigurationError{details: details}} =
+               Exec.resume(runner, id, %{}, rehydration: mode)
+
+      assert details == %{option: :rehydration, value: mode}
+    end
+
+    assert {:ok, worker} = Exec.resume(runner, id)
+    _ = :sys.get_state(worker)
+    assert {:ok, workflow} = Runic.Runner.get_workflow(runner, id)
+
+    refute Enum.any?(workflow.graph.vertices, fn {_hash, vertex} ->
+             is_struct(vertex, Runic.Workflow.FactRef)
+           end)
+
+    assert Exec.result(workflow) == {:ok, %{value: 1, seen: false}}
   end
 
   test "managed execution uses the package concurrency configuration" do

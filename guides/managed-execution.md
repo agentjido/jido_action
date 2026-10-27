@@ -139,6 +139,7 @@ options:
 | `executor`, `executor_opts` | Runic Task executor | Replace how runnables are executed. |
 | `scheduler`, `scheduler_opts` | Runic default | Replace how ready work is grouped. |
 | `hooks`, `promise_opts` | none | Runic worker hooks and promise settings. |
+| `rehydration` | Store dependent | Resume only. `:hybrid` loads active frontier facts, `:lazy` loads facts on demand, and `:full` loads all facts. The default is `:hybrid` for a Store with fact storage and `:full` for other Stores and native Batch workflows. |
 
 Set the package value with `config :jido_action, max_concurrency: value`. The
 `max_concurrency` default is the same for managed execution and `run/4`. An
@@ -249,6 +250,14 @@ The Runic store is the source of truth for progress. A resume restores the
 acknowledged stored completed work and continues with the remaining work.
 Work completed after the last acknowledged checkpoint can run again. Jido
 keeps no separate checkpoint, and Flow JSON holds only the definition.
+
+Jido uses `rehydration: :hybrid` by default when the Store implements Runic's
+`save_fact/3` and `load_fact/2` callbacks. Runic keeps historical fact values
+as `FactRef` values and loads the active frontier and other facts that the next
+reaction needs. Jido uses `:full` for a Store without fact storage and for a
+native Batch workflow. An explicit `:hybrid` or `:lazy` request requires fact
+storage. An explicit unsupported mode returns a managed execution error with
+the Runic reason in its details.
 
 Managed execution continues after its caller exits. Runic owns its active
 tasks. With the default executor, a successful `Runic.Runner.stop/3` or

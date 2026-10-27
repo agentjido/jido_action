@@ -203,23 +203,29 @@ defmodule Jido.Exec do
   Runic does not persist runtime context or runtime policy. Pass the same
   context and the same managed options that were given to `start/6`. Context
   must contain portable values. Worker options such as `hooks` and
-  `dispatch_mode` apply to the resumed worker.
+  `dispatch_mode` apply to the resumed worker. Resume uses Runic hybrid fact
+  rehydration by default when the Store implements fact storage. Stores without
+  fact storage and native Batch workflows use full rehydration. Pass
+  `rehydration: :full`, `:hybrid`, or `:lazy` to select a specific Runic
+  recovery mode.
   """
   @spec resume(module(), term(), map() | keyword() | nil, keyword()) ::
           DynamicSupervisor.on_start_child() | {:error, Exception.t()}
   def resume(runner, execution_id, context \\ %{}, opts \\ []) do
-    with {:ok, context} <- runtime_context(context),
+    with {:ok, rehydration, fallback?, opts} <- resume_options(runner, opts),
+         {:ok, context} <- runtime_context(context),
          :ok <- Portable.validate(context, :context),
          {:ok, policy, worker_opts} <- managed_options(runner, execution_id, opts) do
-      runner
-      |> Runic.Runner.resume(
-        execution_id,
+      resume_opts =
         worker_opts ++
           [
+            rehydration: rehydration,
             run_context: %{_global: durable_context(context)},
             scheduler_policies: [{:default, Map.from_struct(policy)}]
           ]
-      )
+
+      runner
+      |> resume_runner(execution_id, resume_opts, fallback?)
       |> normalize_start()
     else
       {:error, error} -> {:error, normalize_runtime_error(error)}
@@ -646,6 +652,57 @@ defmodule Jido.Exec do
 
   defp managed_options(_runner, _execution_id, _opts),
     do: {:error, Jido.Action.Error.config_error("execution options must be a keyword list")}
+
+  defp resume_options(runner, opts) when is_list(opts) do
+    if Keyword.keyword?(opts) do
+      explicit? = Keyword.has_key?(opts, :rehydration)
+      fact_store? = fact_store?(runner)
+      default = if fact_store?, do: :hybrid, else: :full
+      {rehydration, opts} = Keyword.pop(opts, :rehydration, default)
+
+      cond do
+        rehydration not in [:full, :hybrid, :lazy] ->
+          {:error,
+           Jido.Action.Error.config_error("invalid managed execution option", %{
+             option: :rehydration,
+             value: rehydration
+           })}
+
+        explicit? and rehydration in [:hybrid, :lazy] and not fact_store? ->
+          {:error,
+           Jido.Action.Error.config_error("rehydration mode requires Runic fact storage", %{
+             option: :rehydration,
+             value: rehydration
+           })}
+
+        true ->
+          {:ok, rehydration, not explicit? and rehydration == :hybrid, opts}
+      end
+    else
+      {:error, Jido.Action.Error.config_error("execution options must be a keyword list")}
+    end
+  end
+
+  defp resume_options(_runner, _opts),
+    do: {:error, Jido.Action.Error.config_error("execution options must be a keyword list")}
+
+  defp fact_store?(runner) do
+    {store, _state} = Runic.Runner.get_store(runner)
+    function_exported?(store, :save_fact, 3) and function_exported?(store, :load_fact, 2)
+  end
+
+  defp resume_runner(runner, execution_id, opts, true) do
+    case Runic.Runner.resume(runner, execution_id, opts) do
+      {:error, {:unsupported_batch_rehydration, :hybrid}} ->
+        Runic.Runner.resume(runner, execution_id, Keyword.put(opts, :rehydration, :full))
+
+      result ->
+        result
+    end
+  end
+
+  defp resume_runner(runner, execution_id, opts, false),
+    do: Runic.Runner.resume(runner, execution_id, opts)
 
   defp max_concurrency(opts) do
     case Keyword.get_lazy(opts, :max_concurrency, &default_max_concurrency/0) do
