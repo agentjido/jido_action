@@ -198,6 +198,37 @@ defmodule Jido.Flow do
   defmacro __before_compile__(env), do: ModuleCompiler.before_compile(env)
 
   @doc """
+  Validates partial, portable input defaults for one Flow module.
+
+  This function validates only supplied fields. It does not add schema
+  defaults or require fields that each Flow call must supply. String field
+  names resolve to the canonical keys from a field-based object schema.
+  """
+  @spec normalize_defaults(term(), module()) ::
+          {:ok, map()} | {:error, Error.InvalidDefinitionError.t()}
+  def normalize_defaults(defaults, target), do: Jido.Flow.Defaults.normalize(defaults, target)
+
+  @doc """
+  Encodes partial Flow defaults as JSON data after schema validation.
+
+  Atom map keys and atom values become strings. The result contains no module
+  references and does not need an authoring Registry.
+  """
+  @spec encode_defaults(term(), module()) ::
+          {:ok, map()} | {:error, Error.InvalidDefinitionError.t()}
+  def encode_defaults(defaults, target), do: Jido.Flow.Defaults.encode(defaults, target)
+
+  @doc """
+  Decodes JSON Flow defaults with the selected Flow input schema.
+
+  String field names resolve to the canonical schema keys. Schema coercion
+  restores supported atom values and other canonical values.
+  """
+  @spec decode_defaults(term(), module()) ::
+          {:ok, map()} | {:error, Error.InvalidDefinitionError.t()}
+  def decode_defaults(defaults, target), do: Jido.Flow.Defaults.decode(defaults, target)
+
+  @doc """
   Builds and validates one canonical Flow value from a data definition.
 
   Components use a `kind` of `:step`, `:subflow`, `:choice`, `:map`,
