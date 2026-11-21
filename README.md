@@ -1,14 +1,22 @@
 # Jido.Action
 
 > [!IMPORTANT]
-> **Jido v2 maintenance continues for one year after Jido 3.0.0 stable is released.**
-> During that year, we will provide security fixes, critical bug fixes,
-> and dependency updates needed for v2 compatibility.
+> ### Jido v2 maintenance
 >
-> **Upgrading to Jido v3?** Use the [`jido` package](https://hex.pm/packages/jido),
-> which includes Actions and their execution runtime. Follow the
-> [v2-to-v3 migration guide](https://github.com/agentjido/jido/blob/main/guides/reference/v2-to-v3-migration.md)
-> and see the [Jido v3 source](https://github.com/agentjido/jido/tree/main).
+> **Jido v2 is maintained for one year after Jido 3.0.0 stable is released.**
+> During that year, we will provide:
+>
+> - Security fixes
+> - Critical bug fixes
+> - Dependency updates needed for v2 compatibility
+>
+> #### Upgrading to Jido v3?
+>
+> Use the [`jido` package](https://hex.pm/packages/jido), which includes
+> Actions and their execution runtime.
+>
+> - [v2-to-v3 migration guide](https://github.com/agentjido/jido/blob/main/guides/reference/v2-to-v3-migration.md)
+> - [Jido v3 source](https://github.com/agentjido/jido/tree/main)
 
 [![Hex.pm](https://img.shields.io/hexpm/v/jido_action.svg)](https://hex.pm/packages/jido_action)
 [![Hex Docs](https://img.shields.io/badge/hex-docs-lightgreen.svg)](https://hexdocs.pm/jido_action/)
