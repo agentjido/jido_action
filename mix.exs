@@ -3,7 +3,7 @@ defmodule JidoAction.MixProject do
 
   @version "2.4.0"
   @source_url "https://github.com/agentjido/jido_action"
-  @description "Composable, validated actions for Elixir applications with built-in AI tool integration"
+  @description "Composable, validated actions for Elixir applications with built-in AI tool integration. Maintained for one year after Jido 3.0.0 is released. For Jido v3, use the jido package."
 
   def vsn do
     @version
